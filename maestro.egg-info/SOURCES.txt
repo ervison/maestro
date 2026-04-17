@@ -3,9 +3,15 @@ maestro/__init__.py
 maestro/agent.py
 maestro/auth.py
 maestro/cli.py
+maestro/tools.py
 maestro.egg-info/PKG-INFO
 maestro.egg-info/SOURCES.txt
 maestro.egg-info/dependency_links.txt
 maestro.egg-info/entry_points.txt
 maestro.egg-info/requires.txt
 maestro.egg-info/top_level.txt
+maestro/providers/__init__.py
+maestro/providers/base.py
+tests/test_agent_loop.py
+tests/test_provider_protocol.py
+tests/test_tools.py

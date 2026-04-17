@@ -207,3 +207,5 @@ No existing behavior is broken. The multi-agent pipeline is additive.
 2. Should domain prompts be user-overridable via config file?
 3. What is the right default max recursion depth: 1 or 2?
 4. Should the Aggregator node always run, or only when explicitly requested?
+5. Should we apply YAGNI principles in v1?
+6. Can we start with a simple design while leaving room for future improvements?

@@ -1,0 +1,206 @@
+{
+  "model_profile": "quality",
+  "commit_docs": true,
+  "parallelization": true,
+  "search_gitignored": false,
+  "brave_search": false,
+  "firecrawl": false,
+  "exa_search": false,
+  "git": {
+    "branching_strategy": "phase",
+    "phase_branch_template": "gsd/phase-{phase}-{slug}",
+    "milestone_branch_template": "gsd/{milestone}-{slug}",
+    "quick_branch_template": null
+  },
+  "workflow": {
+    "research": true,
+    "plan_check": true,
+    "verifier": true,
+    "nyquist_validation": true,
+    "auto_advance": true,
+    "node_repair": true,
+    "node_repair_budget": 2,
+    "ui_phase": true,
+    "ui_safety_gate": true,
+    "ai_integration_phase": true,
+    "tdd_mode": false,
+    "text_mode": false,
+    "research_before_questions": true,
+    "discuss_mode": "discuss",
+    "skip_discuss": false,
+    "code_review": true,
+    "code_review_depth": "standard",
+    "code_review_command": null,
+    "pattern_mapper": true,
+    "plan_bounce": false,
+    "plan_bounce_script": null,
+    "plan_bounce_passes": 2,
+    "auto_prune_state": false,
+    "use_worktrees": true,
+    "_auto_chain_active": true
+  },
+  "hooks": {
+    "context_warnings": true,
+    "workflow_guard": true
+  },
+  "project_code": null,
+  "phase_naming": "sequential",
+  "agent_skills": {
+    "gsd-advisor-researcher": [
+      "skills/solution-architect",
+      "skills/brainstorming",
+      "skills/ui-quality-gate",
+      "skills/golang-popular-libraries",
+      "skills/golang-stay-updated",
+      "skills/delphi-to-java-modernization-architect"
+    ],
+    "gsd-assumptions-analyzer": [
+      "skills/solution-architect",
+      "skills/asymptotic-analysis",
+      "skills/ui-quality-gate",
+      "skills/golang-project-layout",
+      "skills/golang-design-patterns"
+    ],
+    "gsd-codebase-mapper": [
+      "skills/solution-architect",
+      "skills/ui-quality-gate",
+      "skills/golang-project-layout",
+      "skills/golang-code-style",
+      "skills/golang-testing",
+      "skills/golang-security",
+      "skills/golang-observability"
+    ],
+    "gsd-debugger": [
+      "skills/systematic-debugging",
+      "skills/verification-before-completion",
+      "skills/golang-troubleshooting",
+      "skills/golang-concurrency",
+      "skills/golang-context",
+      "skills/golang-error-handling",
+      "skills/golang-safety",
+      "skills/golang-performance",
+      "skills/golang-benchmark"
+    ],
+    "gsd-executor": [
+      "skills/executing-plans",
+      "skills/subagent-driven-development",
+      "skills/using-git-worktrees",
+      "skills/verification-before-completion",
+      "skills/finishing-a-development-branch",
+      "skills/requesting-code-review",
+      "skills/test-driven-development",
+      "skills/asymptotic-analysis",
+      "skills/solution-architect"
+    ],
+    "gsd-integration-checker": [
+      "skills/verification-before-completion",
+      "skills/systematic-debugging",
+      "skills/golang-testing",
+      "skills/golang-security",
+      "skills/golang-observability",
+      "skills/golang-database",
+      "skills/golang-grpc",
+      "skills/ui-quality-gate"
+    ],
+    "gsd-nyquist-auditor": [
+      "skills/test-driven-development",
+      "skills/verification-before-completion",
+      "skills/golang-testing",
+      "skills/golang-stretchr-testify",
+      "skills/golang-troubleshooting",
+      "skills/golang-linter",
+      "skills/golang-continuous-integration"
+    ],
+    "gsd-orchestrator-agent": [
+      "skills/dispatching-parallel-agents",
+      "skills/brainstorming",
+      "skills/writing-plans",
+      "skills/subagent-driven-development",
+      "skills/executing-plans",
+      "skills/using-git-worktrees",
+      "skills/verification-before-completion",
+      "skills/finishing-a-development-branch",
+      "skills/requesting-code-review"
+    ],
+    "gsd-phase-researcher": [
+      "skills/solution-architect",
+      "skills/brainstorming",
+      "skills/ui-quality-gate",
+      "skills/golang-popular-libraries",
+      "skills/golang-stay-updated",
+      "skills/golang-modernize",
+      "skills/delphi-to-java-modernization-architect"
+    ],
+    "gsd-plan-checker": [
+      "skills/writing-plans",
+      "skills/verification-before-completion",
+      "skills/asymptotic-analysis",
+      "skills/solution-architect",
+      "skills/ui-quality-gate"
+    ],
+    "gsd-planner": [
+      "skills/writing-plans",
+      "skills/solution-architect",
+      "skills/asymptotic-analysis",
+      "skills/test-driven-development",
+      "skills/ui-quality-gate",
+      "skills/golang-design-patterns",
+      "skills/golang-dependency-injection",
+      "skills/golang-project-layout",
+      "skills/delphi-to-java-modernization-architect"
+    ],
+    "gsd-project-researcher": [
+      "skills/solution-architect",
+      "skills/brainstorming",
+      "skills/ui-quality-gate",
+      "skills/golang-popular-libraries",
+      "skills/golang-stay-updated",
+      "skills/golang-modernize",
+      "skills/delphi-to-java-modernization-architect"
+    ],
+    "gsd-research-synthesizer": [
+      "skills/solution-architect",
+      "skills/ui-quality-gate"
+    ],
+    "gsd-roadmapper": [
+      "skills/solution-architect",
+      "skills/brainstorming",
+      "skills/asymptotic-analysis",
+      "skills/ui-quality-gate",
+      "skills/delphi-to-java-modernization-architect"
+    ],
+    "gsd-ui-auditor": [
+      "skills/ui-quality-gate",
+      "skills/verification-before-completion"
+    ],
+    "gsd-ui-checker": [
+      "skills/ui-quality-gate",
+      "skills/verification-before-completion"
+    ],
+    "gsd-ui-researcher": [
+      "skills/ui-quality-gate",
+      "skills/brainstorming",
+      "skills/solution-architect",
+      "skills/delphi-to-java-modernization-architect"
+    ],
+    "gsd-user-profiler": [],
+    "gsd-verifier": [
+      "skills/verification-before-completion",
+      "skills/systematic-debugging",
+      "skills/golang-testing",
+      "skills/golang-security",
+      "skills/golang-observability",
+      "skills/asymptotic-analysis",
+      "skills/ui-quality-gate"
+    ]
+  },
+  "claude_md_path": "./CLAUDE.md",
+  "mode": "yolo",
+  "granularity": "fine",
+  "security_enforcement": true,
+  "security_asvs_level": 1,
+  "security_block_on": "high",
+  "branching_strategy": "phase",
+  "quick_branch_template": null,
+  "resolve_model_ids": "omit"
+}
