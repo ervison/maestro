@@ -11,6 +11,7 @@ from typing import AsyncIterator, Literal, Protocol, runtime_checkable
 @dataclass
 class Tool:
     """Provider-neutral tool definition (matches OpenAI function calling schema)."""
+
     name: str
     description: str
     parameters: dict  # JSON Schema for arguments
@@ -19,6 +20,7 @@ class Tool:
 @dataclass
 class ToolCall:
     """A request from the LLM to invoke a tool."""
+
     id: str
     name: str
     arguments: dict  # Parsed arguments (not JSON string)
@@ -27,6 +29,7 @@ class ToolCall:
 @dataclass
 class ToolResult:
     """Result of a tool execution, to be sent back to the LLM."""
+
     call_id: str
     output: str  # JSON-serializable string
 
@@ -34,6 +37,7 @@ class ToolResult:
 @dataclass
 class Message:
     """Provider-neutral message for conversation history."""
+
     role: Literal["user", "assistant", "system"]
     content: str
     tool_calls: list[ToolCall] = field(default_factory=list)

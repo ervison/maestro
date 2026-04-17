@@ -3,35 +3,41 @@
 import pytest
 from dataclasses import is_dataclass
 from typing import AsyncIterator, Protocol
+from maestro.providers.base import Message, ProviderPlugin
 
 
 def test_message_importable():
     """Message type should be importable from base module."""
     from maestro.providers.base import Message
+
     assert Message is not None
 
 
 def test_tool_importable():
     """Tool type should be importable from base module."""
     from maestro.providers.base import Tool
+
     assert Tool is not None
 
 
 def test_tool_call_importable():
     """ToolCall type should be importable from base module."""
     from maestro.providers.base import ToolCall
+
     assert ToolCall is not None
 
 
 def test_tool_result_importable():
     """ToolResult type should be importable from base module."""
     from maestro.providers.base import ToolResult
+
     assert ToolResult is not None
 
 
 class TestMessage:
     def test_create_user_message(self):
         from maestro.providers.base import Message
+
         msg = Message(role="user", content="Hello")
         assert msg.role == "user"
         assert msg.content == "Hello"
@@ -39,6 +45,7 @@ class TestMessage:
 
     def test_create_assistant_message_with_tool_calls(self):
         from maestro.providers.base import Message, ToolCall
+
         tc = ToolCall(id="call_1", name="read_file", arguments={"path": "test.txt"})
         msg = Message(role="assistant", content="", tool_calls=[tc])
         assert msg.role == "assistant"
@@ -47,15 +54,18 @@ class TestMessage:
 
     def test_create_system_message(self):
         from maestro.providers.base import Message
+
         msg = Message(role="system", content="You are helpful.")
         assert msg.role == "system"
 
     def test_message_is_dataclass(self):
         from maestro.providers.base import Message
+
         assert is_dataclass(Message)
 
     def test_message_equality(self):
         from maestro.providers.base import Message
+
         msg1 = Message(role="user", content="hi")
         msg2 = Message(role="user", content="hi")
         assert msg1 == msg2
@@ -64,6 +74,7 @@ class TestMessage:
 class TestTool:
     def test_create_tool(self):
         from maestro.providers.base import Tool
+
         tool = Tool(
             name="read_file",
             description="Read a file",
@@ -78,10 +89,12 @@ class TestTool:
 
     def test_tool_is_dataclass(self):
         from maestro.providers.base import Tool
+
         assert is_dataclass(Tool)
 
     def test_tool_equality(self):
         from maestro.providers.base import Tool
+
         t1 = Tool(name="test", description="desc", parameters={})
         t2 = Tool(name="test", description="desc", parameters={})
         assert t1 == t2
@@ -90,6 +103,7 @@ class TestTool:
 class TestToolCall:
     def test_create_tool_call(self):
         from maestro.providers.base import ToolCall
+
         tc = ToolCall(id="call_123", name="execute_shell", arguments={"command": "ls"})
         assert tc.id == "call_123"
         assert tc.name == "execute_shell"
@@ -97,22 +111,26 @@ class TestToolCall:
 
     def test_tool_call_is_dataclass(self):
         from maestro.providers.base import ToolCall
+
         assert is_dataclass(ToolCall)
 
 
 class TestToolResult:
     def test_create_tool_result(self):
         from maestro.providers.base import ToolResult
+
         tr = ToolResult(call_id="call_123", output='{"files": ["a.py"]}')
         assert tr.call_id == "call_123"
         assert "files" in tr.output
 
     def test_tool_result_is_dataclass(self):
         from maestro.providers.base import ToolResult
+
         assert is_dataclass(ToolResult)
 
 
 # ============== ProviderPlugin Protocol Tests ==============
+
 
 class MockProvider:
     """A valid implementation of ProviderPlugin for testing."""
@@ -133,8 +151,9 @@ class MockProvider:
         messages: list,
         model: str,
         tools: list | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[str | Message]:
         from maestro.providers.base import Message
+
         yield "Hello "
         yield "world!"
         yield Message(role="assistant", content="Hello world!")
@@ -163,16 +182,19 @@ class TestProviderPlugin:
     def test_protocol_importable(self):
         """ProviderPlugin should be importable from base module."""
         from maestro.providers.base import ProviderPlugin
+
         assert ProviderPlugin is not None
 
     def test_protocol_is_protocol(self):
         """ProviderPlugin should be a Protocol."""
         from maestro.providers.base import ProviderPlugin
+
         assert issubclass(ProviderPlugin, Protocol)
 
     def test_protocol_is_runtime_checkable(self):
         """ProviderPlugin should have @runtime_checkable decorator."""
         from maestro.providers.base import ProviderPlugin
+
         # Check that hasattr works (indicates @runtime_checkable)
         assert hasattr(ProviderPlugin, "id")
         assert hasattr(ProviderPlugin, "name")
@@ -185,12 +207,14 @@ class TestProviderPlugin:
     def test_mock_provider_passes_isinstance(self):
         """A complete implementation passes runtime isinstance() check."""
         from maestro.providers.base import ProviderPlugin
+
         provider = MockProvider()
         assert isinstance(provider, ProviderPlugin)
 
     def test_incomplete_provider_fails_isinstance(self):
         """An incomplete implementation fails runtime isinstance() check."""
         from maestro.providers.base import ProviderPlugin
+
         provider = IncompleteProvider()
         assert not isinstance(provider, ProviderPlugin)
 
@@ -219,6 +243,7 @@ class TestProviderPlugin:
     async def test_mock_provider_stream(self):
         """Verify stream yields strings and final Message."""
         from maestro.providers.base import Message
+
         provider = MockProvider()
         messages = [Message(role="user", content="Hi")]
 
@@ -233,6 +258,7 @@ class TestProviderPlugin:
 
 # ============== Import Tests ==============
 
+
 class TestImports:
     def test_import_from_base(self):
         """All types importable from maestro.providers.base."""
@@ -243,6 +269,7 @@ class TestImports:
             ToolResult,
             ProviderPlugin,
         )
+
         assert Message is not None
         assert ProviderPlugin is not None
 
@@ -255,5 +282,6 @@ class TestImports:
             ToolResult,
             ProviderPlugin,
         )
+
         assert Message is not None
         assert ProviderPlugin is not None
