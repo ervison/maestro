@@ -23,9 +23,6 @@ def test_resolve_path_absolute_outside_raises(tmp_path):
         resolve_path("/etc/passwd", tmp_path)
 
 
-import tempfile
-
-
 def test_read_file(tmp_path):
     from maestro.tools import read_file
 

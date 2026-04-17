@@ -43,8 +43,10 @@ def read_file(args: dict, workdir: Path) -> dict:
     lines = text.splitlines()
     start = args.get("start_line")
     end = args.get("end_line")
-    if start is not None and end is not None:
-        selected = lines[start - 1 : end]
+    if start is not None or end is not None:
+        s = (start or 1) - 1
+        e = end  # None means slice to end
+        selected = lines[s:e]
         return {"content": "\n".join(selected), "lines": len(selected)}
     return {"content": text, "lines": len(lines)}
 
@@ -89,6 +91,6 @@ def search_in_files(args: dict, workdir: Path) -> dict:
                     )
                     if len(matches) >= 100:
                         return {"matches": matches, "truncated": True}
-        except (OSError, UnicodeDecodeError):
+        except OSError:
             continue
     return {"matches": matches, "truncated": False}
