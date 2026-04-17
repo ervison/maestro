@@ -1,16 +1,16 @@
 """
 LangGraph agent that uses ChatGPT Plus/Pro subscription
-via the Codex Responses API backend.
-
-Payload structure follows oc-codex-multi-auth/lib/request/request-transformer.ts
+via the Codex Responses API backend — with agentic tool loop.
 """
 
 import json
 import httpx
+from pathlib import Path
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langgraph.func import entrypoint, task
 
 from maestro import auth
+from maestro.tools import execute_tool, TOOL_SCHEMAS
 
 RESPONSES_ENDPOINT = f"{auth.CODEX_API_BASE}/codex/responses"
 
@@ -19,7 +19,6 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-# Reasoning effort defaults per model family (from request-transformer.ts)
 _REASONING_DEFAULTS: dict[str, str] = {
     "gpt-5-codex": "high",
     "gpt-5.1-codex-max": "high",
@@ -37,47 +36,179 @@ def _reasoning_effort(model: str) -> str:
     return _REASONING_DEFAULTS.get(model, "medium")
 
 
+def _headers(tokens: auth.TokenSet) -> dict:
+    h = {
+        "Authorization": f"Bearer {tokens.access}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "User-Agent": USER_AGENT,
+        "originator": "codex_cli_rs",
+        "OpenAI-Beta": "responses=experimental",
+    }
+    if tokens.account_id:
+        h["chatgpt-account-id"] = tokens.account_id
+    return h
+
+
+def _run_agentic_loop(
+    messages: list[BaseMessage],
+    model: str,
+    instructions: str,
+    tokens: auth.TokenSet,
+    workdir: Path,
+    auto: bool = False,
+    max_iterations: int = 20,
+) -> str:
+    api_model = auth.resolve_model(model)
+
+    # Build initial input list (user/assistant messages only — no developer)
+    input_items: list[dict] = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            input_items.append(
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": msg.content}],
+                }
+            )
+        elif isinstance(msg, AIMessage):
+            input_items.append(
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": msg.content}],
+                }
+            )
+
+    for iteration in range(max_iterations):
+        payload = {
+            "model": api_model,
+            "instructions": instructions or "You are a helpful assistant.",
+            "input": input_items,
+            "tools": TOOL_SCHEMAS,
+            "stream": True,
+            "store": False,
+            "reasoning": {
+                "effort": _reasoning_effort(api_model),
+                "summary": "auto",
+            },
+            "text": {"verbosity": "medium"},
+            "include": ["reasoning.encrypted_content"],
+        }
+
+        text_parts: list[str] = []
+        tool_calls: list[dict] = []
+
+        with httpx.stream(
+            "POST",
+            RESPONSES_ENDPOINT,
+            json=payload,
+            headers=_headers(tokens),
+            timeout=120,
+        ) as r:
+            if not r.is_success:
+                body = r.read().decode()
+                raise RuntimeError(
+                    f"API error {r.status_code} (iter {iteration}): {body[:800]}"
+                )
+
+            for line in r.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                raw = line[6:]
+                if raw == "[DONE]":
+                    break
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+
+                etype = event.get("type", "")
+                if etype == "response.output_text.delta":
+                    text_parts.append(event.get("delta", ""))
+                elif etype == "response.output_item.done":
+                    item = event.get("item", {})
+                    if item.get("type") == "function_call":
+                        tool_calls.append(item)
+                elif etype == "response.done":
+                    resp = event.get("response", {})
+                    for out in resp.get("output", []):
+                        if out.get("type") == "message" and not text_parts:
+                            for part in out.get("content", []):
+                                if part.get("type") == "output_text":
+                                    text_parts.append(part["text"])
+
+        # No tool calls → final answer
+        if not tool_calls:
+            if text_parts:
+                return "".join(text_parts)
+            raise RuntimeError("No output received from agent loop")
+
+        # Append model's function_call items to input
+        for tc in tool_calls:
+            input_items.append(
+                {
+                    "type": "function_call",
+                    "id": tc.get("id", ""),
+                    "call_id": tc.get("id", ""),
+                    "name": tc["name"],
+                    "arguments": tc["arguments"],
+                }
+            )
+
+        # Execute each tool and append results
+        for tc in tool_calls:
+            try:
+                args = json.loads(tc["arguments"])
+            except json.JSONDecodeError:
+                args = {}
+            result = execute_tool(tc["name"], args, workdir, auto=auto)
+            input_items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": tc.get("id", ""),
+                    "output": json.dumps(result),
+                }
+            )
+
+    raise RuntimeError(f"Agent loop exceeded max_iterations={max_iterations}")
+
+
 def _call_responses_api(
     model: str,
     messages: list[BaseMessage],
     tokens: auth.TokenSet,
 ) -> str:
-    """Call the ChatGPT Codex Responses API directly."""
+    """Single-shot call to the Responses API (no tool loop). Used by models --check."""
     api_model = auth.resolve_model(model)
 
-    # Convert LangChain messages to Responses API input format
     input_items = []
+    instructions = ""
     for msg in messages:
         if isinstance(msg, SystemMessage):
-            role = "developer"
+            instructions = msg.content
         elif isinstance(msg, HumanMessage):
-            role = "user"
+            input_items.append(
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": msg.content}],
+                }
+            )
         elif isinstance(msg, AIMessage):
-            role = "assistant"
-        else:
-            continue
-        input_items.append(
-            {
-                "type": "message",
-                "role": role,
-                "content": [{"type": "input_text", "text": msg.content}],
-            }
-        )
+            input_items.append(
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": msg.content}],
+                }
+            )
 
-    # Extract system/developer message as top-level `instructions` field
-    instructions = ""
-    filtered_items = []
-    for item in input_items:
-        if item["role"] == "developer":
-            instructions = item["content"][0]["text"]
-        else:
-            filtered_items.append(item)
-
-    # Payload following Codex CLI / oc-codex-multi-auth conventions
     payload = {
         "model": api_model,
         "instructions": instructions or "You are a helpful assistant.",
-        "input": filtered_items,
+        "input": input_items,
         "stream": True,
         "store": False,
         "reasoning": {
@@ -88,23 +219,11 @@ def _call_responses_api(
         "include": ["reasoning.encrypted_content"],
     }
 
-    headers = {
-        "Authorization": f"Bearer {tokens.access}",
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-        "User-Agent": USER_AGENT,
-        "originator": "codex_cli_rs",
-        "OpenAI-Beta": "responses=experimental",
-    }
-    if tokens.account_id:
-        headers["chatgpt-account-id"] = tokens.account_id
-
-    # Use streaming SSE and collect the final response.done event
     with httpx.stream(
         "POST",
         RESPONSES_ENDPOINT,
         json=payload,
-        headers=headers,
+        headers=_headers(tokens),
         timeout=120,
     ) as r:
         if not r.is_success:
@@ -123,10 +242,8 @@ def _call_responses_api(
             except json.JSONDecodeError:
                 continue
             etype = event.get("type", "")
-            # Collect output_text delta chunks
             if etype == "response.output_text.delta":
                 text_parts.append(event.get("delta", ""))
-            # Full response in done event as fallback
             elif etype == "response.done":
                 resp = event.get("response", {})
                 for item in resp.get("output", []):
@@ -137,32 +254,44 @@ def _call_responses_api(
 
     if text_parts:
         return "".join(text_parts)
-
     raise RuntimeError("No output_text received from streaming response")
 
 
-def run(model_name: str, prompt: str, system: str | None = None) -> str:
-    """Run a simple agent with the given model and prompt."""
+def run(
+    model_name: str,
+    prompt: str,
+    system: str | None = None,
+    workdir: Path | None = None,
+    auto: bool = False,
+) -> str:
+    """Run the agentic loop with the given model and prompt."""
     tokens = auth.load()
     if not tokens:
         raise RuntimeError("Not logged in. Run: maestro login")
-
     tokens = auth.ensure_valid(tokens)
 
+    wd = workdir or Path.cwd()
+    instructions = (
+        system or "You are a helpful assistant with access to file system tools."
+    )
+
     @task
-    def call_llm(messages: list[BaseMessage]) -> AIMessage:
-        text = _call_responses_api(model_name, messages, tokens)
+    def call_agent(msgs: list[BaseMessage]) -> AIMessage:
+        text = _run_agentic_loop(
+            messages=msgs,
+            model=model_name,
+            instructions=instructions,
+            tokens=tokens,
+            workdir=wd,
+            auto=auto,
+        )
         return AIMessage(content=text)
 
     @entrypoint()
-    def agent(messages: list[BaseMessage]) -> list[BaseMessage]:
-        response = call_llm(messages).result()
-        return [*messages, response]
+    def agent(msgs: list[BaseMessage]) -> list[BaseMessage]:
+        response = call_agent(msgs).result()
+        return [*msgs, response]
 
-    messages: list[BaseMessage] = []
-    if system:
-        messages.append(SystemMessage(content=system))
-    messages.append(HumanMessage(content=prompt))
-
-    result = agent.invoke(messages)
+    msgs: list[BaseMessage] = [HumanMessage(content=prompt)]
+    result = agent.invoke(msgs)
     return result[-1].content
