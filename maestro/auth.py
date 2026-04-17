@@ -372,3 +372,18 @@ def logout():
         print("Logged out.")
     else:
         print("Not logged in.")
+
+
+# Backward-compat re-exports (moved to maestro.providers.chatgpt in Phase 3)
+# Remove after Phase 5 when agent.py no longer imports these from auth
+# Using lazy import to avoid circular dependency
+
+
+def __getattr__(name: str):
+    """Lazy re-export model constants from maestro.providers.chatgpt."""
+    if name in ("MODELS", "MODEL_ALIASES", "DEFAULT_MODEL", "resolve_model"):
+        # Import here to avoid circular import at module load time
+        from maestro.providers import chatgpt
+
+        return getattr(chatgpt, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
