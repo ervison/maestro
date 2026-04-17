@@ -1,3 +1,17 @@
 """Provider plugin system for maestro."""
 
-# Package marker - re-exports will be added in Task 2
+from .base import (
+    Message,
+    ProviderPlugin,
+    Tool,
+    ToolCall,
+    ToolResult,
+)
+
+__all__ = [
+    "Message",
+    "ProviderPlugin",
+    "Tool",
+    "ToolCall",
+    "ToolResult",
+]

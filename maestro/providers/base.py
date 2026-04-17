@@ -5,7 +5,7 @@ along with provider-neutral data types for messages, tools, and tool results.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import AsyncIterator, Literal, Protocol, runtime_checkable
 
 
 @dataclass
@@ -37,3 +37,59 @@ class Message:
     role: Literal["user", "assistant", "system"]
     content: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+
+
+@runtime_checkable
+class ProviderPlugin(Protocol):
+    """
+    Protocol for LLM provider plugins.
+
+    Third-party providers implement this interface to integrate with maestro.
+    Use @runtime_checkable for isinstance() validation at registry time.
+
+    Note: @runtime_checkable only checks method existence, not signatures.
+    Integration tests must verify actual call compatibility.
+    """
+
+    @property
+    def id(self) -> str:
+        """Unique provider identifier (e.g., 'chatgpt', 'github-copilot')."""
+        ...
+
+    @property
+    def name(self) -> str:
+        """Human-readable provider name (e.g., 'ChatGPT', 'GitHub Copilot')."""
+        ...
+
+    def list_models(self) -> list[str]:
+        """Return list of available model IDs for this provider."""
+        ...
+
+    async def stream(
+        self,
+        messages: list[Message],
+        model: str,
+        tools: list[Tool] | None = None,
+    ) -> AsyncIterator[str | Message]:
+        """
+        Stream a completion from the provider.
+
+        Yields:
+            str: Partial text chunks during streaming
+            Message: Complete message when stream ends (with role="assistant")
+
+        The final yield MUST be a Message with the complete response.
+        """
+        ...
+
+    def auth_required(self) -> bool:
+        """Return True if this provider requires authentication."""
+        ...
+
+    def login(self) -> None:
+        """Perform interactive authentication. Blocks until complete or raises."""
+        ...
+
+    def is_authenticated(self) -> bool:
+        """Return True if valid credentials are currently available."""
+        ...

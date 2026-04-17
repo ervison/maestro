@@ -1,7 +1,8 @@
-"""Tests for neutral types - RED phase (tests should fail initially)."""
+"""Tests for ProviderPlugin Protocol and neutral types."""
 
 import pytest
 from dataclasses import is_dataclass
+from typing import AsyncIterator, Protocol
 
 
 def test_message_importable():
@@ -109,3 +110,147 @@ class TestToolResult:
     def test_tool_result_is_dataclass(self):
         from maestro.providers.base import ToolResult
         assert is_dataclass(ToolResult)
+
+
+# ============== ProviderPlugin Protocol Tests ==============
+
+class MockProvider:
+    """A valid implementation of ProviderPlugin for testing."""
+
+    @property
+    def id(self) -> str:
+        return "mock-provider"
+
+    @property
+    def name(self) -> str:
+        return "Mock Provider"
+
+    def list_models(self) -> list[str]:
+        return ["mock-model-1", "mock-model-2"]
+
+    async def stream(
+        self,
+        messages: list,
+        model: str,
+        tools: list | None = None,
+    ) -> AsyncIterator[str]:
+        yield "Hello "
+        yield "world!"
+
+    def auth_required(self) -> bool:
+        return True
+
+    def login(self) -> None:
+        pass  # Mock login does nothing
+
+    def is_authenticated(self) -> bool:
+        return True
+
+
+class IncompleteProvider:
+    """Missing required methods — should fail isinstance check."""
+
+    @property
+    def id(self) -> str:
+        return "incomplete"
+
+    # Missing: name, list_models, stream, auth_required, login, is_authenticated
+
+
+class TestProviderPlugin:
+    def test_protocol_importable(self):
+        """ProviderPlugin should be importable from base module."""
+        from maestro.providers.base import ProviderPlugin
+        assert ProviderPlugin is not None
+
+    def test_protocol_is_protocol(self):
+        """ProviderPlugin should be a Protocol."""
+        from maestro.providers.base import ProviderPlugin
+        assert issubclass(ProviderPlugin, Protocol)
+
+    def test_protocol_is_runtime_checkable(self):
+        """ProviderPlugin should have @runtime_checkable decorator."""
+        from maestro.providers.base import ProviderPlugin
+        # Check that hasattr works (indicates @runtime_checkable)
+        assert hasattr(ProviderPlugin, "id")
+        assert hasattr(ProviderPlugin, "name")
+        assert hasattr(ProviderPlugin, "list_models")
+        assert hasattr(ProviderPlugin, "stream")
+        assert hasattr(ProviderPlugin, "auth_required")
+        assert hasattr(ProviderPlugin, "login")
+        assert hasattr(ProviderPlugin, "is_authenticated")
+
+    def test_mock_provider_passes_isinstance(self):
+        """A complete implementation passes runtime isinstance() check."""
+        from maestro.providers.base import ProviderPlugin
+        provider = MockProvider()
+        assert isinstance(provider, ProviderPlugin)
+
+    def test_incomplete_provider_fails_isinstance(self):
+        """An incomplete implementation fails runtime isinstance() check."""
+        from maestro.providers.base import ProviderPlugin
+        provider = IncompleteProvider()
+        assert not isinstance(provider, ProviderPlugin)
+
+    def test_mock_provider_properties(self):
+        """Verify properties return expected types."""
+        provider = MockProvider()
+        assert provider.id == "mock-provider"
+        assert provider.name == "Mock Provider"
+
+    def test_mock_provider_list_models(self):
+        """Verify list_models returns list of strings."""
+        provider = MockProvider()
+        models = provider.list_models()
+        assert isinstance(models, list)
+        assert all(isinstance(m, str) for m in models)
+        assert len(models) == 2
+
+    def test_mock_provider_auth_methods(self):
+        """Verify auth methods return expected types."""
+        provider = MockProvider()
+        assert provider.auth_required() is True
+        assert provider.is_authenticated() is True
+        provider.login()  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_mock_provider_stream(self):
+        """Verify stream yields strings."""
+        from maestro.providers.base import Message
+        provider = MockProvider()
+        messages = [Message(role="user", content="Hi")]
+        
+        chunks = []
+        async for chunk in provider.stream(messages, "mock-model-1"):
+            chunks.append(chunk)
+        
+        assert chunks[0] == "Hello "
+        assert chunks[1] == "world!"
+
+
+# ============== Import Tests ==============
+
+class TestImports:
+    def test_import_from_base(self):
+        """All types importable from maestro.providers.base."""
+        from maestro.providers.base import (
+            Message,
+            Tool,
+            ToolCall,
+            ToolResult,
+            ProviderPlugin,
+        )
+        assert Message is not None
+        assert ProviderPlugin is not None
+
+    def test_import_from_package(self):
+        """All types importable from maestro.providers (re-exports)."""
+        from maestro.providers import (
+            Message,
+            Tool,
+            ToolCall,
+            ToolResult,
+            ProviderPlugin,
+        )
+        assert Message is not None
+        assert ProviderPlugin is not None
