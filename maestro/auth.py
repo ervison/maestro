@@ -48,9 +48,14 @@ def _read_store() -> dict:
             f"Invalid auth store at {AUTH_FILE}; remove or repair the file."
         ) from exc
     if isinstance(data, dict) and "access" in data and "chatgpt" not in data:
-        migrated = {"chatgpt": data}
-        _write_store(migrated)
-        return migrated
+        data = {"chatgpt": data}
+        _write_store(data)
+    if not isinstance(data, dict) or any(
+        not isinstance(provider_data, dict) for provider_data in data.values()
+    ):
+        raise RuntimeError(
+            f"Invalid auth store at {AUTH_FILE}; remove or repair the file."
+        )
     return data
 
 

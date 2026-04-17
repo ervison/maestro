@@ -38,5 +38,4 @@ After analyzing the phase dependency graph based on file overlap, semantic depen
 - No cycles detected
 - Parallel execution is safe where dependencies allow (Phases 6/7 can run in parallel after Phase 4)
 
-The dependency graph correctly prevents merge conflicts and ensures API availability.</content>
-<parameter name="filePath">.planning/DEPENDENCY_ANALYSIS.md
+The dependency graph correctly prevents merge conflicts and ensures API availability.

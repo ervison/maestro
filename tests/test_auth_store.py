@@ -87,6 +87,20 @@ def test_invalid_auth_store_raises_runtime_error(auth_file):
         get("chatgpt")
 
 
+def test_non_dict_store_raises_runtime_error(auth_file):
+    auth_file.write_text('["not", "a", "dict"]')
+
+    with pytest.raises(RuntimeError, match="Invalid auth store"):
+        get("chatgpt")
+
+
+def test_non_dict_provider_entry_raises_runtime_error(auth_file):
+    auth_file.write_text('{"chatgpt": "not-a-dict"}')
+
+    with pytest.raises(RuntimeError, match="Invalid auth store"):
+        get("chatgpt")
+
+
 def test_multiple_providers_isolated(auth_file):
     set("chatgpt", {"access": "chatgpt-token"})
     set("copilot", {"token": "copilot-token"})
