@@ -201,7 +201,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. Provider Plugin Protocol | 0/? | Not started | - |
 | 2. Multi-Slot Auth Store | 0/? | Not started | - |
-| 3. ChatGPT Provider Migration | 0/1 | Planned | - |
+| 3. ChatGPT Provider Migration | 1/1 | Complete   | 2026-04-17 |
 | 4. Config & Provider Registry | 0/? | Not started | - |
 | 5. Agent Loop Refactor | 0/? | Not started | - |
 | 6. Auth & Model CLI Commands | 0/? | Not started | - |
