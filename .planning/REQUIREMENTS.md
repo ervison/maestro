@@ -6,7 +6,7 @@
 
 - [x] **PROV-01**: Developer can define a new provider by implementing the `ProviderPlugin` Protocol (id, name, list_models, stream, auth_required, login, is_authenticated)
 - [ ] **PROV-02**: Provider instances are discovered via `importlib.metadata` entry points (`maestro.providers` group) at runtime
-- [ ] **PROV-03**: Built-in providers (ChatGPT, GitHub Copilot) are registered via `pyproject.toml` entry points
+- [x] **PROV-03**: Built-in providers (ChatGPT, GitHub Copilot) are registered via `pyproject.toml` entry points
 - [ ] **PROV-04**: `get_provider(provider_id)` raises `ValueError` with list of available providers on unknown ID
 - [ ] **PROV-05**: Third-party providers are installable via `pip install <package>` without modifying maestro source
 - [x] **PROV-06**: `stream()` accepts neutral types (`Message`, `Tool`, `ToolCall`) and yields `str | Message` — provider never exposes wire format to caller
@@ -35,7 +35,7 @@
 - [ ] **LOOP-01**: `_run_agentic_loop` uses `provider.stream()` instead of hardwired httpx calls — HTTP layer is fully provider-delegated
 - [ ] **LOOP-02**: If provider is not authenticated, loop raises `RuntimeError` with actionable message (`maestro auth login <provider_id>`)
 - [ ] **LOOP-03**: All 26 existing tests pass without modification after the refactor
-- [ ] **LOOP-04**: ChatGPT provider encapsulates all ChatGPT-specific SSE parsing and HTTP logic (migrated from agent.py)
+- [x] **LOOP-04**: ChatGPT provider encapsulates all ChatGPT-specific SSE parsing and HTTP logic (migrated from agent.py)
 
 ### GitHub Copilot Provider (COPILOT)
 
