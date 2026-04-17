@@ -6,6 +6,8 @@ import warnings
 
 from maestro import auth
 from maestro.agent import run
+from maestro.providers.chatgpt import DEFAULT_MODEL
+from maestro.providers.registry import get_provider
 
 
 def main():
@@ -151,6 +153,13 @@ def main():
 
         # Resolve model using Phase 4 resolution chain (flag > env > config > default)
         provider, model_id = resolve_model(model_flag=args.model)
+
+        # Phase 5 will wire alternate providers; for now, pin to ChatGPT unless explicitly requested
+        if provider.id != "chatgpt" and args.model is None:
+            # Default resolution picked a non-ChatGPT provider, but user didn't explicitly request it
+            # Fall back to ChatGPT to maintain backward compatibility until Phase 5
+            provider = get_provider("chatgpt")
+            model_id = DEFAULT_MODEL
 
         # Phase 5 will wire alternate providers; for now, reject non-ChatGPT providers
         if provider.id != "chatgpt":
