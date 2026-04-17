@@ -130,12 +130,17 @@ def resolve_model(
     return provider, available_models[0]
 
 
+def _is_usable(provider) -> bool:
+    """Check if a provider is usable (doesn't require auth or is authenticated)."""
+    return not provider.auth_required() or provider.is_authenticated()
+
+
 def get_available_models() -> dict[str, list[str]]:
-    """Get all available models from authenticated providers.
+    """Get all available models from usable providers.
 
     Returns:
         Dictionary mapping provider_id to list of model_ids.
-        Only includes providers with stored credentials.
+        Only includes providers that are usable (don't require auth OR are authenticated).
     """
     from maestro.providers.registry import discover_providers
 
@@ -145,7 +150,7 @@ def get_available_models() -> dict[str, list[str]]:
     for provider_id, provider_class in providers.items():
         try:
             instance = provider_class()
-            if instance.is_authenticated():
+            if _is_usable(instance):
                 result[provider_id] = instance.list_models()
         except Exception:
             # Skip providers that fail to load/check auth

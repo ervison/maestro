@@ -129,14 +129,52 @@ class TestResolveModel:
         assert "Unknown provider" in str(exc_info.value)
 
 
+class TestIsUsable:
+    """Tests for _is_usable() helper function."""
+
+    def test_auth_free_provider_is_usable(self):
+        """Provider with auth_required=False is usable regardless of auth state."""
+        class AuthFreeProvider:
+            def auth_required(self):
+                return False
+
+            def is_authenticated(self):
+                return False
+
+        assert models._is_usable(AuthFreeProvider()) is True
+
+    def test_auth_required_and_authenticated_is_usable(self):
+        """Provider requiring auth with valid credentials is usable."""
+        class AuthRequiredProvider:
+            def auth_required(self):
+                return True
+
+            def is_authenticated(self):
+                return True
+
+        assert models._is_usable(AuthRequiredProvider()) is True
+
+    def test_auth_required_but_not_authenticated_is_not_usable(self):
+        """Provider requiring auth without credentials is not usable."""
+        class UnauthenticatedProvider:
+            def auth_required(self):
+                return True
+
+            def is_authenticated(self):
+                return False
+
+        assert models._is_usable(UnauthenticatedProvider()) is False
+
+
 class TestGetAvailableModels:
     """Tests for get_available_models() function."""
 
     def test_returns_authenticated_providers(self, monkeypatch):
-        """Only includes authenticated providers."""
-        # Mock ChatGPTProvider.is_authenticated to return False
+        """Only includes authenticated providers (WR-02 fix)."""
+        # Mock ChatGPTProvider to require auth but not be authenticated
         from maestro.providers import chatgpt
 
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "auth_required", lambda self: True)
         monkeypatch.setattr(chatgpt.ChatGPTProvider, "is_authenticated", lambda self: False)
 
         result = models.get_available_models()
@@ -146,10 +184,58 @@ class TestGetAvailableModels:
         """Includes chatgpt models when authenticated."""
         from maestro.providers import chatgpt
 
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "auth_required", lambda self: True)
         monkeypatch.setattr(chatgpt.ChatGPTProvider, "is_authenticated", lambda self: True)
         result = models.get_available_models()
         assert "chatgpt" in result
         assert len(result["chatgpt"]) > 0
+
+    def test_includes_auth_free_provider(self, monkeypatch):
+        """Includes auth-free providers even when not authenticated (WR-02 fix)."""
+        from maestro.providers import chatgpt
+
+        # ChatGPT requires auth but isn't authenticated
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "auth_required", lambda self: True)
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "is_authenticated", lambda self: False)
+
+        # Add a mock auth-free provider
+        class AuthFreeProvider:
+            id = "auth-free"
+
+            def auth_required(self):
+                return False
+
+            def is_authenticated(self):
+                return False
+
+            def list_models(self):
+                return ["free-model"]
+
+        # Mock discover_providers to include both
+        from maestro.providers import registry
+        from functools import lru_cache
+
+        @lru_cache(maxsize=1)
+        def mock_discover():
+            return {
+                "chatgpt": chatgpt.ChatGPTProvider,
+                "auth-free": AuthFreeProvider,
+            }
+
+        original = registry.discover_providers
+        monkeypatch.setattr(registry, "discover_providers", mock_discover)
+        mock_discover.cache_clear()
+
+        try:
+            result = models.get_available_models()
+            # Auth-free provider should be included even though not authenticated
+            assert "auth-free" in result
+            assert "free-model" in result["auth-free"]
+            # ChatGPT should NOT be included (requires auth but not authenticated)
+            assert "chatgpt" not in result
+        finally:
+            registry.discover_providers = original
+            registry.discover_providers.cache_clear()
 
 
 class TestFormatModelList:
