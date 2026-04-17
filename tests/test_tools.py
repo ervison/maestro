@@ -134,3 +134,5 @@ def test_execute_shell_timeout(tmp_path):
     result = execute_shell({"command": "sleep 60", "timeout": 1}, tmp_path)
     assert "error" in result
     assert "timed out" in result["error"]
+    assert "stdout" in result
+    assert "stderr" in result

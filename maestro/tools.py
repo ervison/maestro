@@ -133,7 +133,9 @@ def move_file(args: dict, workdir: Path) -> dict:
 
 
 def execute_shell(args: dict, workdir: Path) -> dict:
-    cmd = args["command"]
+    cmd = args.get("command")
+    if not cmd:
+        return {"error": "Missing required argument: command"}
     timeout = args.get("timeout", 30)
     try:
         result = subprocess.run(
@@ -149,9 +151,9 @@ def execute_shell(args: dict, workdir: Path) -> dict:
             "stderr": result.stderr,
             "returncode": result.returncode,
         }
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         return {
             "error": f"Command timed out after {timeout}s",
-            "stdout": "",
-            "stderr": "",
+            "stdout": e.stdout or "",
+            "stderr": e.stderr or "",
         }
