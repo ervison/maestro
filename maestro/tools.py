@@ -3,10 +3,6 @@ File system and shell tools for the maestro agentic loop.
 All paths are validated to remain within workdir.
 """
 
-import os
-import re
-import shutil
-import subprocess
 from pathlib import Path
 
 
