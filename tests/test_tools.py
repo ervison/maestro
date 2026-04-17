@@ -160,3 +160,20 @@ def test_execute_tool_destructive_auto(tmp_path):
     from maestro.tools import execute_tool
     result = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=True)
     assert result == {"ok": True}
+
+
+def test_execute_tool_path_escape(tmp_path):
+    from maestro.tools import execute_tool
+    result = execute_tool("read_file", {"path": "../../etc/passwd"}, tmp_path, auto=True)
+    assert "error" in result
+
+def test_execute_tool_missing_arg(tmp_path):
+    from maestro.tools import execute_tool
+    result = execute_tool("read_file", {}, tmp_path, auto=True)
+    assert "error" in result
+
+def test_execute_tool_destructive_approved(tmp_path, monkeypatch):
+    from maestro.tools import execute_tool
+    monkeypatch.setattr("builtins.input", lambda _: "y")
+    result = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=False)
+    assert result == {"ok": True}
