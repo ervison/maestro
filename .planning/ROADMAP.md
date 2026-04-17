@@ -62,10 +62,10 @@ Plans:
   2. All ChatGPT-specific SSE parsing and HTTP connection logic is moved from `agent.py` to `providers/chatgpt.py`
   3. ChatGPT provider is registered in `pyproject.toml` entry points under `maestro.providers` group
   4. A backward-compat re-export shim exists in `auth.py` for any imported `TokenSet` references
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 03-01: TBD
+- [ ] 03-01-PLAN.md — Create ChatGPTProvider with HTTP/SSE logic, register entry point, add backward-compat shims
 
 ### Phase 4: Config & Provider Registry
 **Goal**: Providers are discovered at runtime via entry points and models are resolved through a priority chain
@@ -197,7 +197,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. Provider Plugin Protocol | 0/? | Not started | - |
 | 2. Multi-Slot Auth Store | 0/? | Not started | - |
-| 3. ChatGPT Provider Migration | 0/? | Not started | - |
+| 3. ChatGPT Provider Migration | 0/1 | Planned | - |
 | 4. Config & Provider Registry | 0/? | Not started | - |
 | 5. Agent Loop Refactor | 0/? | Not started | - |
 | 6. Auth & Model CLI Commands | 0/? | Not started | - |
