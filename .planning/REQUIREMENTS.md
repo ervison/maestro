@@ -4,12 +4,12 @@
 
 ### Provider Plugin System (PROV)
 
-- [ ] **PROV-01**: Developer can define a new provider by implementing the `ProviderPlugin` Protocol (id, name, list_models, stream, auth_required, login, is_authenticated)
+- [x] **PROV-01**: Developer can define a new provider by implementing the `ProviderPlugin` Protocol (id, name, list_models, stream, auth_required, login, is_authenticated)
 - [ ] **PROV-02**: Provider instances are discovered via `importlib.metadata` entry points (`maestro.providers` group) at runtime
 - [ ] **PROV-03**: Built-in providers (ChatGPT, GitHub Copilot) are registered via `pyproject.toml` entry points
 - [ ] **PROV-04**: `get_provider(provider_id)` raises `ValueError` with list of available providers on unknown ID
 - [ ] **PROV-05**: Third-party providers are installable via `pip install <package>` without modifying maestro source
-- [ ] **PROV-06**: `stream()` accepts neutral types (`Message`, `Tool`, `ToolCall`) and yields `str | Message` — provider never exposes wire format to caller
+- [x] **PROV-06**: `stream()` accepts neutral types (`Message`, `Tool`, `ToolCall`) and yields `str | Message` — provider never exposes wire format to caller
 
 ### Auth Store (AUTH)
 
