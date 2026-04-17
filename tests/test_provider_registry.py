@@ -159,6 +159,100 @@ class TestIsUsable:
         assert registry._is_usable(provider) is False
 
 
+class TestDuplicateProviderIds:
+    """Tests for WR-03: Duplicate provider IDs are rejected deterministically."""
+
+    def test_duplicate_provider_id_raises(self, monkeypatch):
+        """Duplicate provider IDs raise ValueError during discovery."""
+        from functools import lru_cache
+
+        # Create two provider classes with the same ID
+        class ProviderOne:
+            def __init__(self):
+                self.id = "duplicate-id"
+                self._name = "Provider One"
+
+            @property
+            def name(self):
+                return self._name
+
+            def list_models(self):
+                return ["model-1"]
+
+            def stream(self, messages, model, tools=None):
+                return iter([])
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class ProviderTwo:
+            def __init__(self):
+                self.id = "duplicate-id"  # Same ID!
+                self._name = "Provider Two"
+
+            @property
+            def name(self):
+                return self._name
+
+            def list_models(self):
+                return ["model-2"]
+
+            def stream(self, messages, model, tools=None):
+                return iter([])
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        # Create mock EntryPoint class
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        # Mock entry points function returning duplicates
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint("provider-one", "maestro.providers", ProviderOne),
+                MockEntryPoint("provider-two", "maestro.providers", ProviderTwo),
+            ]
+
+        # Replace entry_points function
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        # Clear cache and discover
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(registry.discover_providers.__wrapped__)
+        registry.discover_providers.cache_clear()
+
+        try:
+            with pytest.raises(ValueError) as exc_info:
+                registry.discover_providers()
+
+            assert "Duplicate provider id" in str(exc_info.value)
+            assert "duplicate-id" in str(exc_info.value)
+            assert "provider-two" in str(exc_info.value)
+        finally:
+            # Restore
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+
 class TestProviderContractValidation:
     """Tests for WR-01: Provider contract validation at discovery time."""
 

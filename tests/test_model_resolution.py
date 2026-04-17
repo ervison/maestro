@@ -116,6 +116,41 @@ class TestResolveModel:
         # Should get first available model
         assert model_id in provider.list_models()
 
+    def test_priority_5_fallback_chatgpt_even_when_unauthenticated(self, monkeypatch):
+        """WR-01: Empty-config path falls back to ChatGPT even when unauthenticated.
+
+        This is a regression test ensuring that when no providers are usable
+        (all require auth and none are authenticated), resolve_model() still
+        returns ChatGPT with DEFAULT_MODEL to preserve backward compatibility.
+        """
+        from maestro.providers import chatgpt, registry
+        from functools import lru_cache
+
+        cfg = config.Config()  # No model set
+        monkeypatch.setattr(config, "load", lambda: cfg)
+
+        # Patch ChatGPT to require auth but not be authenticated
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "auth_required", lambda self: True)
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "is_authenticated", lambda self: False)
+
+        # Mock discover_providers to only include the patched ChatGPT
+        @lru_cache(maxsize=1)
+        def mock_discover():
+            return {"chatgpt": chatgpt.ChatGPTProvider}
+
+        original = registry.discover_providers
+        monkeypatch.setattr(registry, "discover_providers", mock_discover)
+        mock_discover.cache_clear()
+
+        try:
+            # Should still return ChatGPT even though it's not "usable"
+            provider, model_id = models.resolve_model()
+            assert provider.id == "chatgpt"
+            assert model_id == chatgpt.DEFAULT_MODEL
+        finally:
+            registry.discover_providers = original
+            registry.discover_providers.cache_clear()
+
     def test_parse_error_propagates(self):
         """Invalid model string raises ValueError."""
         with pytest.raises(ValueError):
