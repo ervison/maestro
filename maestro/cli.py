@@ -41,8 +41,8 @@ def main():
     run_p.add_argument(
         "-m",
         "--model",
-        default=auth.DEFAULT_MODEL,
-        help=f"Model to use (default: {auth.DEFAULT_MODEL}). Run 'maestro models' for list.",
+        default=None,
+        help="Model to use (format: provider_id/model_id). Run 'maestro models' for list. Defaults to chatgpt/gpt-5.4-mini.",
     )
     run_p.add_argument(
         "-s", "--system", default=None, help="System prompt / instructions"
@@ -145,16 +145,29 @@ def main():
     elif args.command == "run":
         from pathlib import Path
 
+        from maestro.models import resolve_model
+
         wd = Path(args.workdir).resolve() if args.workdir else Path.cwd()
+
+        # Resolve model using Phase 4 resolution chain (flag > env > config > default)
+        provider, model_id = resolve_model(model_flag=args.model)
+
+        # Phase 5 will wire alternate providers; for now, reject non-ChatGPT providers
+        if provider.id != "chatgpt":
+            raise RuntimeError(
+                f"Provider '{provider.id}' is discoverable but not runnable yet; "
+                "Phase 5 must wire provider.stream()"
+            )
+
         try:
             result = run(
-                args.model, args.prompt, args.system, workdir=wd, auto=args.auto
+                model_id, args.prompt, args.system, workdir=wd, auto=args.auto
             )
             print(result)
         except RuntimeError as e:
             msg = str(e)
             if "not supported" in msg:
-                print(f"Error: model '{args.model}' is not available for your account.")
+                print(f"Error: model '{model_id}' is not available for your account.")
                 print("Run 'maestro models --check' to see which models work for you.")
             else:
                 print(f"Error: {msg}")
