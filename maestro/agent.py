@@ -12,42 +12,14 @@ from langgraph.func import entrypoint, task
 from maestro import auth
 from maestro.tools import execute_tool, TOOL_SCHEMAS
 
-RESPONSES_ENDPOINT = f"{auth.CODEX_API_BASE}/codex/responses"
-
-USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+# Import ChatGPT transport helpers from provider module (Phase 3 canonical source)
+from maestro.providers.chatgpt import (
+    RESPONSES_ENDPOINT,
+    USER_AGENT,
+    _reasoning_effort,
+    _headers,
+    resolve_model,
 )
-
-_REASONING_DEFAULTS: dict[str, str] = {
-    "gpt-5-codex": "high",
-    "gpt-5.1-codex-max": "high",
-    "gpt-5.1-codex-mini": "medium",
-    "gpt-5.4": "high",
-    "gpt-5.4-mini": "high",
-    "gpt-5.4-nano": "high",
-    "gpt-5.4-pro": "medium",
-    "gpt-5.2": "high",
-    "gpt-5.1": "medium",
-}
-
-
-def _reasoning_effort(model: str) -> str:
-    return _REASONING_DEFAULTS.get(model, "medium")
-
-
-def _headers(tokens: auth.TokenSet) -> dict:
-    h = {
-        "Authorization": f"Bearer {tokens.access}",
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-        "User-Agent": USER_AGENT,
-        "originator": "codex_cli_rs",
-        "OpenAI-Beta": "responses=experimental",
-    }
-    if tokens.account_id:
-        h["chatgpt-account-id"] = tokens.account_id
-    return h
 
 
 def _run_agentic_loop(
@@ -181,7 +153,7 @@ def _call_responses_api(
     tokens: auth.TokenSet,
 ) -> str:
     """Single-shot call to the Responses API (no tool loop). Used by models --check."""
-    api_model = auth.resolve_model(model)
+    api_model = resolve_model(model)
 
     input_items = []
     instructions = ""

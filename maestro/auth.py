@@ -94,38 +94,7 @@ def all_providers() -> list[str]:
     """List all provider IDs with stored credentials."""
     return list(_read_store().keys())
 
-MODELS = [
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.2",
-    # Extended family (may require Pro tier)
-    "gpt-5-codex",
-    "gpt-5.1-codex-max",
-    "gpt-5.1-codex-mini",
-    "gpt-5.4-nano",
-    "gpt-5.1",
-]
 
-# Aliases: what the user types -> what the API expects
-MODEL_ALIASES: dict[str, str] = {
-    "codex-mini-latest": "gpt-5.1-codex-mini",
-    "gpt-5-codex-mini": "gpt-5.1-codex-mini",
-    "gpt-5.1-codex": "gpt-5-codex",
-    "gpt-5.2-codex": "gpt-5-codex",
-    "gpt-5.3-codex": "gpt-5-codex",
-    "gpt-5.3-codex-spark": "gpt-5-codex",
-    "gpt-5": "gpt-5.4",
-    "gpt-5-mini": "gpt-5.4-mini",
-    "gpt-5-nano": "gpt-5.4-nano",
-}
-
-# Default model for ChatGPT Plus/Pro accounts via Codex endpoint
-DEFAULT_MODEL = "gpt-5.4-mini"
-
-
-def resolve_model(model_id: str) -> str:
-    """Resolve model alias to API model name."""
-    return MODEL_ALIASES.get(model_id, model_id)
 
 
 @dataclass
@@ -375,8 +344,8 @@ def logout():
 
 
 # Backward-compat re-exports (moved to maestro.providers.chatgpt in Phase 3)
-# Remove after Phase 5 when agent.py no longer imports these from auth
-# Using lazy import to avoid circular dependency
+# The provider module is the canonical source; these are lazy re-exports.
+# Using __getattr__ avoids circular imports since chatgpt.py imports from auth.
 
 
 def __getattr__(name: str):
@@ -387,3 +356,4 @@ def __getattr__(name: str):
 
         return getattr(chatgpt, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
