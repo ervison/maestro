@@ -4,6 +4,7 @@ All paths are validated to remain within workdir.
 """
 
 import re
+import shutil
 from pathlib import Path
 
 
@@ -94,3 +95,37 @@ def search_in_files(args: dict, workdir: Path) -> dict:
         except OSError:
             continue
     return {"matches": matches, "truncated": False}
+
+
+def write_file(args: dict, workdir: Path) -> dict:
+    path = resolve_path(args["path"], workdir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(args.get("content", ""))
+    return {"ok": True}
+
+
+def create_file(args: dict, workdir: Path) -> dict:
+    path = resolve_path(args["path"], workdir)
+    if path.exists():
+        return {"error": f"File already exists: {args['path']}"}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(args.get("content", ""))
+    return {"ok": True}
+
+
+def delete_file(args: dict, workdir: Path) -> dict:
+    path = resolve_path(args["path"], workdir)
+    if not path.exists():
+        return {"error": f"File not found: {args['path']}"}
+    path.unlink()
+    return {"ok": True}
+
+
+def move_file(args: dict, workdir: Path) -> dict:
+    src = resolve_path(args["source"], workdir)
+    dst = resolve_path(args["destination"], workdir)
+    if not src.exists():
+        return {"error": f"Source not found: {args['source']}"}
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(src), str(dst))
+    return {"ok": True}
