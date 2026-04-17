@@ -1,0 +1,11 @@
+pyproject.toml
+maestro/__init__.py
+maestro/agent.py
+maestro/auth.py
+maestro/cli.py
+maestro.egg-info/PKG-INFO
+maestro.egg-info/SOURCES.txt
+maestro.egg-info/dependency_links.txt
+maestro.egg-info/entry_points.txt
+maestro.egg-info/requires.txt
+maestro.egg-info/top_level.txt

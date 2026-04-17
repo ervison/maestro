@@ -1,0 +1,318 @@
+"""
+OAuth2 authentication for ChatGPT Plus/Pro subscriptions.
+Implements PKCE Authorization Code flow and Device Code flow
+against auth.openai.com, same as the official Codex CLI.
+"""
+
+import base64
+import hashlib
+import http.server
+import json
+import os
+import secrets
+import threading
+import time
+import webbrowser
+from dataclasses import dataclass, field
+from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlparse
+
+import httpx
+
+CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
+TOKEN_URL = "https://auth.openai.com/oauth/token"
+DEVICE_CODE_URL = "https://auth.openai.com/api/accounts/deviceauth/usercode"
+DEVICE_TOKEN_URL = "https://auth.openai.com/api/accounts/deviceauth/token"
+DEVICE_CALLBACK = "https://auth.openai.com/deviceauth/callback"
+REDIRECT_URI = "http://127.0.0.1:1455/auth/callback"
+SCOPE = "openid profile email offline_access"
+CALLBACK_PORT = 1455
+AUTH_CLAIM = "https://api.openai.com/auth"
+
+CODEX_API_BASE = "https://chatgpt.com/backend-api"
+
+AUTH_FILE = Path(
+    os.environ.get("MAESTRO_AUTH_FILE", Path.home() / ".maestro" / "auth.json")
+)
+
+MODELS = [
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.2",
+    # Extended family (may require Pro tier)
+    "gpt-5-codex",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex-mini",
+    "gpt-5.4-nano",
+    "gpt-5.1",
+]
+
+# Aliases: what the user types -> what the API expects
+MODEL_ALIASES: dict[str, str] = {
+    "codex-mini-latest": "gpt-5.1-codex-mini",
+    "gpt-5-codex-mini": "gpt-5.1-codex-mini",
+    "gpt-5.1-codex": "gpt-5-codex",
+    "gpt-5.2-codex": "gpt-5-codex",
+    "gpt-5.3-codex": "gpt-5-codex",
+    "gpt-5.3-codex-spark": "gpt-5-codex",
+    "gpt-5": "gpt-5.4",
+    "gpt-5-mini": "gpt-5.4-mini",
+    "gpt-5-nano": "gpt-5.4-nano",
+}
+
+# Default model for ChatGPT Plus/Pro accounts via Codex endpoint
+DEFAULT_MODEL = "gpt-5.4-mini"
+
+
+def resolve_model(model_id: str) -> str:
+    """Resolve model alias to API model name."""
+    return MODEL_ALIASES.get(model_id, model_id)
+
+
+@dataclass
+class TokenSet:
+    access: str
+    refresh: str
+    expires: float
+    account_id: str = ""
+    email: str = ""
+
+
+def _save(tokens: TokenSet):
+    AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AUTH_FILE.write_text(
+        json.dumps(
+            {
+                "access": tokens.access,
+                "refresh": tokens.refresh,
+                "expires": tokens.expires,
+                "account_id": tokens.account_id,
+                "email": tokens.email,
+            }
+        )
+    )
+    AUTH_FILE.chmod(0o600)
+
+
+def load() -> TokenSet | None:
+    if not AUTH_FILE.exists():
+        return None
+    data = json.loads(AUTH_FILE.read_text())
+    return TokenSet(**data)
+
+
+# --------------- JWT helpers ---------------
+
+
+def _decode_jwt(token: str) -> dict | None:
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    payload = parts[1]
+    payload = payload.replace("-", "+").replace("_", "/")
+    padding = 4 - len(payload) % 4
+    if padding != 4:
+        payload += "=" * padding
+    try:
+        return json.loads(base64.b64decode(payload))
+    except Exception:
+        return None
+
+
+def _extract_account_id(access_token: str) -> str:
+    claims = _decode_jwt(access_token)
+    if not claims:
+        return ""
+    auth = claims.get(AUTH_CLAIM, {})
+    return auth.get("chatgpt_account_id", "")
+
+
+def _extract_email(id_token: str) -> str:
+    claims = _decode_jwt(id_token)
+    if not claims:
+        return ""
+    return claims.get("email", "")
+
+
+# --------------- PKCE ---------------
+
+
+def _generate_pkce() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+# --------------- Token exchange ---------------
+
+
+def _exchange_code(code: str, verifier: str, redirect: str = REDIRECT_URI) -> TokenSet:
+    r = httpx.post(
+        TOKEN_URL,
+        data={
+            "grant_type": "authorization_code",
+            "client_id": CLIENT_ID,
+            "code": code,
+            "code_verifier": verifier,
+            "redirect_uri": redirect,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    r.raise_for_status()
+    d = r.json()
+    access = d["access_token"]
+    ts = TokenSet(
+        access=access,
+        refresh=d.get("refresh_token", ""),
+        expires=time.time() + d.get("expires_in", 3600),
+        account_id=_extract_account_id(access),
+        email=_extract_email(d.get("id_token", "")),
+    )
+    _save(ts)
+    return ts
+
+
+def refresh_token(ts: TokenSet) -> TokenSet:
+    r = httpx.post(
+        TOKEN_URL,
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": ts.refresh,
+            "client_id": CLIENT_ID,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    r.raise_for_status()
+    d = r.json()
+    access = d["access_token"]
+    new = TokenSet(
+        access=access,
+        refresh=d.get("refresh_token", ts.refresh),
+        expires=time.time() + d.get("expires_in", 3600),
+        account_id=_extract_account_id(access),
+        email=ts.email or _extract_email(d.get("id_token", "")),
+    )
+    _save(new)
+    return new
+
+
+def ensure_valid(ts: TokenSet) -> TokenSet:
+    """Refresh if token expires within 5 minutes."""
+    if time.time() > ts.expires - 300:
+        return refresh_token(ts)
+    return ts
+
+
+# --------------- Browser OAuth2 PKCE flow ---------------
+
+
+def login_browser() -> TokenSet:
+    verifier, challenge = _generate_pkce()
+    state = secrets.token_hex(16)
+
+    params = {
+        "response_type": "code",
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
+        "scope": SCOPE,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+        "id_token_add_organizations": "true",
+        "codex_cli_simplified_flow": "true",
+        "originator": "codex_cli_rs",
+    }
+    url = f"{AUTHORIZE_URL}?{urlencode(params)}"
+
+    result: dict = {}
+    error: list = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            qs = parse_qs(urlparse(self.path).query)
+            if qs.get("state", [None])[0] != state:
+                error.append("State mismatch")
+            elif "error" in qs:
+                error.append(qs["error"][0])
+            else:
+                result["code"] = qs["code"][0]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<h2>OK! You can close this tab.</h2>")
+
+        def log_message(self, *_):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", CALLBACK_PORT), Handler)
+    t = threading.Thread(target=srv.handle_request, daemon=True)
+    t.start()
+
+    print(f"\nOpening browser for login...\n  {url}\n")
+    webbrowser.open(url)
+
+    t.join(timeout=120)
+    srv.server_close()
+
+    if error:
+        raise RuntimeError(f"OAuth error: {error[0]}")
+    if "code" not in result:
+        raise RuntimeError("No authorization code received (timeout?)")
+
+    return _exchange_code(result["code"], verifier)
+
+
+# --------------- Device Code flow ---------------
+
+
+def login_device() -> TokenSet:
+    r = httpx.post(
+        DEVICE_CODE_URL,
+        json={"client_id": CLIENT_ID},
+        headers={"Content-Type": "application/json"},
+    )
+    r.raise_for_status()
+    d = r.json()
+    device_id = d["device_auth_id"]
+    user_code = d["user_code"]
+    interval = int(d.get("interval", 5))
+
+    print(f"\n  Go to: https://auth.openai.com/codex/device")
+    print(f"  Enter code: {user_code}\n")
+
+    deadline = time.time() + 900  # 15 min
+    while time.time() < deadline:
+        time.sleep(interval)
+        r = httpx.post(
+            DEVICE_TOKEN_URL,
+            json={
+                "device_auth_id": device_id,
+                "user_code": user_code,
+            },
+            headers={"Content-Type": "application/json"},
+        )
+
+        if r.status_code in (403, 404):
+            continue  # pending
+        r.raise_for_status()
+
+        d = r.json()
+        auth_code = d["authorization_code"]
+        code_verifier = d["code_verifier"]
+        return _exchange_code(auth_code, code_verifier, DEVICE_CALLBACK)
+
+    raise RuntimeError("Device code login timed out")
+
+
+def login(method: str = "browser") -> TokenSet:
+    if method == "device":
+        return login_device()
+    return login_browser()
+
+
+def logout():
+    if AUTH_FILE.exists():
+        AUTH_FILE.unlink()
+        print("Logged out.")
