@@ -36,7 +36,7 @@ config.resolve_model(agent_name)
 providers.get_provider("github-copilot")  ← registry from entry points
       │  CopilotProvider instance
       ▼
-provider.stream(model_id, messages, tools, system)
+provider.stream(messages, model_id, tools)
       │  async iterator of str | Message
       ▼
 _run_agentic_loop  ← consumes chunks, executes tool calls, builds message history
@@ -85,10 +85,9 @@ class ToolCall:
 
 @dataclass
 class Message:
-    role: str               # "user" | "assistant" | "tool"
+    role: Literal["user", "assistant", "system"]
     content: str
     tool_calls: list[ToolCall] = field(default_factory=list)
-    tool_call_id: str | None = None
 
 class ProviderPlugin(Protocol):
     id: str                 # e.g. "github-copilot"
@@ -96,18 +95,17 @@ class ProviderPlugin(Protocol):
 
     def list_models(self) -> list[str]: ...
 
-    async def stream(
+    def stream(
         self,
-        model: str,
         messages: list[Message],
-        tools: list[Tool],
-        system: str,
-    ) -> AsyncIterator[Message | str]:
-        # yields: str (text chunk) or Message (completed tool_call)
+        model: str,
+        tools: list[Tool] | None = None,
+    ) -> AsyncIterator[str | Message]:
+        # yields: str (text chunk) or Message (complete assistant message)
         ...
 
     def auth_required(self) -> bool: ...
-    async def login(self) -> None: ...
+    def login(self) -> None: ...
     def is_authenticated(self) -> bool: ...
 ```
 
@@ -278,7 +276,7 @@ async def _run_agentic_loop(task, agent_name=None, ...):
     while True:
         chunks = []
         tool_calls = []
-        async for item in provider.stream(model_id, messages, TOOLS, SYSTEM_PROMPT):
+        async for item in provider.stream(messages, model_id, TOOLS):
             if isinstance(item, str):
                 chunks.append(item)
                 print(item, end="", flush=True)
