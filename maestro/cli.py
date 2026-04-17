@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import warnings
 
 from maestro import auth
 from maestro.agent import run
@@ -13,6 +14,17 @@ def main():
         description="LangGraph agent using your ChatGPT Plus/Pro subscription",
     )
     sub = parser.add_subparsers(dest="command")
+
+    # auth
+    auth_p = sub.add_parser("auth", help="Authentication management")
+    auth_sub = auth_p.add_subparsers(dest="auth_command")
+    auth_login_p = auth_sub.add_parser("login", help="Authenticate with a provider")
+    auth_login_p.add_argument(
+        "provider", nargs="?", default="chatgpt", help="Provider to authenticate with"
+    )
+    auth_login_p.add_argument(
+        "--device", action="store_true", help="Use device code flow (headless)"
+    )
 
     # login
     login_p = sub.add_parser("login", help="Authenticate with ChatGPT")
@@ -58,7 +70,27 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "login":
+    if args.command == "auth":
+        if args.auth_command == "login":
+            if args.provider != "chatgpt":
+                print(f"Unknown provider: {args.provider}. Available: chatgpt")
+                sys.exit(1)
+            method = "device" if args.device else "browser"
+            ts = auth.login(method)
+            print(f"Logged in as: {ts.email or ts.account_id}")
+        else:
+            auth_p.print_help()
+
+    elif args.command == "login":
+        print(
+            "'maestro login' is deprecated. Use 'maestro auth login chatgpt' instead.",
+            file=sys.stderr,
+        )
+        warnings.warn(
+            "'maestro login' is deprecated. Use 'maestro auth login chatgpt' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         method = "device" if args.device else "browser"
         ts = auth.login(method)
         print(f"Logged in as: {ts.email or ts.account_id}")

@@ -36,6 +36,64 @@ AUTH_FILE = Path(
     os.environ.get("MAESTRO_AUTH_FILE", Path.home() / ".maestro" / "auth.json")
 )
 
+
+def _read_store() -> dict:
+    """Read the full auth store from disk. Auto-migrate old flat format."""
+    if not AUTH_FILE.exists():
+        return {}
+    try:
+        data = json.loads(AUTH_FILE.read_text())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Invalid auth store at {AUTH_FILE}; remove or repair the file."
+        ) from exc
+    if isinstance(data, dict) and "access" in data and "chatgpt" not in data:
+        data = {"chatgpt": data}
+        _write_store(data)
+    if not isinstance(data, dict) or any(
+        not isinstance(provider_data, dict) for provider_data in data.values()
+    ):
+        raise RuntimeError(
+            f"Invalid auth store at {AUTH_FILE}; remove or repair the file."
+        )
+    return data
+
+
+def _write_store(store: dict) -> None:
+    """Write the full auth store to disk with secure permissions."""
+    AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(AUTH_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(json.dumps(store))
+    AUTH_FILE.chmod(0o600)
+
+
+def get(provider_id: str) -> dict | None:
+    """Get credentials for a specific provider."""
+    return _read_store().get(provider_id)
+
+
+def set(provider_id: str, data: dict) -> None:
+    """Store credentials for a specific provider."""
+    store = _read_store()
+    store[provider_id] = data
+    _write_store(store)
+
+
+def remove(provider_id: str) -> bool:
+    """Remove stored credentials for a specific provider."""
+    store = _read_store()
+    if provider_id not in store:
+        return False
+    del store[provider_id]
+    _write_store(store)
+    return True
+
+
+def all_providers() -> list[str]:
+    """List all provider IDs with stored credentials."""
+    return list(_read_store().keys())
+
 MODELS = [
     "gpt-5.4",
     "gpt-5.4-mini",
@@ -80,25 +138,22 @@ class TokenSet:
 
 
 def _save(tokens: TokenSet):
-    AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
-    AUTH_FILE.write_text(
-        json.dumps(
-            {
-                "access": tokens.access,
-                "refresh": tokens.refresh,
-                "expires": tokens.expires,
-                "account_id": tokens.account_id,
-                "email": tokens.email,
-            }
-        )
+    set(
+        "chatgpt",
+        {
+            "access": tokens.access,
+            "refresh": tokens.refresh,
+            "expires": tokens.expires,
+            "account_id": tokens.account_id,
+            "email": tokens.email,
+        },
     )
-    AUTH_FILE.chmod(0o600)
 
 
 def load() -> TokenSet | None:
-    if not AUTH_FILE.exists():
+    data = get("chatgpt")
+    if data is None:
         return None
-    data = json.loads(AUTH_FILE.read_text())
     return TokenSet(**data)
 
 
@@ -313,6 +368,7 @@ def login(method: str = "browser") -> TokenSet:
 
 
 def logout():
-    if AUTH_FILE.exists():
-        AUTH_FILE.unlink()
+    if remove("chatgpt"):
         print("Logged out.")
+    else:
+        print("Not logged in.")
