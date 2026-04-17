@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: Provider Plugin Protocol** - Define the ProviderPlugin Protocol and neutral streaming types
 - [ ] **Phase 2: Multi-Slot Auth Store** - Refactor auth to per-provider storage with backward compatibility
-- [ ] **Phase 3: ChatGPT Provider Migration** - Move existing HTTP/SSE logic into ChatGPTProvider
+- [x] **Phase 3: ChatGPT Provider Migration** - Move existing HTTP/SSE logic into ChatGPTProvider
 - [ ] **Phase 4: Config & Provider Registry** - Runtime discovery, model resolution, and provider registry
 - [ ] **Phase 5: Agent Loop Refactor** - Wire provider.stream() into the agentic loop with zero regressions
 - [ ] **Phase 6: Auth & Model CLI Commands** - Expose auth management and model discovery to users
@@ -53,19 +53,23 @@ Plans:
 Plans:
 - [ ] 02-01: TBD
 
-### Phase 3: ChatGPT Provider Migration
+### Phase 3: ChatGPT Provider Migration ✅ COMPLETE
 **Goal**: Existing ChatGPT HTTP/SSE logic is encapsulated in a provider class implementing the Protocol
 **Depends on**: Phase 1, Phase 2
 **Requirements**: PROV-03, LOOP-04
 **Success Criteria** (what must be TRUE):
-  1. `ChatGPTProvider` class exists in `maestro.providers.chatgpt` and implements the full `ProviderPlugin` Protocol
-  2. All ChatGPT-specific SSE parsing and HTTP connection logic is moved from `agent.py` to `providers/chatgpt.py`
-  3. ChatGPT provider is registered in `pyproject.toml` entry points under `maestro.providers` group
-  4. A backward-compat re-export shim exists in `auth.py` for any imported `TokenSet` references
-**Plans**: 1 plan
+  1. ✅ `ChatGPTProvider` class exists in `maestro.providers.chatgpt` and implements the full `ProviderPlugin` Protocol
+  2. ✅ All ChatGPT-specific SSE parsing and HTTP connection logic is moved from `agent.py` to `providers/chatgpt.py`
+  3. ✅ ChatGPT provider is registered in `pyproject.toml` entry points under `maestro.providers` group
+  4. ✅ A backward-compat re-export shim exists in `auth.py` for any imported `TokenSet` references
+**Plans**: 1 plan (COMPLETE)
+**Artifacts**:
+  - `maestro/providers/chatgpt.py` (331 lines) - ChatGPTProvider implementation
+  - `tests/test_chatgpt_provider.py` (374 lines) - 28 tests
+  - 6 commits, 102 total tests passing
 
 Plans:
-- [ ] 03-01-PLAN.md — Create ChatGPTProvider with HTTP/SSE logic, register entry point, add backward-compat shims
+- [x] 03-01-PLAN.md — Create ChatGPTProvider with HTTP/SSE logic, register entry point, add backward-compat shims
 
 ### Phase 4: Config & Provider Registry
 **Goal**: Providers are discovered at runtime via entry points and models are resolved through a priority chain
