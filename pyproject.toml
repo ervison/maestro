@@ -19,6 +19,9 @@ dev = [
 [project.scripts]
 maestro = "maestro.cli:main"
 
+[project.entry-points."maestro.providers"]
+chatgpt = "maestro.providers.chatgpt:ChatGPTProvider"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
