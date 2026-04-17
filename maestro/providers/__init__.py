@@ -7,6 +7,7 @@ from .base import (
     ToolCall,
     ToolResult,
 )
+from .chatgpt import ChatGPTProvider
 
 __all__ = [
     "Message",
@@ -14,4 +15,5 @@ __all__ = [
     "Tool",
     "ToolCall",
     "ToolResult",
+    "ChatGPTProvider",
 ]
