@@ -65,7 +65,7 @@ class ProviderPlugin(Protocol):
         """Return list of available model IDs for this provider."""
         ...
 
-    async def stream(
+    def stream(
         self,
         messages: list[Message],
         model: str,
