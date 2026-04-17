@@ -520,7 +520,7 @@ elif args.command == "login":
 **Deprecated/outdated:**
 - `_save(tokens: TokenSet)` as the primary write path: delegates to `set("chatgpt", ...)` in this phase
 - `load()` as the primary read path: delegates to `get("chatgpt")` in this phase
-- `maestro login` / `maestro logout` / `maestro status` as top-level commands: deprecated in favor of `maestro auth login/logout/status`
+- `maestro login` as the top-level command deprecated in favor of `maestro auth login chatgpt`; top-level `maestro logout` and `maestro status` remain unchanged in Phase 2
 
 ## Assumptions Log
 
@@ -533,22 +533,25 @@ elif args.command == "login":
 
 **If this table is empty:** All claims in this research were verified or cited — no user confirmation needed.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `_read_store()` auto-migrate or require explicit migration?**
    - What we know: The old format is `{access, refresh, ...}` and new format is `{"chatgpt": {access, refresh, ...}}`.
    - What's unclear: Whether auto-migration could cause issues if the file is partially written (crash during write).
    - Recommendation: Auto-migrate on read — it's the simplest user experience and the risk is minimal (file is <1KB, write is atomic at the OS level for small writes).
+   - RESOLVED: Auto-migrate on read in Phase 2.
 
 2. **Should `maestro auth login` (no provider arg) default to "chatgpt" or error?**
-   - What we know: AUTH-08 says old `maestro auth login` shows deprecation warning. New `maestro auth login chatgpt` is the preferred form.
+   - What we know: AUTH-08 requires the legacy login path to warn and route users to `maestro auth login chatgpt`. The new canonical command is provider-aware.
    - What's unclear: Whether `maestro auth login` (without a provider) should work and default to chatgpt.
-   - Recommendation: Default to "chatgpt" when no provider is specified — matches existing behavior, provides smooth transition. Print a hint: "Defaulting to 'chatgpt'. Use 'maestro auth login <provider>' to specify."
+   - Recommendation: Default to "chatgpt" when no provider is specified — matches existing behavior and provides a smooth transition.
+   - RESOLVED: `maestro auth login` defaults to `chatgpt` with no extra provider-selection prompt.
 
 3. **Should `maestro auth status` show token expiry details or just "authenticated/not authenticated"?**
    - What we know: AUTH-06 says "show all providers and their auth state." Phase 6 implements AUTH-06 fully.
    - What's unclear: Whether this phase should show per-provider expiry details.
    - Recommendation: Minimal implementation in Phase 2: list providers + "authenticated" or "not authenticated". Full details (expiry, email) deferred to Phase 6.
+   - RESOLVED: Deferred entirely for Phase 2 because top-level `status` remains unchanged in this phase; richer provider-aware status work belongs to later phases.
 
 ## Environment Availability
 
