@@ -120,15 +120,61 @@
 
 | REQ-ID | Phase | Description |
 |--------|-------|-------------|
-| PROV-01..06 | Provider Plugin System | ProviderPlugin Protocol and registry |
-| AUTH-01..08 | Auth & CLI Commands | Multi-slot auth store and auth subcommands |
-| CONF-01..05 | Config & Model Resolution | Config file and model resolution |
-| LOOP-01..04 | Agent Loop Refactor | _run_agentic_loop provider integration |
-| COPILOT-01..05 | GitHub Copilot Provider | CopilotProvider implementation |
-| STATE-01..04 | DAG State & Types | AgentState, PlanTask, AgentPlan, DAG validator |
-| PLAN-01..04 | Planner | LLM-driven DAG planning node |
-| SCHED-01..04 | Scheduler | Topological sort + Send API dispatch |
-| WORK-01..08 | Workers | Parallel agentic workers with recursion |
-| DOM-01..04 | Domain System | domains.py and specialized prompts |
-| AGG-01..02 | Aggregator | Optional final summary pass |
-| CLI-01..04 | CLI Multi-Agent | --multi flag and lifecycle events |
+| PROV-01 | Phase 1 | ProviderPlugin Protocol definition |
+| PROV-06 | Phase 1 | Neutral types: Message, Tool, ToolCall |
+| AUTH-01 | Phase 2 | Per-provider auth.json storage (0o600) |
+| AUTH-02 | Phase 2 | Auth public API: get/set/remove/all_providers |
+| AUTH-08 | Phase 2 | Backward compat: existing `maestro auth login` routes to chatgpt |
+| PROV-03 | Phase 3 | ChatGPT registered via pyproject.toml entry points |
+| LOOP-04 | Phase 3 | ChatGPT encapsulates SSE parsing and HTTP logic |
+| PROV-02 | Phase 4 | Provider discovery via importlib.metadata entry points |
+| PROV-04 | Phase 4 | get_provider() ValueError on unknown ID |
+| PROV-05 | Phase 4 | Third-party providers installable via pip |
+| CONF-01 | Phase 4 | Model resolution priority chain |
+| CONF-02 | Phase 4 | provider_id/model_id format validation |
+| CONF-05 | Phase 4 | Optional config file with graceful fallback |
+| LOOP-01 | Phase 5 | provider.stream() replaces httpx.stream() |
+| LOOP-02 | Phase 5 | RuntimeError with actionable auth message |
+| LOOP-03 | Phase 5 | All 26 existing tests pass unchanged |
+| AUTH-03 | Phase 6 | `maestro auth login chatgpt` |
+| AUTH-05 | Phase 6 | `maestro auth logout <provider-id>` |
+| AUTH-06 | Phase 6 | `maestro auth status` |
+| CONF-03 | Phase 6 | `--model` flag on run subcommand |
+| CONF-04 | Phase 6 | `maestro models` subcommand |
+| COPILOT-01 | Phase 7 | CopilotProvider implements ProviderPlugin |
+| COPILOT-02 | Phase 7 | Neutral type ↔ OpenAI wire format conversion |
+| COPILOT-03 | Phase 7 | Copilot API endpoint with required headers |
+| COPILOT-04 | Phase 7 | list_models() returns Copilot model IDs |
+| COPILOT-05 | Phase 7 | is_authenticated() returns False when no token |
+| AUTH-04 | Phase 7 | `maestro auth login github-copilot` (device code OAuth) |
+| AUTH-07 | Phase 7 | slow_down interval handling in OAuth polling |
+| STATE-01 | Phase 8 | AgentState with Annotated reducers for parallel writes |
+| STATE-02 | Phase 8 | PlanTask Pydantic model |
+| STATE-03 | Phase 8 | AgentPlan Pydantic model |
+| STATE-04 | Phase 8 | DAG cycle and dep reference validator |
+| DOM-01 | Phase 8 | Domain system in maestro/domains.py |
+| DOM-02 | Phase 8 | 6 built-in domains |
+| DOM-03 | Phase 8 | `general` domain as fallback |
+| DOM-04 | Phase 8 | Domain prompts instruct domain scoping |
+| PLAN-01 | Phase 9 | Planner node returns validated AgentPlan JSON |
+| PLAN-02 | Phase 9 | Planner uses configurable fast/cheap model |
+| PLAN-03 | Phase 9 | Planner prompt: atomic tasks, domain assignment |
+| PLAN-04 | Phase 9 | Output validated by model_validate_json() |
+| SCHED-01 | Phase 10 | Topological sort + Send API dispatch |
+| SCHED-02 | Phase 10 | Per-task state snapshot in Send payload |
+| SCHED-03 | Phase 10 | Re-evaluate and dispatch newly unblocked tasks |
+| SCHED-04 | Phase 10 | Repeat until all tasks complete |
+| WORK-01 | Phase 10 | Worker = _run_agentic_loop with domain prompt |
+| WORK-02 | Phase 10 | Workers share --workdir filesystem |
+| WORK-03 | Phase 10 | Path guard enforced inside every Worker |
+| WORK-04 | Phase 10 | Worker output appended via reducers |
+| WORK-05 | Phase 10 | Worker errors non-fatal, execution continues |
+| WORK-06 | Phase 10 | Recursive sub-Planner on subtask (optional) |
+| WORK-07 | Phase 10 | depth is required argument, no default |
+| WORK-08 | Phase 10 | Default max_depth=2, configurable |
+| AGG-01 | Phase 11 | Aggregator produces final summary |
+| AGG-02 | Phase 11 | Aggregator optional, skipped when not requested |
+| CLI-01 | Phase 11 | `maestro run --multi "task"` activates DAG |
+| CLI-02 | Phase 11 | --auto and --workdir pass-through to workers |
+| CLI-03 | Phase 11 | Without --multi, zero regressions |
+| CLI-04 | Phase 11 | Lifecycle events printed to stdout |
