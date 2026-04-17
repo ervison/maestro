@@ -34,10 +34,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. `ProviderPlugin` Protocol is importable from `maestro.providers.base` with all required methods (id, name, list_models, stream, auth_required, login, is_authenticated)
   2. `Message`, `Tool`, `ToolCall` neutral types are importable and carry all fields needed for provider-neutral communication
   3. A test class implementing the Protocol passes runtime `isinstance()` check
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md — Define ProviderPlugin Protocol and neutral types (Message, Tool, ToolCall, ToolResult)
 
 ### Phase 2: Multi-Slot Auth Store
 **Goal**: Credentials are stored per-provider in a dedicated auth file with a clean public API
