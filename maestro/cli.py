@@ -32,7 +32,20 @@ def main():
         default=auth.DEFAULT_MODEL,
         help=f"Model to use (default: {auth.DEFAULT_MODEL}). Run 'maestro models' for list.",
     )
-    run_p.add_argument("-s", "--system", default=None, help="System prompt")
+    run_p.add_argument(
+        "-s", "--system", default=None, help="System prompt / instructions"
+    )
+    run_p.add_argument(
+        "--auto",
+        action="store_true",
+        help="Skip confirmation prompts for destructive actions",
+    )
+    run_p.add_argument(
+        "--workdir",
+        default=None,
+        metavar="PATH",
+        help="Working directory for file tools (default: current directory)",
+    )
 
     # models
     models_p = sub.add_parser("models", help="List available models")
@@ -98,8 +111,13 @@ def main():
             print(f"Token:      expired (will refresh on next use)")
 
     elif args.command == "run":
+        from pathlib import Path
+
+        wd = Path(args.workdir).resolve() if args.workdir else Path.cwd()
         try:
-            result = run(args.model, args.prompt, args.system)
+            result = run(
+                args.model, args.prompt, args.system, workdir=wd, auto=args.auto
+            )
             print(result)
         except RuntimeError as e:
             msg = str(e)
