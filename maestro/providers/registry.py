@@ -66,7 +66,14 @@ def discover_providers() -> dict[str, type[ProviderPlugin]]:
                     f"Provider entry point '{ep.name}' does not implement ProviderPlugin"
                 )
             provider_id = instance.id
+            if provider_id in providers:
+                raise ValueError(
+                    f"Duplicate provider id '{provider_id}' from entry point '{ep.name}'"
+                )
             providers[provider_id] = provider_class
+        except ValueError:
+            # Re-raise ValueError for duplicate provider IDs
+            raise
         except Exception:
             # Skip providers that fail to load or don't satisfy the contract
             # In production, we might want to log this
@@ -140,9 +147,12 @@ def get_default_provider() -> ProviderPlugin:
             # Skip providers that fail to instantiate/check auth
             continue
 
-    # No usable provider found - fail explicitly
+    # No usable provider found - fallback to ChatGPT if available
+    if "chatgpt" in providers:
+        return providers["chatgpt"]()
+
     raise ValueError(
-        "No usable provider found. "
+        "No usable provider found and no ChatGPT fallback is installed. "
         "Either authenticate a provider (maestro auth login) "
         "or install a provider that doesn't require authentication."
     )
