@@ -136,3 +136,27 @@ def test_execute_shell_timeout(tmp_path):
     assert "timed out" in result["error"]
     assert "stdout" in result
     assert "stderr" in result
+
+
+def test_execute_tool_read(tmp_path):
+    from maestro.tools import execute_tool
+    (tmp_path / "f.txt").write_text("hello")
+    result = execute_tool("read_file", {"path": "f.txt"}, tmp_path, auto=True)
+    assert result["content"] == "hello"
+
+def test_execute_tool_unknown(tmp_path):
+    from maestro.tools import execute_tool
+    result = execute_tool("nonexistent_tool", {}, tmp_path, auto=True)
+    assert "error" in result
+
+def test_execute_tool_destructive_denied(tmp_path, monkeypatch):
+    from maestro.tools import execute_tool
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+    result = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=False)
+    assert result == {"error": "user denied"}
+    assert not (tmp_path / "x.py").exists()
+
+def test_execute_tool_destructive_auto(tmp_path):
+    from maestro.tools import execute_tool
+    result = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=True)
+    assert result == {"ok": True}

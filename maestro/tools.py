@@ -157,3 +157,145 @@ def execute_shell(args: dict, workdir: Path) -> dict:
             "stdout": e.stdout or "",
             "stderr": e.stderr or "",
         }
+
+
+_TOOL_FNS = {
+    "read_file": read_file,
+    "write_file": write_file,
+    "create_file": create_file,
+    "list_directory": list_directory,
+    "delete_file": delete_file,
+    "move_file": move_file,
+    "search_in_files": search_in_files,
+    "execute_shell": execute_shell,
+}
+
+
+def _confirm(tool_name: str, args: dict) -> bool:
+    summary = ", ".join(f"{k}={v!r}" for k, v in list(args.items())[:3])
+    print(f"\n  [maestro] {tool_name}({summary})")
+    ans = input("  Execute? [y/N]: ").strip().lower()
+    return ans in ("y", "yes")
+
+
+def execute_tool(name: str, args: dict, workdir: Path, auto: bool = False) -> dict:
+    fn = _TOOL_FNS.get(name)
+    if fn is None:
+        return {"error": f"Unknown tool: {name}"}
+    if name in DESTRUCTIVE_TOOLS and not auto:
+        if not _confirm(name, args):
+            return {"error": "user denied"}
+    try:
+        return fn(args, workdir)
+    except PathOutsideWorkdirError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": f"Tool error: {e}"}
+
+
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "name": "read_file",
+        "description": "Read the contents of a file. Optionally specify a line range.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file (relative to workdir)"},
+                "start_line": {"type": "integer", "description": "First line to read (1-indexed, inclusive)"},
+                "end_line": {"type": "integer", "description": "Last line to read (1-indexed, inclusive)"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "write_file",
+        "description": "Create or overwrite a file with the given content.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file (relative to workdir)"},
+                "content": {"type": "string", "description": "Full file content to write"},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "create_file",
+        "description": "Create a new file. Fails if the file already exists.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "list_directory",
+        "description": "List files and directories at the given path.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory path relative to workdir (default '.')"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
+        "name": "delete_file",
+        "description": "Delete a file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "move_file",
+        "description": "Move or rename a file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string"},
+                "destination": {"type": "string"},
+            },
+            "required": ["source", "destination"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "search_in_files",
+        "description": "Search for a regex pattern across files. Returns up to 100 matches.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "description": "Regex pattern to search for"},
+                "path": {"type": "string", "description": "Directory to search (default '.')"},
+                "include": {"type": "string", "description": "Glob pattern for files (default '*')"},
+            },
+            "required": ["pattern"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "execute_shell",
+        "description": "Run a shell command in the workdir. Returns stdout, stderr, and returncode.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Shell command to execute"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default 30)"},
+            },
+            "required": ["command"],
+        },
+    },
+]
