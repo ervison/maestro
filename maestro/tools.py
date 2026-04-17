@@ -5,6 +5,7 @@ All paths are validated to remain within workdir.
 
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -129,3 +130,28 @@ def move_file(args: dict, workdir: Path) -> dict:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dst))
     return {"ok": True}
+
+
+def execute_shell(args: dict, workdir: Path) -> dict:
+    cmd = args["command"]
+    timeout = args.get("timeout", 30)
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            cwd=workdir,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "error": f"Command timed out after {timeout}s",
+            "stdout": "",
+            "stderr": "",
+        }

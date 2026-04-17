@@ -111,3 +111,26 @@ def test_move_file(tmp_path):
     assert result == {"ok": True}
     assert (tmp_path / "dst.py").exists()
     assert not (tmp_path / "src.py").exists()
+
+
+def test_execute_shell_success(tmp_path):
+    from maestro.tools import execute_shell
+
+    result = execute_shell({"command": "echo hello"}, tmp_path)
+    assert result["returncode"] == 0
+    assert "hello" in result["stdout"]
+
+
+def test_execute_shell_failure(tmp_path):
+    from maestro.tools import execute_shell
+
+    result = execute_shell({"command": "false"}, tmp_path)
+    assert result["returncode"] != 0
+
+
+def test_execute_shell_timeout(tmp_path):
+    from maestro.tools import execute_shell
+
+    result = execute_shell({"command": "sleep 60", "timeout": 1}, tmp_path)
+    assert "error" in result
+    assert "timed out" in result["error"]
