@@ -70,6 +70,19 @@ class TestMessage:
         msg2 = Message(role="user", content="hi")
         assert msg1 == msg2
 
+    def test_create_tool_result_message(self):
+        from maestro.providers.base import Message
+
+        msg = Message(role="tool", content='{"result": "ok"}', tool_call_id="call_1")
+        assert msg.role == "tool"
+        assert msg.tool_call_id == "call_1"
+
+    def test_tool_call_id_defaults_to_none(self):
+        from maestro.providers.base import Message
+
+        msg = Message(role="user", content="Hello")
+        assert msg.tool_call_id is None
+
 
 class TestTool:
     def test_create_tool(self):

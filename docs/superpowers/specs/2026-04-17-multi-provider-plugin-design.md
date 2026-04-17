@@ -85,9 +85,10 @@ class ToolCall:
 
 @dataclass
 class Message:
-    role: Literal["user", "assistant", "system"]
+    role: Literal["user", "assistant", "system", "tool"]
     content: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+    tool_call_id: str | None = None
 
 class ProviderPlugin(Protocol):
     id: str                 # e.g. "github-copilot"
