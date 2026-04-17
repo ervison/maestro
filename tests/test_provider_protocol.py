@@ -134,8 +134,10 @@ class MockProvider:
         model: str,
         tools: list | None = None,
     ) -> AsyncIterator[str]:
+        from maestro.providers.base import Message
         yield "Hello "
         yield "world!"
+        yield Message(role="assistant", content="Hello world!")
 
     def auth_required(self) -> bool:
         return True
@@ -215,17 +217,18 @@ class TestProviderPlugin:
 
     @pytest.mark.asyncio
     async def test_mock_provider_stream(self):
-        """Verify stream yields strings."""
+        """Verify stream yields strings and final Message."""
         from maestro.providers.base import Message
         provider = MockProvider()
         messages = [Message(role="user", content="Hi")]
-        
+
         chunks = []
         async for chunk in provider.stream(messages, "mock-model-1"):
             chunks.append(chunk)
-        
+
         assert chunks[0] == "Hello "
         assert chunks[1] == "world!"
+        assert chunks[-1] == Message(role="assistant", content="Hello world!")
 
 
 # ============== Import Tests ==============
