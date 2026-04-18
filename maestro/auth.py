@@ -15,7 +15,7 @@ import time
 import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 
@@ -163,10 +163,14 @@ def _extract_email(id_token: str) -> str:
 
 
 def _generate_pkce() -> tuple[str, str]:
-    verifier = secrets.token_urlsafe(32)
+    verifier = base64.urlsafe_b64encode(secrets.token_bytes(64)).rstrip(b"=").decode()
     digest = hashlib.sha256(verifier.encode()).digest()
     challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
     return verifier, challenge
+
+
+def _generate_state() -> str:
+    return secrets.token_hex(16)
 
 
 # --------------- Token exchange ---------------
@@ -234,7 +238,7 @@ def ensure_valid(ts: TokenSet) -> TokenSet:
 
 def login_browser() -> TokenSet:
     verifier, challenge = _generate_pkce()
-    state = secrets.token_hex(16)
+    state = _generate_state()
 
     params = {
         "response_type": "code",
@@ -248,20 +252,43 @@ def login_browser() -> TokenSet:
         "codex_cli_simplified_flow": "true",
         "originator": "codex_cli_rs",
     }
-    url = f"{AUTHORIZE_URL}?{urlencode(params)}"
+    # Use urlencode (encodes spaces as '+') to match JS URLSearchParams behavior.
+    # OpenAI's auth server may reject %20-encoded scope values.
+    from urllib.parse import urlencode
+    query = urlencode(params)
+    url = f"{AUTHORIZE_URL}?{query}"
 
     result: dict = {}
     error: list = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            qs = parse_qs(urlparse(self.path).query)
+            parsed = urlparse(self.path)
+            # Reject anything that isn't /auth/callback
+            if parsed.path != "/auth/callback":
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"Not found")
+                return
+            qs = parse_qs(parsed.query)
             if qs.get("state", [None])[0] != state:
-                error.append("State mismatch")
-            elif "error" in qs:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"State mismatch")
+                return
+            if "error" in qs:
                 error.append(qs["error"][0])
-            else:
-                result["code"] = qs["code"][0]
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"OAuth error")
+                return
+            code = qs.get("code", [None])[0]
+            if not code:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Missing code")
+                return
+            result["code"] = code
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
@@ -271,13 +298,22 @@ def login_browser() -> TokenSet:
             pass
 
     srv = http.server.HTTPServer(("127.0.0.1", CALLBACK_PORT), Handler)
-    t = threading.Thread(target=srv.handle_request, daemon=True)
+    srv.timeout = 1  # poll every 1 second
+
+    def serve_until_done():
+        deadline = time.time() + 300  # 5 minutes, matching JS plugin
+        while time.time() < deadline:
+            if result or error:
+                return
+            srv.handle_request()
+
+    t = threading.Thread(target=serve_until_done, daemon=True)
     t.start()
 
     print(f"\nOpening browser for login...\n  {url}\n")
     webbrowser.open(url)
 
-    t.join(timeout=120)
+    t.join(timeout=300)
     srv.server_close()
 
     if error:
@@ -356,4 +392,3 @@ def __getattr__(name: str):
 
         return getattr(chatgpt, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-

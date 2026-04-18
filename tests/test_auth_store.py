@@ -1,7 +1,12 @@
+import re
 import sys
+import threading
+import time
 import warnings
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 
 from maestro import agent, auth, cli
@@ -206,6 +211,71 @@ def test_auth_login_defaults_to_chatgpt(monkeypatch, capsys):
     assert "Logged in as: test@example.com" in capsys.readouterr().out
 
 
+def test_login_browser_matches_working_plugin_authorize_url(monkeypatch):
+    opened = {}
+
+    class DummyServer:
+        timeout = 1
+
+        def handle_request(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    class DummyThread:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def start(self):
+            return None
+
+        def join(self, timeout=None):
+            return None
+
+    monkeypatch.setattr(auth, "_generate_pkce", lambda: ("verifier", "challenge"))
+    monkeypatch.setattr(auth, "_generate_state", lambda: "state-token")
+    monkeypatch.setattr(auth.http.server, "HTTPServer", lambda *args, **kwargs: DummyServer())
+    monkeypatch.setattr(auth.threading, "Thread", DummyThread)
+    monkeypatch.setattr(auth.webbrowser, "open", lambda url: opened.setdefault("url", url))
+
+    with pytest.raises(RuntimeError, match="No authorization code received"):
+        auth.login_browser()
+
+    # urlencode uses '+' for spaces (matching JS URLSearchParams)
+    assert "scope=openid+profile+email+offline_access" in opened["url"]
+
+    parsed = urlparse(opened["url"])
+    params = parse_qs(parsed.query)
+
+    assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == auth.AUTHORIZE_URL
+    assert params["redirect_uri"] == ["http://127.0.0.1:1455/auth/callback"]
+    assert params["scope"] == ["openid profile email offline_access"]
+    assert params["code_challenge"] == ["challenge"]
+    assert params["code_challenge_method"] == ["S256"]
+    assert params["state"] == ["state-token"]
+    assert params["originator"] == ["codex_cli_rs"]
+    assert params["codex_cli_simplified_flow"] == ["true"]
+    assert params["id_token_add_organizations"] == ["true"]
+
+
+def test_generate_pkce_matches_upstream_codex_shape():
+    verifier, challenge = auth._generate_pkce()
+
+    assert len(verifier) == 86
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", verifier)
+    assert len(challenge) == 43
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", challenge)
+
+
+def test_generate_state_matches_working_plugin_shape():
+    state = auth._generate_state()
+
+    assert len(state) == 32
+    assert re.fullmatch(r"[a-f0-9]+", state)
+
+
 def test_auth_login_uses_discovered_provider(monkeypatch, capsys):
     class DummyProvider:
         @property
@@ -397,3 +467,86 @@ def test_run_without_explicit_selection_falls_back_to_chatgpt(monkeypatch, capsy
 
     captured = capsys.readouterr()
     assert "ran:gpt-5.4-mini:hello" in captured.out
+
+
+def test_callback_server_survives_stray_request_before_real_callback(monkeypatch):
+    """The server must not die on a stray /favicon.ico before the real /auth/callback."""
+    monkeypatch.setattr(auth, "_generate_pkce", lambda: ("verifier", "challenge"))
+    monkeypatch.setattr(auth, "_generate_state", lambda: "state-token")
+    monkeypatch.setattr(auth.webbrowser, "open", lambda url: None)
+
+    code_received = {}
+
+    def fake_exchange(code, verifier):
+        code_received["code"] = code
+        return TokenSet(
+            access="tok", refresh="ref", expires=9999999.0,
+            account_id="acc", email="test@example.com",
+        )
+
+    monkeypatch.setattr(auth, "_exchange_code", fake_exchange)
+
+    def do_requests():
+        time.sleep(0.3)
+        # Stray request first (favicon, preflight, etc.)
+        try:
+            httpx.get("http://127.0.0.1:1455/favicon.ico", timeout=2)
+        except Exception:
+            pass
+        time.sleep(0.1)
+        # Real callback
+        try:
+            httpx.get(
+                "http://127.0.0.1:1455/auth/callback",
+                params={"code": "test-code", "state": "state-token"},
+                timeout=2,
+            )
+        except Exception:
+            pass
+
+    t = threading.Thread(target=do_requests, daemon=True)
+    t.start()
+
+    result = auth.login_browser()
+    t.join(timeout=5)
+
+    assert code_received["code"] == "test-code"
+    assert result.email == "test@example.com"
+
+
+def test_callback_server_rejects_wrong_path_with_404(monkeypatch):
+    """Non /auth/callback paths should get 404, not consume the server."""
+    monkeypatch.setattr(auth, "_generate_pkce", lambda: ("verifier", "challenge"))
+    monkeypatch.setattr(auth, "_generate_state", lambda: "state-token")
+    monkeypatch.setattr(auth.webbrowser, "open", lambda url: None)
+    monkeypatch.setattr(auth, "_exchange_code", lambda c, v: TokenSet(
+        access="tok", refresh="ref", expires=9999999.0,
+        account_id="acc", email="test@example.com",
+    ))
+
+    responses = {}
+
+    def do_requests():
+        time.sleep(0.3)
+        try:
+            r = httpx.get("http://127.0.0.1:1455/wrong-path", timeout=2)
+            responses["wrong"] = r.status_code
+        except Exception:
+            pass
+        time.sleep(0.1)
+        try:
+            httpx.get(
+                "http://127.0.0.1:1455/auth/callback",
+                params={"code": "c", "state": "state-token"},
+                timeout=2,
+            )
+        except Exception:
+            pass
+
+    t = threading.Thread(target=do_requests, daemon=True)
+    t.start()
+
+    auth.login_browser()
+    t.join(timeout=5)
+
+    assert responses.get("wrong") == 404
