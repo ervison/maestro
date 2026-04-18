@@ -46,6 +46,26 @@ def test_plantask_deps_empty_list():
     assert task.deps == []
 
 
+def test_plantask_requires_deps_field():
+    """PlanTask requires deps field to be explicitly provided."""
+    with pytest.raises(ValidationError):
+        PlanTask(id="t1", domain="backend", prompt="x")  # missing deps
+
+
+def test_plantask_rejects_invalid_domain():
+    """PlanTask rejects domain values not in the allowed set."""
+    with pytest.raises(ValidationError):
+        PlanTask(id="t1", domain="invalid_domain", prompt="x", deps=[])
+
+
+def test_plantask_rejects_typo_domain():
+    """PlanTask rejects common typo domain names like 'tests' or 'secuirty'."""
+    with pytest.raises(ValidationError):
+        PlanTask(id="t1", domain="tests", prompt="x", deps=[])  # should be "testing"
+    with pytest.raises(ValidationError):
+        PlanTask(id="t1", domain="secuirty", prompt="x", deps=[])  # typo for "security"
+
+
 # --- AgentPlan validation tests ---
 
 
@@ -76,6 +96,37 @@ def test_agentplan_validates_task_types():
     """AgentPlan validates that tasks are PlanTask instances."""
     with pytest.raises(ValidationError):
         AgentPlan(tasks=[{"id": "t1", "domain": "backend"}])  # type: ignore
+
+
+# --- DAG validator tests for malformed inputs ---
+
+
+def test_validate_dag_rejects_duplicate_task_ids():
+    """validate_dag raises ValueError when duplicate task IDs exist."""
+    plan = AgentPlan(
+        tasks=[
+            PlanTask(id="t1", domain="backend", prompt="x", deps=[]),
+            PlanTask(id="t1", domain="testing", prompt="y", deps=[]),  # duplicate ID
+        ]
+    )
+    with pytest.raises(ValueError, match="Duplicate task IDs"):
+        validate_dag(plan)
+
+
+def test_validate_dag_rejects_multiple_duplicate_ids():
+    """validate_dag raises ValueError listing all duplicate IDs."""
+    plan = AgentPlan(
+        tasks=[
+            PlanTask(id="a", domain="backend", prompt="x", deps=[]),
+            PlanTask(id="b", domain="testing", prompt="y", deps=[]),
+            PlanTask(id="a", domain="docs", prompt="z", deps=[]),  # duplicate
+            PlanTask(id="b", domain="devops", prompt="w", deps=[]),  # duplicate
+        ]
+    )
+    with pytest.raises(ValueError) as exc_info:
+        validate_dag(plan)
+    assert "a" in str(exc_info.value)
+    assert "b" in str(exc_info.value)
 
 
 # --- DAG validator tests ---
