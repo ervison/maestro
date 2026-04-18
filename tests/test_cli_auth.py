@@ -1,6 +1,5 @@
 """Tests for auth CLI subcommands."""
 
-import json
 import pytest
 import warnings
 from unittest.mock import patch, MagicMock

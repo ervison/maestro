@@ -250,7 +250,7 @@ def test_login_browser_matches_working_plugin_authorize_url(monkeypatch):
     params = parse_qs(parsed.query)
 
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == auth.AUTHORIZE_URL
-    assert params["redirect_uri"] == ["http://localhost:1455/auth/callback"]
+    assert params["redirect_uri"] == ["http://127.0.0.1:1455/auth/callback"]
     assert params["scope"] == ["openid profile email offline_access api.connectors.read api.connectors.invoke"]
     assert params["code_challenge"] == ["challenge"]
     assert params["code_challenge_method"] == ["S256"]

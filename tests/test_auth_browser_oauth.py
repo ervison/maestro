@@ -3,15 +3,15 @@ from urllib.parse import parse_qs, urlparse
 from maestro import auth
 
 
-def test_authorize_url_uses_localhost_redirect():
+def test_authorize_url_uses_127_0_0_1_redirect():
     url = auth._build_authorize_url(
         auth._build_browser_redirect_uri(4321), "challenge", "state123"
     )
 
     params = parse_qs(urlparse(url).query)
 
-    assert params["redirect_uri"] == ["http://localhost:4321/auth/callback"]
-    assert "127.0.0.1" not in params["redirect_uri"][0]
+    assert params["redirect_uri"] == ["http://127.0.0.1:4321/auth/callback"]
+    assert "localhost" not in params["redirect_uri"][0]
 
 
 def test_authorize_url_includes_connector_scopes():

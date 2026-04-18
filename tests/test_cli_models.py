@@ -1,6 +1,5 @@
 """Tests for models CLI subcommand."""
 
-import json
 import pytest
 from unittest.mock import patch, MagicMock
 from maestro.cli import main

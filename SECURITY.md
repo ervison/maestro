@@ -14,8 +14,6 @@
 ### Unregistered Flags
 None. No `## Threat Flags` were present in the Phase 06 summary.
 
-SECURITY.md: SECURITY.md
-
 ## Accepted Risks
 
 | Threat ID | Rationale | Recorded In |

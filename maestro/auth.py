@@ -25,7 +25,7 @@ TOKEN_URL = "https://auth.openai.com/oauth/token"
 DEVICE_CODE_URL = "https://auth.openai.com/api/accounts/deviceauth/usercode"
 DEVICE_TOKEN_URL = "https://auth.openai.com/api/accounts/deviceauth/token"
 DEVICE_CALLBACK = "https://auth.openai.com/deviceauth/callback"
-CALLBACK_HOST = "localhost"
+CALLBACK_HOST = "127.0.0.1"
 CALLBACK_PORT = 1455
 REDIRECT_URI = f"http://{CALLBACK_HOST}:{CALLBACK_PORT}/auth/callback"
 SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke"
@@ -175,7 +175,7 @@ def _generate_state() -> str:
 
 
 def _build_browser_redirect_uri(port: int) -> str:
-    return f"http://localhost:{port}/auth/callback"
+    return f"http://127.0.0.1:{port}/auth/callback"
 
 
 def _build_authorize_url(redirect_uri: str, challenge: str, state: str) -> str:

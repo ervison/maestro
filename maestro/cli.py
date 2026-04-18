@@ -221,7 +221,8 @@ def main():
                     print(f"(Provider may require authentication: maestro auth login {args.provider})")
                 else:
                     print(f"Unknown provider: '{args.provider}'")
-                    print(f"Available providers: {', '.join(discovered)}")
+                    available = ", ".join(sorted(discovered)) if discovered else "(none installed)"
+                    print(f"Available providers: {available}")
                 sys.exit(1)
             models_by_provider = {args.provider: provider_models}
 
