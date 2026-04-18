@@ -117,6 +117,30 @@ class TestAuthStatus:
         assert "chatgpt" in captured.out
         assert "authenticated" in captured.out
 
+    def test_auth_status_lists_all_discovered_providers(self, monkeypatch, capsys):
+        """auth status reports every discovered provider with its own auth state."""
+        authenticated = MagicMock()
+        authenticated.is_authenticated.return_value = True
+        unauthenticated = MagicMock()
+        unauthenticated.is_authenticated.return_value = False
+
+        providers = {
+            "chatgpt": authenticated,
+            "github-copilot": unauthenticated,
+        }
+
+        with patch(
+            "maestro.providers.registry.list_providers",
+            return_value=["chatgpt", "github-copilot"],
+        ):
+            with patch("maestro.cli.get_provider", side_effect=providers.__getitem__):
+                monkeypatch.setattr("sys.argv", ["maestro", "auth", "status"])
+                main()
+
+        captured = capsys.readouterr()
+        assert "chatgpt: authenticated" in captured.out
+        assert "github-copilot: not authenticated" in captured.out
+
     def test_auth_status_not_authenticated(self, monkeypatch, capsys):
         """auth status shows not authenticated for providers without credentials."""
         mock_provider = MagicMock()

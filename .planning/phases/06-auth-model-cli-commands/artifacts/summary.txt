@@ -1,0 +1,4 @@
+Verification summary for Phase 06
+AUTH_HELP_CHECK=FAIL
+MODELS_HELP_CHECK=FAIL
+PYTEST_CLI=PASS

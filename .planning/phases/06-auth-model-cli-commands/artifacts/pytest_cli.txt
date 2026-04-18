@@ -1,0 +1,3 @@
+ERROR:pytest_ansible.units:No galaxy.yml file found, plugin not activated
+....................                                                     [100%]
+20 passed in 0.41s
