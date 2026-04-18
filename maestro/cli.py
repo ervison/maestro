@@ -213,17 +213,18 @@ def main():
 
         if args.provider:
             # Filter to single provider
-            if args.provider not in models_by_provider:
-                # Check if provider exists but has no models
+            provider_models = models_by_provider.get(args.provider)
+            if provider_models is None or not provider_models:
+                # Provider not in dict or has empty list
                 discovered = list_providers()
                 if args.provider in discovered:
                     print(f"Provider '{args.provider}' has no available models.")
-                    print("(Provider may require authentication: maestro auth login " + args.provider + ")")
+                    print(f"(Provider may require authentication: maestro auth login {args.provider})")
                 else:
                     print(f"Unknown provider: '{args.provider}'")
                     print(f"Available providers: {', '.join(discovered)}")
                 sys.exit(1)
-            models_by_provider = {args.provider: models_by_provider[args.provider]}
+            models_by_provider = {args.provider: provider_models}
 
         if not models_by_provider:
             print("No models available. Authenticate a provider first:")
