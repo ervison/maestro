@@ -54,7 +54,7 @@ class PlanTask(BaseModel):
     )
     prompt: str = Field(description="Specific instruction for this worker")
     deps: list[str] = Field(
-        default_factory=list, description="IDs of tasks that must complete first"
+        ..., description="IDs of tasks that must complete first"
     )
 
 
