@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-17)
 
 **Core value:** A developer runs `maestro run --multi "task"` and gets all parts done in parallel by specialized agents
-**Current focus:** Phase 5 — Agent Loop Refactor (next up)
+**Current focus:** Phase 7 — GitHub Copilot Provider (next up)
 
 ## Current Position
 

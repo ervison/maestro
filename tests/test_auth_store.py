@@ -251,7 +251,7 @@ def test_login_browser_matches_working_plugin_authorize_url(monkeypatch):
 
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == auth.AUTHORIZE_URL
     assert params["redirect_uri"] == ["http://127.0.0.1:1455/auth/callback"]
-    assert params["scope"] == ["openid profile email offline_access"]
+    assert params["scope"] == ["openid profile email offline_access api.connectors.read api.connectors.invoke"]
     assert params["code_challenge"] == ["challenge"]
     assert params["code_challenge_method"] == ["S256"]
     assert params["state"] == ["state-token"]
@@ -336,18 +336,19 @@ def test_old_login_shows_deprecation(monkeypatch, capsys):
     assert "Logged in as: test@example.com" in captured.out
 
 
-def test_old_logout_no_deprecation(monkeypatch):
+def test_old_logout_deprecation(monkeypatch):
+    """Old logout command shows deprecation warning and calls auth.remove."""
     calls = []
 
-    monkeypatch.setattr(auth, "logout", lambda: calls.append("logout"))
+    monkeypatch.setattr(auth, "remove", lambda pid: calls.append(("remove", pid)) or True)
     monkeypatch.setattr(sys, "argv", ["maestro", "logout"])
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         cli.main()
 
-    assert calls == ["logout"]
-    assert not any(item.category is DeprecationWarning for item in caught)
+    assert calls == [("remove", "chatgpt")]
+    assert any(item.category is DeprecationWarning for item in caught)
 
 
 def test_old_status_no_deprecation(monkeypatch, capsys):
@@ -477,7 +478,7 @@ def test_callback_server_survives_stray_request_before_real_callback(monkeypatch
 
     code_received = {}
 
-    def fake_exchange(code, verifier):
+    def fake_exchange(code, verifier, redirect=None):
         code_received["code"] = code
         return TokenSet(
             access="tok", refresh="ref", expires=9999999.0,
@@ -519,7 +520,7 @@ def test_callback_server_rejects_wrong_path_with_404(monkeypatch):
     monkeypatch.setattr(auth, "_generate_pkce", lambda: ("verifier", "challenge"))
     monkeypatch.setattr(auth, "_generate_state", lambda: "state-token")
     monkeypatch.setattr(auth.webbrowser, "open", lambda url: None)
-    monkeypatch.setattr(auth, "_exchange_code", lambda c, v: TokenSet(
+    monkeypatch.setattr(auth, "_exchange_code", lambda c, v, r=None: TokenSet(
         access="tok", refresh="ref", expires=9999999.0,
         account_id="acc", email="test@example.com",
     ))

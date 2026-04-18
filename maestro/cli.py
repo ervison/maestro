@@ -20,6 +20,8 @@ def main():
     # auth
     auth_p = sub.add_parser("auth", help="Authentication management")
     auth_sub = auth_p.add_subparsers(dest="auth_command")
+
+    # auth login
     auth_login_p = auth_sub.add_parser("login", help="Authenticate with a provider")
     auth_login_p.add_argument(
         "provider", nargs="?", default="chatgpt", help="Provider to authenticate with"
@@ -27,6 +29,15 @@ def main():
     auth_login_p.add_argument(
         "--device", action="store_true", help="Use device code flow (headless)"
     )
+
+    # auth logout
+    auth_logout_p = auth_sub.add_parser("logout", help="Log out of a provider")
+    auth_logout_p.add_argument(
+        "provider", help="Provider to log out of"
+    )
+
+    # auth status
+    auth_sub.add_parser("status", help="Show authentication status for all providers")
 
     # login
     login_p = sub.add_parser("login", help="Authenticate with ChatGPT")
@@ -73,6 +84,12 @@ def main():
     models_p.add_argument(
         "--refresh", action="store_true", help="Force refresh models from models.dev catalog"
     )
+    models_p.add_argument(
+        "--provider",
+        default=None,
+        metavar="ID",
+        help="Show models only from this provider",
+    )
 
     # status
     sub.add_parser("status", help="Show auth status")
@@ -92,6 +109,46 @@ def main():
                     print(str(e))
                     sys.exit(1)
                 provider.login()
+
+        elif args.auth_command == "logout":
+            from maestro.providers.registry import list_providers
+
+            # Validate provider exists (discovered or has stored credentials)
+            discovered = set(list_providers())
+            stored = set(auth.all_providers())
+            known = discovered | stored
+
+            if args.provider not in known:
+                print(f"Unknown provider: '{args.provider}'")
+                print(f"Available providers: {', '.join(sorted(known)) or '(none installed)'}")
+                sys.exit(1)
+
+            if auth.remove(args.provider):
+                print(f"Logged out of {args.provider}.")
+            else:
+                print(f"Not logged in to {args.provider}.")
+                sys.exit(1)
+
+        elif args.auth_command == "status":
+            from maestro.providers.registry import list_providers
+
+            discovered = list_providers()
+
+            if not discovered:
+                print("No providers installed.")
+                sys.exit(0)
+
+            print("Provider Status:")
+            for pid in discovered:
+                try:
+                    provider = get_provider(pid)
+                    if provider.is_authenticated():
+                        print(f"  {pid}: authenticated")
+                    else:
+                        print(f"  {pid}: not authenticated")
+                except Exception:
+                    print(f"  {pid}: error loading provider")
+
         else:
             auth_p.print_help()
 
@@ -110,9 +167,23 @@ def main():
         print(f"Logged in as: {ts.email or ts.account_id}")
 
     elif args.command == "logout":
-        auth.logout()
+        print(
+            "'maestro logout' is deprecated. Use 'maestro auth logout chatgpt' instead.",
+            file=sys.stderr,
+        )
+        warnings.warn(
+            "'maestro logout' is deprecated. Use 'maestro auth logout chatgpt' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if auth.remove("chatgpt"):
+            print("Logged out of chatgpt.")
+        else:
+            print("Not logged in to chatgpt.")
 
     elif args.command == "models":
+        from maestro.models import get_available_models, format_model_list
+        from maestro.providers.registry import list_providers
         from maestro.providers.chatgpt import fetch_models, probe_available_models
 
         if args.refresh:
@@ -122,44 +193,52 @@ def main():
         if args.check:
             ts = auth.load()
             if not ts:
-                print("Not logged in.")
+                print("Not logged in to ChatGPT.")
                 sys.exit(1)
             ts = auth.ensure_valid(ts)
-            print("Probing models (this may take a moment)...")
+            print("Probing ChatGPT models (this may take a moment)...")
             available = probe_available_models(ts, force=True)
             all_models = fetch_models()
             for m in all_models:
                 if m in available:
-                    print(f"  {m}  [available]")
+                    print(f"  chatgpt/{m}  [available]")
                 else:
-                    print(f"  {m}  [not available for your account]")
+                    print(f"  chatgpt/{m}  [not available]")
             print(f"\n{len(available)}/{len(all_models)} models available.")
-        else:
-            # Show only available models (cached probe)
-            ts = auth.load()
-            if not ts:
-                # Not logged in — show full catalog
-                models = fetch_models()
-                print(f"Default: {auth.DEFAULT_MODEL}")
-                print("All known models (login to see which are available):")
-                for m in models:
-                    marker = " *" if m == auth.DEFAULT_MODEL else ""
-                    print(f"  {m}{marker}")
-            else:
-                ts = auth.ensure_valid(ts)
-                available = probe_available_models(ts)
-                if not available:
-                    print("No cached availability data. Run: maestro models --check")
-                    models = fetch_models()
-                    print(f"\nAll known models:")
-                    for m in models:
-                        print(f"  {m}")
+            return
+
+        # Multi-provider listing
+        models_by_provider = get_available_models()
+
+        if args.provider:
+            # Filter to single provider
+            provider_models = models_by_provider.get(args.provider)
+            if provider_models is None or not provider_models:
+                # Provider not in dict or has empty list
+                discovered = list_providers()
+                if args.provider in discovered:
+                    print(f"Provider '{args.provider}' has no available models.")
+                    print(f"(Provider may require authentication: maestro auth login {args.provider})")
                 else:
-                    print(f"Default: {auth.DEFAULT_MODEL}")
-                    print(f"Available models ({len(available)}):")
-                    for m in available:
-                        marker = " *" if m == auth.DEFAULT_MODEL else ""
-                        print(f"  {m}{marker}")
+                    print(f"Unknown provider: '{args.provider}'")
+                    available = ", ".join(sorted(discovered)) if discovered else "(none installed)"
+                    print(f"Available providers: {available}")
+                sys.exit(1)
+            models_by_provider = {args.provider: provider_models}
+
+        # Filter out providers with empty model lists
+        models_by_provider = {
+            provider_id: models
+            for provider_id, models in models_by_provider.items()
+            if models
+        }
+
+        if not models_by_provider:
+            print("No models available. Authenticate a provider first:")
+            print("  maestro auth login chatgpt")
+            sys.exit(0)
+
+        print(format_model_list(models_by_provider))
 
     elif args.command == "status":
         ts = auth.load()

@@ -15,9 +15,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Provider Plugin Protocol** - Define the ProviderPlugin Protocol and neutral streaming types
 - [ ] **Phase 2: Multi-Slot Auth Store** - Refactor auth to per-provider storage with backward compatibility
 - [x] **Phase 3: ChatGPT Provider Migration** - Move existing HTTP/SSE logic into ChatGPTProvider
-- [ ] **Phase 4: Config & Provider Registry** - Runtime discovery, model resolution, and provider registry
+- [x] **Phase 4: Config & Provider Registry** - Runtime discovery, model resolution, and provider registry ✅ COMPLETE (2026-04-18)
 - [x] **Phase 5: Agent Loop Refactor** - Wire provider.stream() into the agentic loop with zero regressions ✅ COMPLETE (2026-04-18)
-- [ ] **Phase 6: Auth & Model CLI Commands** - Expose auth management and model discovery to users
+- [x] **Phase 6: Auth & Model CLI Commands** - Expose auth management and model discovery to users ✅ COMPLETE (2026-04-18)
 - [ ] **Phase 7: GitHub Copilot Provider** - Second provider with device code OAuth
 - [ ] **Phase 8: DAG State, Types & Domains** - Multi-agent type system and domain prompt definitions
 - [ ] **Phase 9: Planner** - LLM-driven DAG generation with structured output validation
@@ -71,20 +71,23 @@ Plans:
 Plans:
 - [x] 03-01-PLAN.md — Create ChatGPTProvider with HTTP/SSE logic, register entry point, add backward-compat shims
 
-### Phase 4: Config & Provider Registry
+### Phase 4: Config & Provider Registry ✅ COMPLETE
 **Goal**: Providers are discovered at runtime via entry points and models are resolved through a priority chain
 **Depends on**: Phase 1, Phase 3
 **Requirements**: PROV-02, PROV-04, PROV-05, CONF-01, CONF-02, CONF-05
 **Success Criteria** (what must be TRUE):
-  1. `get_provider("chatgpt")` returns the ChatGPT provider instance via `importlib.metadata` entry point discovery
-  2. `get_provider("nonexistent")` raises `ValueError` with a list of available provider IDs
-  3. `resolve_model()` follows the priority chain: `--model` flag → `MAESTRO_MODEL` env → `config.agent.<name>.model` → `config.model` → first model of first authenticated provider
-  4. Model string `"provider_id/model_id"` format is validated; invalid format raises `ValueError` with guidance message
-  5. Absent `~/.maestro/config.json` falls back gracefully to ChatGPT as default provider
-**Plans**: 1 plan
+  1. ✅ `get_provider("chatgpt")` returns the ChatGPT provider instance via `importlib.metadata` entry point discovery
+  2. ✅ `get_provider("nonexistent")` raises `ValueError` with a list of available provider IDs
+  3. ✅ `resolve_model()` follows the priority chain: `--model` flag → `MAESTRO_MODEL` env → `config.agent.<name>.model` → `config.model` → first model of first authenticated provider
+  4. ✅ Model string `"provider_id/model_id"` format is validated; invalid format raises `ValueError` with guidance message
+  5. ✅ Absent `~/.maestro/config.json` falls back gracefully to ChatGPT as default provider
+**Plans**: 1 plan (COMPLETE)
+**Artifacts**:
+  - `.planning/phases/04-provider-registry/04-01-SUMMARY.md`
+  - `.planning/phases/04-provider-registry/04-SHIP.md`
 
 Plans:
-- [ ] 04-01-PLAN.md — Provider registry discovery and config-driven model resolution
+- [x] 04-01-PLAN.md — Provider registry discovery and config-driven model resolution
 
 ### Phase 5: Agent Loop Refactor
 **Goal**: The agentic loop delegates all HTTP communication to the provider abstraction with zero regressions
@@ -100,20 +103,25 @@ Plans:
 Plans:
 - [x] 05-01-PLAN.md — Refactor _run_agentic_loop to use provider.stream() with zero regressions
 
-### Phase 6: Auth & Model CLI Commands
+### Phase 6: Auth & Model CLI Commands ✅ COMPLETE
 **Goal**: Users can manage authentication and discover models through CLI subcommands
 **Depends on**: Phase 2, Phase 4
 **Requirements**: AUTH-03, AUTH-05, AUTH-06, CONF-03, CONF-04
 **Success Criteria** (what must be TRUE):
-  1. `maestro auth login chatgpt` authenticates and stores credentials for the ChatGPT provider
-  2. `maestro auth logout chatgpt` removes stored credentials for a specific provider
-  3. `maestro auth status` shows all providers and their authentication state (authenticated/not authenticated)
-  4. `maestro models` lists available models from all authenticated providers
-  5. `maestro run --model github-copilot/gpt-4o "task"` resolves and uses the specified provider/model
-**Plans**: TBD
+  1. ✅ `maestro auth login chatgpt` authenticates and stores credentials for the ChatGPT provider
+  2. ✅ `maestro auth logout chatgpt` removes stored credentials for a specific provider
+  3. ✅ `maestro auth status` shows all providers and their authentication state (authenticated/not authenticated)
+  4. ✅ `maestro models` lists available models from all authenticated providers
+  5. ✅ `maestro run --model github-copilot/gpt-4o "task"` resolves and uses the specified provider/model
+**Plans**: 1 plan (COMPLETE)
+**Artifacts**:
+  - `maestro/cli.py` (+98/-31 lines) — Auth and models subcommands
+  - `tests/test_cli_auth.py` (170 lines, 11 tests) — Auth CLI tests
+  - `tests/test_cli_models.py` (132 lines, 8 tests) — Models CLI tests
+  - 6 commits, 225 total tests passing
 
 Plans:
-- [ ] 06-01: TBD
+- [x] 06-01-PLAN.md — Add auth login/logout/status and models CLI subcommands with multi-provider support
 
 ### Phase 7: GitHub Copilot Provider
 **Goal**: Users can authenticate with GitHub Copilot via device code OAuth and use it as an alternative provider
