@@ -78,13 +78,58 @@ class CopilotProvider:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                # Accept a few common shapes for returned models
-                models = data.get("models") or data.get("model_ids") or data.get("available_models")
-                if isinstance(models, list) and all(isinstance(m, str) for m in models):
+
+                # Normalise a few common shapes for returned models.
+                # Possible shapes observed across providers:
+                # - { "models": ["id1", "id2"] }
+                # - { "models": [{"id": "id1"}, {"id": "id2"}] }
+                # - { "available_models": ["id1"] }
+                # - { "model_ids": {"id1": {...}, "id2": {...}} }
+                models = []
+
+                if isinstance(data, dict):
+                    # Try list fields first
+                    for key in ("models", "available_models", "model_ids"):
+                        if key in data:
+                            val = data[key]
+                            # If it's a list of strings
+                            if isinstance(val, list) and all(isinstance(m, str) for m in val):
+                                models = val
+                                break
+                            # If it's a list of dicts with id/name
+                            if isinstance(val, list) and all(isinstance(m, dict) for m in val):
+                                extracted = []
+                                for item in val:
+                                    mid = item.get("id") or item.get("model") or item.get("name")
+                                    if isinstance(mid, str):
+                                        extracted.append(mid)
+                                if extracted:
+                                    models = extracted
+                                    break
+                            # If it's a dict mapping ids -> metadata
+                            if isinstance(val, dict):
+                                # keys are model ids
+                                keys = [k for k in val.keys() if isinstance(k, str)]
+                                if keys:
+                                    models = keys
+                                    break
+
+                    # As a last resort, if the top-level object looks like a mapping of
+                    # model_id -> metadata, return its keys.
+                    if not models:
+                        top_keys = [k for k in data.keys() if isinstance(k, str)]
+                        # Heuristic: if many keys and values are dicts, treat as model map
+                        if top_keys and all(isinstance(data[k], dict) for k in top_keys):
+                            models = top_keys
+
+                # If we found a list of model ids, return it
+                if isinstance(models, list) and all(isinstance(m, str) for m in models) and models:
                     return models
+
             except Exception:
                 logger.debug("Failed to fetch models from Copilot API; falling back to static list", exc_info=True)
 
+        # Fallback: return the known static list (GPT-focused) so CLI remains useful
         return COPILOT_MODELS.copy()
 
     async def stream(
@@ -399,5 +444,4 @@ def _convert_tools_to_wire(tools: list[Tool]) -> list[dict]:
         }
         for tool in tools
     ]
-
 
