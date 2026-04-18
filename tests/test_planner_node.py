@@ -49,6 +49,23 @@ async def _mock_stream_cycle(*args, **kwargs):
     yield Message(role="assistant", content=plan_json)
 
 
+async def _mock_stream_invalid_schema(*args, **kwargs):
+    """Async generator that yields valid JSON with schema violations."""
+    yield Message(
+        role="assistant",
+        content=json.dumps({
+            "tasks": [
+                {
+                    "id": "t1",
+                    "domain": "backend",
+                    "prompt": "Write a simple API endpoint",
+                    # Missing required `deps`
+                }
+            ]
+        }),
+    )
+
+
 async def _mock_stream_with_markdown(*args, **kwargs):
     """Async generator that yields JSON wrapped in markdown fences."""
     plan_json = json.dumps(_make_valid_plan_dict())
@@ -186,6 +203,30 @@ def test_cycle_rejection():
                 planner_node(state)
 
 
+def test_schema_validation_rejection():
+    """Valid JSON with wrong schema should be rejected after 3 retries."""
+    mock_provider = MockProvider(stream_generator=_mock_stream_invalid_schema)
+
+    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
+        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+            state: AgentState = {
+                "task": "Create a simple API",
+                "dag": {},
+                "completed": [],
+                "outputs": {},
+                "errors": [],
+                "depth": 0,
+                "max_depth": 10,
+                "workdir": "/tmp",
+                "auto": False,
+            }
+
+            with pytest.raises(ValueError, match="Planner failed"):
+                planner_node(state)
+
+    assert len(mock_provider.stream_calls) == 3
+
+
 def test_config_model_resolution():
     """Mock config with agent.planner.model set → correct provider/model used."""
     mock_provider = MockProvider(stream_generator=_mock_stream_valid)
@@ -251,6 +292,29 @@ def test_config_provider_resolution():
 
     # Verify the provider was resolved via get_provider
     # (the test passes if get_provider was called, which we verified via the patch)
+
+
+def test_default_provider_first_model_used_when_config_absent():
+    """When planner model is unset, first default-provider model should be used."""
+    mock_provider = MockProvider(stream_generator=_mock_stream_valid, models=["planner-default", "backup-model"])
+
+    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
+        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+            state: AgentState = {
+                "task": "Create a simple API",
+                "dag": {},
+                "completed": [],
+                "outputs": {},
+                "errors": [],
+                "depth": 0,
+                "max_depth": 10,
+                "workdir": "/tmp",
+                "auto": False,
+            }
+
+            planner_node(state)
+
+    assert mock_provider.stream_calls[0]["model"] == "planner-default"
 
 
 def test_retry_success():
@@ -348,6 +412,35 @@ def test_planner_exports_prompt():
     assert "security" in PLANNER_SYSTEM_PROMPT
     assert "data" in PLANNER_SYSTEM_PROMPT
     assert "general" in PLANNER_SYSTEM_PROMPT
+
+
+def test_provider_receives_schema_enforced_system_prompt_and_user_task():
+    """Planner should send schema-rich system prompt and original task to provider."""
+    mock_provider = MockProvider(stream_generator=_mock_stream_valid)
+    task = "Build a REST API with tests and docs"
+
+    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
+        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+            state: AgentState = {
+                "task": task,
+                "dag": {},
+                "completed": [],
+                "outputs": {},
+                "errors": [],
+                "depth": 0,
+                "max_depth": 10,
+                "workdir": "/tmp",
+                "auto": False,
+            }
+
+            planner_node(state)
+
+    messages = mock_provider.stream_calls[0]["messages"]
+    assert messages[0].role == "system"
+    assert '"title": "AgentPlan"' in messages[0].content
+    assert "Prefer FEWER larger tasks over many tiny ones" in messages[0].content
+    assert messages[1].role == "user"
+    assert task in messages[1].content
 
 
 def test_config_fallback_to_default_provider():
