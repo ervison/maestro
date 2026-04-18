@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 4 shipped, ready for next phase
-stopped_at: Phase 4 shipped
-last_updated: "2026-04-18T01:25:00Z"
-last_activity: 2026-04-18 -- Phase 4 shipped after review, security, validation, and verification
+status: Phase 5 complete, ready for Phase 6
+stopped_at: Phase 5 complete
+last_updated: "2026-04-18T03:25:00Z"
+last_activity: 2026-04-18 -- Phase 5 agent loop refactor complete, 190 tests passing
 progress:
   total_phases: 11
-  completed_phases: 4
-  total_plans: 5
-  completed_plans: 5
-  percent: 36
+  completed_phases: 5
+  total_plans: 6
+  completed_plans: 6
+  percent: 45
 ---
 
 # Maestro — Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-17)
 
 ## Current Position
 
-Phase: 4 of 11 (Config & Provider Registry)
+Phase: 5 of 11 (Agent Loop Refactor)
 Plan: 1 of 1 in current phase
-Status: Shipped, ready for next phase
-Last activity: 2026-04-18 -- Phase 4 shipped
+Status: Complete, ready for Phase 6
+Last activity: 2026-04-18 -- Phase 5 agent loop refactor complete
 
-Progress: [████░░░░░░] 36%
+Progress: [█████░░░░░] 45%
 
 ## Performance Metrics
 
@@ -49,8 +49,14 @@ Progress: [████░░░░░░] 36%
 
 **Recent Trend:**
 
-- Last shipped phase: 04-provider-registry
+- Last shipped phase: 05-agent-loop-refactor
 - Trend: On track
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 03-chatgpt-provider-migration | 1 | 8 min | 8 min |
+| 04-provider-registry | 1 | n/a | n/a |
+| 05-agent-loop-refactor | 1 | 30 min | 30 min |
 
 *Updated after each plan completion*
 
@@ -69,6 +75,8 @@ Recent decisions affecting current work:
 - [Phase 01]: Use typing.Protocol (not ABC) - structural typing for third-party providers
 - [Phase 03]: Use `__getattr__` for lazy re-exports to avoid circular imports between auth.py and chatgpt.py
 - [Phase 03]: Keep auth.py as primary credential store, chatgpt.py as consumer (not owner) of auth data
+- [Phase 05]: Provider handles auth validation internally; loop surfaces provider's RuntimeError unchanged
+- [Phase 05]: Use asyncio.run() to bridge sync _run_agentic_loop with async provider.stream()
 
 ### Pending Todos
 
@@ -88,9 +96,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-18T01:25:00Z
-Stopped at: Phase 4 shipped
-Resume file: .planning/phases/04-provider-registry/04-SHIP.md
+Last session: 2026-04-18T03:25:00Z
+Stopped at: Phase 5 complete
+Resume file: .planning/phases/05-agent-loop-refactor/05-01-SUMMARY.md
 
 ## Completed Work
 
@@ -128,3 +136,23 @@ Resume file: .planning/phases/04-provider-registry/04-SHIP.md
 - `.planning/phases/04-provider-registry/04-VERIFICATION.md`
 - `.planning/phases/04-provider-registry/04-SHIP.md`
 - `SECURITY.md`
+
+**Phase 5: Agent Loop Refactor**
+
+- ✅ Refactored `_run_agentic_loop` to use `provider.stream()` instead of direct HTTP
+- ✅ Added sync wrapper `_run_provider_stream_sync()` for async provider streaming
+- ✅ Added type conversion helpers: `_convert_tool_schemas()`, `_convert_messages_to_neutral()`
+- ✅ Updated `run()` to acquire provider via `get_default_provider()` from registry
+- ✅ Updated tests to mock provider instead of httpx (2 tests)
+- ✅ All 190 tests passing with zero regressions (exceeds 26+ requirement)
+- ✅ LOOP-01, LOOP-02, LOOP-03 requirements satisfied
+
+**Commits:**
+
+- `bc693c6`: feat(05-01): refactor agent loop to use provider.stream()
+- `37001ea`: test(05-01): update agent loop tests to mock provider
+- `db947fc`: docs(05-01): add plan execution summary
+
+**Artifacts:**
+
+- `.planning/phases/05-agent-loop-refactor/05-01-SUMMARY.md`
