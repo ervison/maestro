@@ -24,6 +24,10 @@ from maestro.providers.base import ProviderPlugin
 PROVIDER_ENTRY_GROUP = "maestro.providers"
 
 
+class DuplicateProviderError(ValueError):
+    """Raised when two installed providers claim the same provider ID."""
+
+
 def _is_usable(provider: ProviderPlugin) -> bool:
     """Check if a provider is usable (doesn't require auth or is authenticated).
 
@@ -179,12 +183,12 @@ def discover_providers() -> dict[str, type[ProviderPlugin]]:
                 )
             provider_id = instance.id
             if provider_id in providers:
-                raise ValueError(
+                raise DuplicateProviderError(
                     f"Duplicate provider id '{provider_id}' from entry point '{ep.name}'"
                 )
             providers[provider_id] = provider_class
-        except ValueError:
-            # Re-raise ValueError for duplicate provider IDs
+        except DuplicateProviderError:
+            # Re-raise only the duplicate-ID error; let callers handle it
             raise
         except Exception:
             # Skip providers that fail to load or don't satisfy the contract
@@ -234,8 +238,9 @@ def get_default_provider() -> ProviderPlugin:
     """Get the default provider based on authentication state.
 
     Resolution order:
-    1. First usable provider (authenticated or auth-free)
-    2. ChatGPT fallback, if installed
+    1. First authenticated provider (auth_required and is_authenticated)
+    2. ChatGPT fallback, if installed (even when unauthenticated, for backward compatibility)
+    3. First auth-free provider (auth_required=False)
 
     Returns:
         Instantiated provider implementing ProviderPlugin Protocol
@@ -249,28 +254,33 @@ def get_default_provider() -> ProviderPlugin:
     if not providers:
         raise ValueError("No providers installed. Install a provider package.")
 
-    chatgpt_fallback: type[ProviderPlugin] | None = None
+    chatgpt_fallback: ProviderPlugin | None = None
+    auth_free_fallback: ProviderPlugin | None = None
 
     for provider_id, provider_class in providers.items():
-        if provider_id == "chatgpt":
-            chatgpt_fallback = provider_class
         try:
             instance = provider_class()
-            if _is_usable(instance):
+            if instance.auth_required() and instance.is_authenticated():
+                # Authenticated provider found - return immediately
                 return instance
+            if provider_id == "chatgpt":
+                chatgpt_fallback = instance
+            elif not instance.auth_required() and auth_free_fallback is None:
+                auth_free_fallback = instance
         except Exception:
             # Skip providers that fail to instantiate/check auth
             continue
 
-    # No usable provider found - fallback to ChatGPT if available
+    # No authenticated provider found; fall back in priority order
     if chatgpt_fallback is not None:
-        try:
-            return chatgpt_fallback()
-        except Exception:
-            pass
+        return chatgpt_fallback
+
+    if auth_free_fallback is not None:
+        return auth_free_fallback
 
     raise ValueError(
-        "No usable provider found and no ChatGPT fallback is installed. "
+        "No usable provider found: no authenticated providers, ChatGPT is not installed, "
+        "and no auth-free providers are available. "
         "Either authenticate a provider (maestro auth login) "
         "or install a provider that doesn't require authentication."
     )

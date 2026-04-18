@@ -192,10 +192,10 @@ class TestResolveModel:
             registry.discover_providers = original
             registry.discover_providers.cache_clear()
 
-    def test_priority_5_uses_auth_free_provider_when_no_authenticated_provider_exists(
+    def test_priority_5_prefers_chatgpt_over_auth_free_when_no_authenticated_provider(
         self, monkeypatch
     ):
-        """Generic resolution returns an auth-free provider before ChatGPT fallback."""
+        """When no providers are authenticated, ChatGPT wins over an auth-free provider."""
         from functools import lru_cache
 
         from maestro.providers import chatgpt, registry
@@ -223,6 +223,46 @@ class TestResolveModel:
                 "auth-free": AuthFreeProvider,
                 "chatgpt": chatgpt.ChatGPTProvider,
             }
+
+        original = registry.discover_providers
+        monkeypatch.setattr(registry, "discover_providers", mock_discover)
+        mock_discover.cache_clear()
+
+        try:
+            # ChatGPT is returned before auth-free when no provider is authenticated
+            provider, model_id = models.resolve_model()
+            assert provider.id == "chatgpt"
+            assert model_id == chatgpt.DEFAULT_MODEL
+        finally:
+            registry.discover_providers = original
+            registry.discover_providers.cache_clear()
+
+    def test_priority_5_uses_auth_free_provider_when_chatgpt_not_installed(
+        self, monkeypatch
+    ):
+        """Auth-free provider is used when ChatGPT is not installed."""
+        from functools import lru_cache
+
+        from maestro.providers import registry
+
+        class AuthFreeProvider:
+            id = "auth-free"
+
+            def auth_required(self):
+                return False
+
+            def is_authenticated(self):
+                return False
+
+            def list_models(self):
+                return ["free-model"]
+
+        cfg = config.Config()
+        monkeypatch.setattr(config, "load", lambda: cfg)
+
+        @lru_cache(maxsize=1)
+        def mock_discover():
+            return {"auth-free": AuthFreeProvider}
 
         original = registry.discover_providers
         monkeypatch.setattr(registry, "discover_providers", mock_discover)

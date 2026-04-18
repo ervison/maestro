@@ -266,7 +266,7 @@ class TestDuplicateProviderIds:
         registry.discover_providers.cache_clear()
 
         try:
-            with pytest.raises(ValueError) as exc_info:
+            with pytest.raises(registry.DuplicateProviderError) as exc_info:
                 registry.discover_providers()
 
             assert "Duplicate provider id" in str(exc_info.value)
@@ -274,6 +274,63 @@ class TestDuplicateProviderIds:
             assert "provider-two" in str(exc_info.value)
         finally:
             # Restore
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_provider_raising_value_error_on_load_is_skipped(self, monkeypatch):
+        """A provider whose ep.load() raises ValueError does not abort discovery."""
+        from functools import lru_cache
+
+        class ValidProvider:
+            def __init__(self):
+                self.id = "valid"
+
+            @property
+            def name(self):
+                return "Valid"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class RaisingEntryPoint:
+            name = "raising-ep"
+
+            def load(self):
+                raise ValueError("simulated provider init error")
+
+        class ValidEntryPoint:
+            name = "valid-ep"
+
+            def load(self):
+                return ValidProvider
+
+        def mock_entry_points(group):
+            return [RaisingEntryPoint(), ValidEntryPoint()]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(registry.discover_providers.__wrapped__)
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            # The misbehaving provider is skipped; the valid one still loads
+            assert "valid" in providers
+        finally:
             registry.discover_providers = original_discover
             registry.discover_providers.cache_clear()
 

@@ -44,7 +44,11 @@ def main():
         "-m",
         "--model",
         default=None,
-        help="Model to use (format: provider_id/model_id). Run 'maestro models' for list. Defaults to chatgpt/gpt-5.4-mini.",
+        help=(
+            "Model to use (format: provider_id/model_id). Run 'maestro models' for list. "
+            "When omitted, resolution uses --model > environment/config > "
+            f"chatgpt/{DEFAULT_MODEL}."
+        ),
     )
     run_p.add_argument(
         "-s", "--system", default=None, help="System prompt / instructions"

@@ -68,7 +68,8 @@ def resolve_model(
     2. MAESTRO_MODEL environment variable
     3. config.agent.<agent_name>.model (if agent_name provided)
     4. config.model (global default)
-    5. First model of first authenticated provider (or chatgpt fallback)
+    5. First authenticated provider; ChatGPT when no provider is authenticated
+       (even if unauthenticated, for backward compatibility); then first auth-free provider
 
     Args:
         model_flag: Value from --model CLI flag (highest priority)
