@@ -147,12 +147,17 @@ def main():
             sys.exit(0)
 
         if args.check:
+            # Announce which provider's probe is being used. By default we
+            # use the ChatGPT/Responses API probe. (If provider-specific
+            # probing is later added, this printed label should reflect that.)
+            provider_label = getattr(args, "provider", None) or "chatgpt"
+            print(f"Probing models for provider: {provider_label} (this may take a moment)...")
+
             ts = auth.load()
             if not ts:
                 print("Not logged in.")
                 sys.exit(1)
             ts = auth.ensure_valid(ts)
-            print("Probing models (this may take a moment)...")
             available = probe_available_models(ts, force=True)
             all_models = fetch_models()
             for m in all_models:
