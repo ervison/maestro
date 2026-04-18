@@ -84,11 +84,12 @@ def main():
     models_p.add_argument(
         "--refresh", action="store_true", help="Force refresh models from models.dev catalog"
     )
+    # Allow filtering models by provider (e.g. --provider github-copilot)
     models_p.add_argument(
         "--provider",
+        dest="provider",
         default=None,
-        metavar="ID",
-        help="Show models only from this provider",
+        help="Filter models to a specific provider id (e.g. 'github-copilot')",
     )
 
     # status
@@ -190,13 +191,41 @@ def main():
             print("Refreshing models from models.dev...")
             fetch_models(force=True)
 
+        # If a provider filter is requested, try to use its list_models()
+        if args.provider:
+            if args.check:
+                print("Error: --check cannot be combined with --provider.")
+                sys.exit(1)
+
+            try:
+                provider = get_provider(args.provider)
+            except ValueError as e:
+                print(str(e))
+                sys.exit(1)
+
+            try:
+                models = provider.list_models()
+            except Exception as e:
+                print(f"Error listing models for provider '{args.provider}': {e}")
+                sys.exit(1)
+
+            print(f"Models for provider '{args.provider}':")
+            for m in models:
+                print(f"  {m}")
+            sys.exit(0)
+
         if args.check:
+            # Announce which provider's probe is being used. By default we
+            # use the ChatGPT/Responses API probe. (If provider-specific
+            # probing is later added, this printed label should reflect that.)
+            provider_label = getattr(args, "provider", None) or "chatgpt"
+            print(f"Probing models for provider: {provider_label} (this may take a moment)...")
+
             ts = auth.load()
             if not ts:
                 print("Not logged in to ChatGPT.")
                 sys.exit(1)
             ts = auth.ensure_valid(ts)
-            print("Probing ChatGPT models (this may take a moment)...")
             available = probe_available_models(ts, force=True)
             all_models = fetch_models()
             for m in all_models:
@@ -283,15 +312,19 @@ def main():
                 provider = get_provider("chatgpt")
                 model_id = DEFAULT_MODEL
 
-            # Phase 5 will wire alternate providers; for now, reject non-ChatGPT providers
+            # Phase 5 will wire alternate providers; allow runtime providers that
+            # implement stream() to be executed. If the provider is missing
+            # stream() or raises at runtime, surface the error from run().
+            # This relaxes the legacy guard that prevented non-chatgpt providers
+            # from being runnable.
             if provider.id != "chatgpt":
-                raise RuntimeError(
-                    f"Provider '{provider.id}' is discoverable but not runnable yet; "
-                    "Phase 5 must wire provider.stream()"
-                )
+                # If the provider advertises itself but lacks a working stream
+                # implementation, run() and the provider will raise a clear error.
+                pass
 
             result = run(
-                model_id, args.prompt, args.system, workdir=wd, auto=args.auto
+                model_id, args.prompt, args.system, workdir=wd, auto=args.auto,
+                provider=provider,
             )
             print(result)
         except (RuntimeError, ValueError) as e:

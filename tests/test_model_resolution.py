@@ -333,9 +333,12 @@ class TestGetAvailableModels:
         """Only includes authenticated providers (WR-02 fix)."""
         # Mock ChatGPTProvider to require auth but not be authenticated
         from maestro.providers import chatgpt
+        from maestro.providers import copilot
 
         monkeypatch.setattr(chatgpt.ChatGPTProvider, "auth_required", lambda self: True)
         monkeypatch.setattr(chatgpt.ChatGPTProvider, "is_authenticated", lambda self: False)
+        monkeypatch.setattr(copilot.CopilotProvider, "auth_required", lambda self: True)
+        monkeypatch.setattr(copilot.CopilotProvider, "is_authenticated", lambda self: False)
 
         result = models.get_available_models()
         assert result == {}

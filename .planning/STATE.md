@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-17)
 
 **Core value:** A developer runs `maestro run --multi "task"` and gets all parts done in parallel by specialized agents
-**Current focus:** Phase 7 — GitHub Copilot Provider (next up)
+**Current focus:** Phase 8 — Multi-Agent DAG (next up)
 
 ## Current Position
 
@@ -91,15 +91,15 @@ None yet.
 
 ### Blockers/Concerns
 
-- **Copilot CLIENT_ID** (`Ov23li8tweQw6odWQebz`): Medium confidence — must validate against actual GitHub OAuth App registration before Phase 7
-- **Copilot API headers** (`x-initiator`, `Openai-Intent`): Medium confidence — from design spec, not public docs; may need adjustment in Phase 7
 - **Planner prompt quality**: Requires empirical iteration to prevent over-decomposition; addressed in Phase 9
+- **Multi-agent DAG complexity**: Need to validate Send API pattern with LangGraph 1.1.6; test with simple 2-worker case first
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260418-fpa | Fix ChatGPT browser OAuth login flow causing unknown_error during maestro auth login chatgpt | 2026-04-18 | 29fd84d | [260418-fpa-fix-chatgpt-browser-oauth-login-flow-cau](./quick/260418-fpa-fix-chatgpt-browser-oauth-login-flow-cau/) |
+| 180426-quick-cli | Add --provider to models and allow non-chatgpt providers to run (quick fix) | 2026-04-18 | 0995fa9 | [20260418-quick-cli-add-provider-flag](./quick/20260418-quick-cli-add-provider-flag/) |
 
 ## Deferred Items
 
