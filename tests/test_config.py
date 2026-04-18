@@ -81,6 +81,12 @@ class TestConfig:
         with pytest.raises(KeyError):
             cfg.set("invalid_key", "value")
 
+    def test_set_invalid_nested_key_raises_keyerror(self):
+        """Nested invalid keys raise KeyError instead of leaking AttributeError."""
+        cfg = config.Config()
+        with pytest.raises(KeyError):
+            cfg.set("unknown.child", "value")
+
 
 class TestLoad:
     """Tests for load() function."""
@@ -117,6 +123,26 @@ class TestLoad:
             config.load()
 
         assert "expected object, got list" in str(exc_info.value)
+
+    def test_load_invalid_model_type_raises(self, temp_config_file):
+        """Loading config with non-string model raises RuntimeError."""
+        temp_config_file.write_text(json.dumps({"model": ["chatgpt/gpt-5.4"]}))
+
+        with pytest.raises(RuntimeError) as exc_info:
+            config.load()
+
+        assert "Invalid config file" in str(exc_info.value)
+        assert "model" in str(exc_info.value)
+
+    def test_load_invalid_agent_type_raises(self, temp_config_file):
+        """Loading config with non-object agent raises RuntimeError."""
+        temp_config_file.write_text(json.dumps({"agent": "backend"}))
+
+        with pytest.raises(RuntimeError) as exc_info:
+            config.load()
+
+        assert "Invalid config file" in str(exc_info.value)
+        assert "agent" in str(exc_info.value)
 
 
 class TestSave:

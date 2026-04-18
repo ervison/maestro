@@ -1,9 +1,11 @@
 """Tests for maestro.providers.registry module."""
 
+from typing import AsyncIterator
+
 import pytest
 
 from maestro.providers import registry
-from maestro.providers.base import ProviderPlugin
+from maestro.providers.base import Message, ProviderPlugin
 
 
 class TestDiscoverProviders:
@@ -83,8 +85,29 @@ class TestGetDefaultProvider:
 
     def test_returns_chatgpt_when_no_auth(self):
         """Returns chatgpt provider when no providers authenticated."""
-        provider = registry.get_default_provider()
-        assert provider.id == "chatgpt"
+        from functools import lru_cache
+
+        from maestro.providers import chatgpt
+
+        @lru_cache(maxsize=1)
+        def mock_discover():
+            return {"chatgpt": chatgpt.ChatGPTProvider}
+
+        original = registry.discover_providers
+        self_auth_required = chatgpt.ChatGPTProvider.auth_required
+        self_is_authenticated = chatgpt.ChatGPTProvider.is_authenticated
+        chatgpt.ChatGPTProvider.auth_required = lambda self: True
+        chatgpt.ChatGPTProvider.is_authenticated = lambda self: False
+        try:
+            registry.discover_providers = mock_discover
+            mock_discover.cache_clear()
+            provider = registry.get_default_provider()
+            assert provider.id == "chatgpt"
+        finally:
+            registry.discover_providers = original
+            registry.discover_providers.cache_clear()
+            chatgpt.ChatGPTProvider.auth_required = self_auth_required
+            chatgpt.ChatGPTProvider.is_authenticated = self_is_authenticated
 
     def test_returns_provider_instance(self):
         """Returns a ProviderPlugin instance."""
@@ -179,8 +202,9 @@ class TestDuplicateProviderIds:
             def list_models(self):
                 return ["model-1"]
 
-            def stream(self, messages, model, tools=None):
-                return iter([])
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
 
             def auth_required(self):
                 return False
@@ -203,8 +227,9 @@ class TestDuplicateProviderIds:
             def list_models(self):
                 return ["model-2"]
 
-            def stream(self, messages, model, tools=None):
-                return iter([])
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
 
             def auth_required(self):
                 return False
@@ -274,8 +299,9 @@ class TestProviderContractValidation:
             def list_models(self):
                 return []
 
-            def stream(self, messages, model, tools=None):
-                return iter([])
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
 
             def auth_required(self):
                 return False
@@ -326,12 +352,741 @@ class TestProviderContractValidation:
             registry.discover_providers = original_discover
             registry.discover_providers.cache_clear()
 
+    def test_sync_stream_with_incompatible_annotation_is_skipped(self, monkeypatch):
+        """Sync stream() with an explicitly incompatible return type is rejected."""
+        from functools import lru_cache
+
+        class SyncStreamProvider:
+            def __init__(self):
+                self.id = "sync-stream"
+
+            @property
+            def name(self):
+                return "Sync Stream"
+
+            def list_models(self):
+                return ["sync-model"]
+
+            def stream(self, messages, model, tools=None) -> list[str]:
+                return iter([])
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class ValidProvider:
+            def __init__(self):
+                self.id = "valid"
+
+            @property
+            def name(self):
+                return "Valid"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint("sync-stream", "maestro.providers", SyncStreamProvider),
+                MockEntryPoint("valid", "maestro.providers", ValidProvider),
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "sync-stream" not in providers
+            assert "valid" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_sync_stream_without_annotation_is_allowed(self, monkeypatch):
+        """Sync stream() with the right callable shape is allowed without annotations."""
+        from functools import lru_cache
+
+        class AsyncIteratorResult:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        class SyncAsyncIteratorProvider:
+            def __init__(self):
+                self.id = "sync-no-annotation"
+
+            @property
+            def name(self):
+                return "Sync No Annotation"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            def stream(self, messages, model, tools=None):
+                return AsyncIteratorResult()
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint(
+                    "sync-no-annotation",
+                    "maestro.providers",
+                    SyncAsyncIteratorProvider,
+                )
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "sync-no-annotation" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_sync_stream_returning_async_iterator_is_allowed(self, monkeypatch):
+        """A sync stream() returning an AsyncIterator still satisfies the contract."""
+        from functools import lru_cache
+
+        class AsyncIteratorResult:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        class SyncAsyncIteratorProvider:
+            def __init__(self):
+                self.id = "sync-async-iterator"
+
+            @property
+            def name(self):
+                return "Sync Async Iterator"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            def stream(
+                self, messages, model, tools=None
+            ) -> AsyncIterator[str | Message]:
+                return AsyncIteratorResult()
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint(
+                    "sync-async-iterator",
+                    "maestro.providers",
+                    SyncAsyncIteratorProvider,
+                )
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "sync-async-iterator" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_sync_stream_with_string_async_iterator_annotation_is_allowed(
+        self, monkeypatch
+    ):
+        """Stringified AsyncIterator annotations are accepted during discovery."""
+        from functools import lru_cache
+
+        class AsyncIteratorResult:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        class FutureAnnotatedProvider:
+            def __init__(self):
+                self.id = "future-annotated"
+
+            @property
+            def name(self):
+                return "Future Annotated"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            def stream(
+                self, messages, model, tools=None
+            ) -> "AsyncIterator[str | Message]":
+                return AsyncIteratorResult()
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint(
+                    "future-annotated",
+                    "maestro.providers",
+                    FutureAnnotatedProvider,
+                )
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "future-annotated" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_coroutine_stream_provider_skipped(self, monkeypatch):
+        """Coroutine-returning stream() implementations are rejected."""
+        from functools import lru_cache
+
+        class CoroutineStreamProvider:
+            def __init__(self):
+                self.id = "coroutine-stream"
+
+            @property
+            def name(self):
+                return "Coroutine Stream"
+
+            def list_models(self):
+                return ["broken-model"]
+
+            async def stream(self, messages, model, tools=None) -> AsyncIterator[str | Message]:
+                return Message(role="assistant", content="not-an-iterator")
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class ValidProvider:
+            def __init__(self):
+                self.id = "valid"
+
+            @property
+            def name(self):
+                return "Valid"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint(
+                    "coroutine-stream",
+                    "maestro.providers",
+                    CoroutineStreamProvider,
+                ),
+                MockEntryPoint("valid", "maestro.providers", ValidProvider),
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "coroutine-stream" not in providers
+            assert "valid" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_stream_with_required_keyword_only_arg_is_skipped(self, monkeypatch):
+        """Providers requiring extra keyword-only stream args are rejected."""
+        from functools import lru_cache
+
+        class KeywordOnlyProvider:
+            def __init__(self):
+                self.id = "keyword-only"
+
+            @property
+            def name(self):
+                return "Keyword Only"
+
+            def list_models(self):
+                return ["broken-model"]
+
+            async def stream(self, messages, model, *, request_id, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class ValidProvider:
+            def __init__(self):
+                self.id = "valid"
+
+            @property
+            def name(self):
+                return "Valid"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint("keyword-only", "maestro.providers", KeywordOnlyProvider),
+                MockEntryPoint("valid", "maestro.providers", ValidProvider),
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "keyword-only" not in providers
+            assert "valid" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_stream_not_called_during_discovery(self, monkeypatch):
+        """Discovery validates provider shape without executing stream()."""
+        from functools import lru_cache
+
+        class LazyValidatedProvider:
+            def __init__(self):
+                self.id = "lazy-validated"
+
+            @property
+            def name(self):
+                return "Lazy Validated"
+
+            def list_models(self):
+                return ["lazy-model"]
+
+            def stream(
+                self, messages, model, tools=None
+            ) -> AsyncIterator[str | Message]:
+                raise RuntimeError("stream() must not run during discovery")
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint(
+                    "lazy-validated",
+                    "maestro.providers",
+                    LazyValidatedProvider,
+                )
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "lazy-validated" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_provider_with_invalid_list_models_signature_is_skipped(self, monkeypatch):
+        """Providers with incompatible non-stream call signatures are rejected."""
+        from functools import lru_cache
+
+        class InvalidListModelsProvider:
+            def __init__(self):
+                self.id = "invalid-list-models"
+
+            @property
+            def name(self):
+                return "Invalid List Models"
+
+            def list_models(self, scope):
+                return [scope]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class ValidProvider:
+            def __init__(self):
+                self.id = "valid"
+
+            @property
+            def name(self):
+                return "Valid"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return False
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint(
+                    "invalid-list-models",
+                    "maestro.providers",
+                    InvalidListModelsProvider,
+                ),
+                MockEntryPoint("valid", "maestro.providers", ValidProvider),
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "invalid-list-models" not in providers
+            assert "valid" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_provider_with_optional_login_arg_is_allowed(self, monkeypatch):
+        """Providers may add optional parameters without breaking the protocol."""
+        from functools import lru_cache
+
+        class OptionalLoginProvider:
+            def __init__(self):
+                self.id = "optional-login"
+
+            @property
+            def name(self):
+                return "Optional Login"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return True
+
+            def login(self, method="browser"):
+                return method
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint(
+                    "optional-login",
+                    "maestro.providers",
+                    OptionalLoginProvider,
+                )
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "optional-login" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
+    def test_provider_with_optional_keyword_only_login_arg_is_allowed(self, monkeypatch):
+        """Optional keyword-only parameters should not break the protocol."""
+        from functools import lru_cache
+
+        class OptionalKeywordOnlyLoginProvider:
+            def __init__(self):
+                self.id = "optional-kw-login"
+
+            @property
+            def name(self):
+                return "Optional KW Login"
+
+            def list_models(self):
+                return ["valid-model"]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return True
+
+            def login(self, *, method="browser"):
+                return method
+
+            def is_authenticated(self):
+                return True
+
+        class MockEntryPoint:
+            def __init__(self, name, group, provider_class):
+                self.name = name
+                self.group = group
+                self._provider_class = provider_class
+
+            def load(self):
+                return self._provider_class
+
+        def mock_entry_points(group):
+            return [
+                MockEntryPoint(
+                    "optional-kw-login",
+                    "maestro.providers",
+                    OptionalKeywordOnlyLoginProvider,
+                )
+            ]
+
+        monkeypatch.setattr(registry, "entry_points", mock_entry_points)
+
+        original_discover = registry.discover_providers
+        registry.discover_providers = lru_cache(maxsize=1)(
+            registry.discover_providers.__wrapped__
+        )
+        registry.discover_providers.cache_clear()
+
+        try:
+            providers = registry.discover_providers()
+            assert "optional-kw-login" in providers
+        finally:
+            registry.discover_providers = original_discover
+            registry.discover_providers.cache_clear()
+
 
 class TestGetDefaultProviderAuthLogic:
     """Tests for WR-02: Provider selection respects auth_required()."""
 
-    def test_prefers_auth_free_provider(self, monkeypatch):
-        """When an auth-free provider is available, it is selected."""
+    def test_returns_auth_free_provider_when_no_authenticated_provider_exists(self, monkeypatch):
+        """Auth-free providers remain valid generic defaults."""
         from functools import lru_cache
 
         class AuthFreeProvider:
@@ -396,8 +1151,111 @@ class TestGetDefaultProviderAuthLogic:
 
         try:
             provider = registry.get_default_provider()
-            # Should select the auth-free provider (auth-required is not usable)
             assert provider.id == "auth-free"
+        finally:
+            registry.discover_providers = original
+            registry.discover_providers.cache_clear()
+
+    def test_prefers_authenticated_provider_before_chatgpt_fallback(self, monkeypatch):
+        """Authenticated providers win before unauthenticated ChatGPT fallback."""
+        from functools import lru_cache
+
+        from maestro.providers import chatgpt
+
+        class AuthenticatedProvider:
+            def __init__(self):
+                self.id = "authenticated"
+                self._name = "Authenticated"
+
+            @property
+            def name(self):
+                return self._name
+
+            def list_models(self):
+                return ["auth-model"]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return True
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "auth_required", lambda self: True)
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "is_authenticated", lambda self: False)
+
+        @lru_cache(maxsize=1)
+        def mock_discover():
+            return {
+                "chatgpt": chatgpt.ChatGPTProvider,
+                "authenticated": AuthenticatedProvider,
+            }
+
+        original = registry.discover_providers
+        monkeypatch.setattr(registry, "discover_providers", mock_discover)
+        mock_discover.cache_clear()
+
+        try:
+            provider = registry.get_default_provider()
+            assert provider.id == "authenticated"
+        finally:
+            registry.discover_providers = original
+            registry.discover_providers.cache_clear()
+
+    def test_prefers_first_authenticated_provider_in_discovery_order(self, monkeypatch):
+        """First authenticated provider wins even when it is ChatGPT."""
+        from functools import lru_cache
+
+        from maestro.providers import chatgpt
+
+        class AuthenticatedProvider:
+            def __init__(self):
+                self.id = "authenticated"
+                self._name = "Authenticated"
+
+            @property
+            def name(self):
+                return self._name
+
+            def list_models(self):
+                return ["auth-model"]
+
+            async def stream(self, messages, model, tools=None):
+                if False:
+                    yield None
+
+            def auth_required(self):
+                return True
+
+            def login(self):
+                pass
+
+            def is_authenticated(self):
+                return True
+
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "auth_required", lambda self: True)
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "is_authenticated", lambda self: True)
+
+        @lru_cache(maxsize=1)
+        def mock_discover():
+            return {
+                "chatgpt": chatgpt.ChatGPTProvider,
+                "authenticated": AuthenticatedProvider,
+            }
+
+        original = registry.discover_providers
+        monkeypatch.setattr(registry, "discover_providers", mock_discover)
+        mock_discover.cache_clear()
+
+        try:
+            provider = registry.get_default_provider()
+            assert provider.id == "chatgpt"
         finally:
             registry.discover_providers = original
             registry.discover_providers.cache_clear()

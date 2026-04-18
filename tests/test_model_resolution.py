@@ -76,6 +76,18 @@ class TestResolveModel:
         assert model_id == "gpt-5.4"
         assert provider.id == "chatgpt"
 
+    def test_priority_1_model_flag_bypasses_invalid_config(self, monkeypatch):
+        """Explicit --model resolution does not depend on loading config first."""
+        monkeypatch.setattr(
+            config,
+            "load",
+            lambda: (_ for _ in ()).throw(RuntimeError("Invalid config file")),
+        )
+
+        provider, model_id = models.resolve_model(model_flag="chatgpt/gpt-5.4")
+        assert provider.id == "chatgpt"
+        assert model_id == "gpt-5.4"
+
     def test_priority_2_env_variable(self, monkeypatch):
         """MAESTRO_MODEL env var is priority 2."""
         # Set up config that should be ignored
@@ -85,6 +97,19 @@ class TestResolveModel:
         # Env should win
         monkeypatch.setenv("MAESTRO_MODEL", "chatgpt/gpt-5.2")
         provider, model_id = models.resolve_model()
+        assert model_id == "gpt-5.2"
+
+    def test_priority_2_env_variable_bypasses_invalid_config(self, monkeypatch):
+        """MAESTRO_MODEL resolution does not depend on loading config first."""
+        monkeypatch.setenv("MAESTRO_MODEL", "chatgpt/gpt-5.2")
+        monkeypatch.setattr(
+            config,
+            "load",
+            lambda: (_ for _ in ()).throw(RuntimeError("Invalid config file")),
+        )
+
+        provider, model_id = models.resolve_model()
+        assert provider.id == "chatgpt"
         assert model_id == "gpt-5.2"
 
     def test_priority_3_agent_config(self, monkeypatch):
@@ -108,13 +133,29 @@ class TestResolveModel:
 
     def test_priority_5_fallback(self, monkeypatch):
         """Fallback to first authenticated provider is priority 5."""
+        from functools import lru_cache
+
+        from maestro.providers import chatgpt, registry
+
         cfg = config.Config()  # No model set
         monkeypatch.setattr(config, "load", lambda: cfg)
 
-        provider, model_id = models.resolve_model()
-        assert provider.id == "chatgpt"
-        # Should get first available model
-        assert model_id in provider.list_models()
+        @lru_cache(maxsize=1)
+        def mock_discover():
+            return {"chatgpt": chatgpt.ChatGPTProvider}
+
+        original = registry.discover_providers
+        monkeypatch.setattr(registry, "discover_providers", mock_discover)
+        mock_discover.cache_clear()
+
+        try:
+            provider, model_id = models.resolve_model()
+            assert provider.id == "chatgpt"
+            # Should get first available model
+            assert model_id in provider.list_models()
+        finally:
+            registry.discover_providers = original
+            registry.discover_providers.cache_clear()
 
     def test_priority_5_fallback_chatgpt_even_when_unauthenticated(self, monkeypatch):
         """WR-01: Empty-config path falls back to ChatGPT even when unauthenticated.
@@ -147,6 +188,50 @@ class TestResolveModel:
             provider, model_id = models.resolve_model()
             assert provider.id == "chatgpt"
             assert model_id == chatgpt.DEFAULT_MODEL
+        finally:
+            registry.discover_providers = original
+            registry.discover_providers.cache_clear()
+
+    def test_priority_5_uses_auth_free_provider_when_no_authenticated_provider_exists(
+        self, monkeypatch
+    ):
+        """Generic resolution returns an auth-free provider before ChatGPT fallback."""
+        from functools import lru_cache
+
+        from maestro.providers import chatgpt, registry
+
+        class AuthFreeProvider:
+            id = "auth-free"
+
+            def auth_required(self):
+                return False
+
+            def is_authenticated(self):
+                return False
+
+            def list_models(self):
+                return ["free-model"]
+
+        cfg = config.Config()
+        monkeypatch.setattr(config, "load", lambda: cfg)
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "auth_required", lambda self: True)
+        monkeypatch.setattr(chatgpt.ChatGPTProvider, "is_authenticated", lambda self: False)
+
+        @lru_cache(maxsize=1)
+        def mock_discover():
+            return {
+                "auth-free": AuthFreeProvider,
+                "chatgpt": chatgpt.ChatGPTProvider,
+            }
+
+        original = registry.discover_providers
+        monkeypatch.setattr(registry, "discover_providers", mock_discover)
+        mock_discover.cache_clear()
+
+        try:
+            provider, model_id = models.resolve_model()
+            assert provider.id == "auth-free"
+            assert model_id == "free-model"
         finally:
             registry.discover_providers = original
             registry.discover_providers.cache_clear()

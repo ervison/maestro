@@ -74,12 +74,17 @@ def main():
 
     if args.command == "auth":
         if args.auth_command == "login":
-            if args.provider != "chatgpt":
-                print(f"Unknown provider: {args.provider}. Available: chatgpt")
-                sys.exit(1)
-            method = "device" if args.device else "browser"
-            ts = auth.login(method)
-            print(f"Logged in as: {ts.email or ts.account_id}")
+            if args.provider == "chatgpt":
+                method = "device" if args.device else "browser"
+                ts = auth.login(method)
+                print(f"Logged in as: {ts.email or ts.account_id}")
+            else:
+                try:
+                    provider = get_provider(args.provider)
+                except ValueError as e:
+                    print(str(e))
+                    sys.exit(1)
+                provider.login()
         else:
             auth_p.print_help()
 
@@ -145,35 +150,45 @@ def main():
             print(f"Token:      expired (will refresh on next use)")
 
     elif args.command == "run":
+        import os
         from pathlib import Path
 
         from maestro.models import resolve_model
+        from maestro.config import load as load_config
 
         wd = Path(args.workdir).resolve() if args.workdir else Path.cwd()
 
-        # Resolve model using Phase 4 resolution chain (flag > env > config > default)
-        provider, model_id = resolve_model(model_flag=args.model)
-
-        # Phase 5 will wire alternate providers; for now, pin to ChatGPT unless explicitly requested
-        if provider.id != "chatgpt" and args.model is None:
-            # Default resolution picked a non-ChatGPT provider, but user didn't explicitly request it
-            # Fall back to ChatGPT to maintain backward compatibility until Phase 5
-            provider = get_provider("chatgpt")
-            model_id = DEFAULT_MODEL
-
-        # Phase 5 will wire alternate providers; for now, reject non-ChatGPT providers
-        if provider.id != "chatgpt":
-            raise RuntimeError(
-                f"Provider '{provider.id}' is discoverable but not runnable yet; "
-                "Phase 5 must wire provider.stream()"
-            )
-
         try:
+            # Resolve model using Phase 4 resolution chain (flag > env > config > default)
+            provider, model_id = resolve_model(model_flag=args.model)
+
+            if args.model is not None:
+                selected_explicitly = True
+            elif os.environ.get("MAESTRO_MODEL") is not None:
+                selected_explicitly = True
+            else:
+                cfg = load_config()
+                selected_explicitly = cfg.model is not None
+
+            # Phase 5 will wire alternate providers; for now, pin to ChatGPT unless explicitly requested
+            if provider.id != "chatgpt" and not selected_explicitly:
+                # Default resolution picked a non-ChatGPT provider, but user didn't explicitly request it
+                # Fall back to ChatGPT to maintain backward compatibility until Phase 5
+                provider = get_provider("chatgpt")
+                model_id = DEFAULT_MODEL
+
+            # Phase 5 will wire alternate providers; for now, reject non-ChatGPT providers
+            if provider.id != "chatgpt":
+                raise RuntimeError(
+                    f"Provider '{provider.id}' is discoverable but not runnable yet; "
+                    "Phase 5 must wire provider.stream()"
+                )
+
             result = run(
                 model_id, args.prompt, args.system, workdir=wd, auto=args.auto
             )
             print(result)
-        except RuntimeError as e:
+        except (RuntimeError, ValueError) as e:
             msg = str(e)
             if "not supported" in msg:
                 print(f"Error: model '{model_id}' is not available for your account.")

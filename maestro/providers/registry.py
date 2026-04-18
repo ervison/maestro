@@ -11,6 +11,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 from importlib.metadata import entry_points
+from collections.abc import AsyncIterator as ABCAsyncIterator
+from inspect import isasyncgenfunction, iscoroutinefunction
+from inspect import Parameter, Signature, signature
+from sys import modules
+from typing import get_origin, get_type_hints
 
 from maestro.providers.base import ProviderPlugin
 
@@ -33,6 +38,113 @@ def _is_usable(provider: ProviderPlugin) -> bool:
         True if the provider can be used for model operations
     """
     return not provider.auth_required() or provider.is_authenticated()
+
+
+def _is_valid_provider(instance: object) -> bool:
+    """Check whether an instance satisfies the runtime provider contract."""
+    if not isinstance(instance, ProviderPlugin):
+        return False
+
+    method_requirements = {
+        "list_models": 0,
+        "auth_required": 0,
+        "login": 0,
+        "is_authenticated": 0,
+    }
+
+    for method_name, required_args in method_requirements.items():
+        method = getattr(type(instance), method_name, None)
+        if method is None or not callable(method):
+            return False
+
+        try:
+            params = list(signature(method).parameters.values())
+        except (TypeError, ValueError):
+            return False
+
+        if len(params) < required_args + 1:
+            return False
+
+        if params[0].kind not in {
+            Parameter.POSITIONAL_ONLY,
+            Parameter.POSITIONAL_OR_KEYWORD,
+        }:
+            return False
+
+        extra_params = params[1:]
+
+        required_positional = [
+            param
+            for param in extra_params
+            if param.default is Signature.empty
+            and param.kind in {Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD}
+        ]
+        if len(required_positional) != required_args:
+            return False
+
+        required_keyword_only = [
+            param
+            for param in extra_params
+            if param.kind is Parameter.KEYWORD_ONLY
+            and param.default is Signature.empty
+        ]
+        if required_keyword_only:
+            return False
+
+    stream_attr = getattr(type(instance), "stream", None)
+    if stream_attr is None or not callable(stream_attr):
+        return False
+
+    try:
+        params = list(signature(stream_attr).parameters.values())
+    except (TypeError, ValueError):
+        return False
+
+    if len(params) < 3:
+        return False
+
+    if params[0].kind not in {
+        Parameter.POSITIONAL_ONLY,
+        Parameter.POSITIONAL_OR_KEYWORD,
+    }:
+        return False
+
+    required_after_self = [
+        param
+        for param in params[1:]
+        if param.default is Signature.empty
+        and param.kind
+        in {Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD}
+    ]
+    if len(required_after_self) != 2:
+        return False
+
+    required_keyword_only = [
+        param
+        for param in params[1:]
+        if param.default is Signature.empty and param.kind is Parameter.KEYWORD_ONLY
+    ]
+    if required_keyword_only:
+        return False
+
+    if isasyncgenfunction(stream_attr):
+        return True
+
+    if iscoroutinefunction(stream_attr):
+        return False
+
+    try:
+        module = modules.get(stream_attr.__module__)
+        globalns = vars(module) if module is not None else None
+        return_annotation = get_type_hints(stream_attr, globalns=globalns).get("return")
+    except (NameError, TypeError):
+        return True
+
+    if return_annotation is None:
+        return True
+
+    origin = get_origin(return_annotation)
+    return return_annotation is ABCAsyncIterator or origin is ABCAsyncIterator
 
 
 @lru_cache(maxsize=1)
@@ -61,7 +173,7 @@ def discover_providers() -> dict[str, type[ProviderPlugin]]:
             # This validates the provider can be instantiated
             instance = provider_class()
             # Validate the instance satisfies ProviderPlugin contract
-            if not isinstance(instance, ProviderPlugin):
+            if not _is_valid_provider(instance):
                 raise TypeError(
                     f"Provider entry point '{ep.name}' does not implement ProviderPlugin"
                 )
@@ -122,23 +234,26 @@ def get_default_provider() -> ProviderPlugin:
     """Get the default provider based on authentication state.
 
     Resolution order:
-    1. First usable provider (not requiring auth OR authenticated)
-
-    A provider is usable if auth_required() is False OR is_authenticated() is True.
+    1. First usable provider (authenticated or auth-free)
+    2. ChatGPT fallback, if installed
 
     Returns:
         Instantiated provider implementing ProviderPlugin Protocol
 
     Raises:
-        ValueError: If no providers are available or no provider is usable.
+        ValueError: If no providers are available, or no usable provider
+                    exists and ChatGPT is not installed.
     """
     providers = discover_providers()
 
     if not providers:
         raise ValueError("No providers installed. Install a provider package.")
 
-    # Find first usable provider (doesn't require auth or is authenticated)
+    chatgpt_fallback: type[ProviderPlugin] | None = None
+
     for provider_id, provider_class in providers.items():
+        if provider_id == "chatgpt":
+            chatgpt_fallback = provider_class
         try:
             instance = provider_class()
             if _is_usable(instance):
@@ -148,8 +263,11 @@ def get_default_provider() -> ProviderPlugin:
             continue
 
     # No usable provider found - fallback to ChatGPT if available
-    if "chatgpt" in providers:
-        return providers["chatgpt"]()
+    if chatgpt_fallback is not None:
+        try:
+            return chatgpt_fallback()
+        except Exception:
+            pass
 
     raise ValueError(
         "No usable provider found and no ChatGPT fallback is installed. "

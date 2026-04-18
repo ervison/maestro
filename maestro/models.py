@@ -84,8 +84,6 @@ def resolve_model(
     from maestro.config import load as load_config
     from maestro.providers.registry import get_provider, get_default_provider
 
-    config = load_config()
-
     # Priority 1: --model flag
     if model_flag:
         provider_id, model_id = parse_model_string(model_flag)
@@ -98,6 +96,8 @@ def resolve_model(
         provider_id, model_id = parse_model_string(env_model)
         provider = get_provider(provider_id)
         return provider, model_id
+
+    config = load_config()
 
     # Priority 3: config.agent.<name>.model
     if agent_name:
@@ -113,7 +113,7 @@ def resolve_model(
         provider = get_provider(provider_id)
         return provider, model_id
 
-    # Priority 5: First model of first authenticated provider (or fallback)
+    # Priority 5: ChatGPT fallback, otherwise first model of first usable provider
     provider = get_default_provider()
 
     # For ChatGPT, use the explicit default model (not first in list)

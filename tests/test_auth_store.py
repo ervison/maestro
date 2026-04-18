@@ -206,6 +206,41 @@ def test_auth_login_defaults_to_chatgpt(monkeypatch, capsys):
     assert "Logged in as: test@example.com" in capsys.readouterr().out
 
 
+def test_auth_login_uses_discovered_provider(monkeypatch, capsys):
+    class DummyProvider:
+        @property
+        def id(self):
+            return "dummy"
+
+        @property
+        def name(self):
+            return "Dummy"
+
+        def list_models(self):
+            return ["dummy-model"]
+
+        async def stream(self, messages, model, tools=None):
+            if False:
+                yield None
+
+        def auth_required(self):
+            return True
+
+        def login(self):
+            print("dummy login")
+
+        def is_authenticated(self):
+            return False
+
+    monkeypatch.setattr(sys, "argv", ["maestro", "auth", "login", "dummy"])
+    monkeypatch.setattr(cli, "get_provider", lambda provider_id: DummyProvider())
+    monkeypatch.setattr(auth, "login", lambda method="browser": pytest.fail("chatgpt auth.login should not be called"))
+
+    cli.main()
+
+    assert "dummy login" in capsys.readouterr().out
+
+
 def test_old_login_shows_deprecation(monkeypatch, capsys):
     def fake_login(method="browser"):
         return TokenSet(
@@ -266,3 +301,99 @@ def test_old_status_no_deprecation(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Email:" in out
     assert not any(item.category is DeprecationWarning for item in caught)
+
+
+def test_run_with_explicit_unsupported_provider_exits_cleanly(monkeypatch, capsys):
+    class DummyProvider:
+        id = "other"
+
+    monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello", "--model", "other/model"])
+    monkeypatch.setattr(cli, "run", lambda *args, **kwargs: pytest.fail("run should not be called"))
+
+    def fake_resolve_model(model_flag=None, agent_name=None):
+        assert model_flag == "other/model"
+        return DummyProvider(), "model"
+
+    monkeypatch.setattr("maestro.models.resolve_model", fake_resolve_model)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "Provider 'other' is discoverable but not runnable yet" in captured.out
+    assert "Traceback" not in captured.err
+
+
+def test_run_with_invalid_model_format_exits_cleanly(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello", "--model", "invalid"])
+    monkeypatch.setattr(cli, "run", lambda *args, **kwargs: pytest.fail("run should not be called"))
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "Error: Invalid model format" in captured.out
+    assert "Traceback" not in captured.err
+
+
+def test_run_with_env_selected_unsupported_provider_exits_cleanly(monkeypatch, capsys):
+    class DummyProvider:
+        id = "other"
+
+    monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello"])
+    monkeypatch.setenv("MAESTRO_MODEL", "other/model")
+    monkeypatch.setattr(cli, "run", lambda *args, **kwargs: pytest.fail("run should not be called"))
+
+    def fake_resolve_model(model_flag=None, agent_name=None):
+        assert model_flag is None
+        return DummyProvider(), "model"
+
+    monkeypatch.setattr("maestro.models.resolve_model", fake_resolve_model)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "Provider 'other' is discoverable but not runnable yet" in captured.out
+    assert "Traceback" not in captured.err
+
+
+def test_run_with_model_flag_bypasses_invalid_config_reload(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello", "--model", "chatgpt/gpt-5.4"])
+    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto: f"ran:{model_id}:{prompt}")
+    monkeypatch.setattr(
+        "maestro.config.load",
+        lambda: (_ for _ in ()).throw(RuntimeError("Invalid config file")),
+    )
+
+    cli.main()
+
+    captured = capsys.readouterr()
+    assert "ran:gpt-5.4:hello" in captured.out
+
+
+def test_run_without_explicit_selection_falls_back_to_chatgpt(monkeypatch, capsys):
+    class DummyProvider:
+        id = "auth-free"
+
+    monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello"])
+    monkeypatch.delenv("MAESTRO_MODEL", raising=False)
+    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto: f"ran:{model_id}:{prompt}")
+
+    def fake_resolve_model(model_flag=None, agent_name=None):
+        assert model_flag is None
+        return DummyProvider(), "free-model"
+
+    class DummyConfig:
+        model = None
+
+    monkeypatch.setattr("maestro.models.resolve_model", fake_resolve_model)
+    monkeypatch.setattr("maestro.config.load", lambda: DummyConfig())
+
+    cli.main()
+
+    captured = capsys.readouterr()
+    assert "ran:gpt-5.4-mini:hello" in captured.out

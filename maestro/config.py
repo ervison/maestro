@@ -73,6 +73,8 @@ class Config:
         current: Any = self
         for part in parts[:-1]:
             if isinstance(current, Config):
+                if not hasattr(current, part):
+                    raise KeyError(f"Invalid config key: {key}")
                 current = getattr(current, part)
             elif isinstance(current, dict):
                 if part not in current:
@@ -114,9 +116,21 @@ def load() -> Config:
             f"Invalid config file at {CONFIG_FILE}; expected object, got {type(data).__name__}"
         )
 
+    model = data.get("model")
+    if model is not None and not isinstance(model, str):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'model' to be a string"
+        )
+
+    agent = data.get("agent", {})
+    if not isinstance(agent, dict):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'agent' to be an object"
+        )
+
     return Config(
-        model=data.get("model"),
-        agent=data.get("agent", {}),
+        model=model,
+        agent=agent,
     )
 
 
