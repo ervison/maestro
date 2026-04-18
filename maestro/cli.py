@@ -121,7 +121,6 @@ def main():
 
     elif args.command == "models":
         from maestro.providers.chatgpt import fetch_models, probe_available_models
-        from maestro.providers.registry import discover_providers
 
         if args.refresh:
             print("Refreshing models from models.dev...")
@@ -129,6 +128,10 @@ def main():
 
         # If a provider filter is requested, try to use its list_models()
         if args.provider:
+            if args.check:
+                print("Error: --check cannot be combined with --provider.")
+                sys.exit(1)
+
             try:
                 provider = get_provider(args.provider)
             except ValueError as e:

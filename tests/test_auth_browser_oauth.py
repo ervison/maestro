@@ -98,12 +98,22 @@ def test_callback_exchanges_code_on_valid_state(monkeypatch):
     monkeypatch.setattr(auth, "_exchange_code", fake_exchange)
 
     def do_request():
-        time.sleep(0.3)
-        httpx.get(
-            "http://127.0.0.1:1455/auth/callback",
-            params={"code": "auth-code", "state": "state123"},
-            timeout=2,
-        )
+        deadline = time.monotonic() + 5
+        last_error = None
+        while time.monotonic() < deadline:
+            try:
+                httpx.get(
+                    "http://127.0.0.1:1455/auth/callback",
+                    params={"code": "auth-code", "state": "state123"},
+                    timeout=0.5,
+                )
+                return
+            except httpx.HTTPError as exc:
+                last_error = exc
+                time.sleep(0.05)
+        if last_error is not None:
+            raise last_error
+        raise AssertionError("callback server did not become ready in time")
 
     t = threading.Thread(target=do_request, daemon=True)
     t.start()
@@ -139,13 +149,23 @@ def test_callback_state_mismatch_allows_later_valid_callback(monkeypatch):
     monkeypatch.setattr(auth, "_exchange_code", fake_exchange)
 
     def do_requests():
-        time.sleep(0.3)
-        httpx.get(
-            "http://127.0.0.1:1455/auth/callback",
-            params={"code": "wrong-code", "state": "wrong-state"},
-            timeout=2,
-        )
-        time.sleep(0.1)
+        deadline = time.monotonic() + 5
+        last_error = None
+        while time.monotonic() < deadline:
+            try:
+                httpx.get(
+                    "http://127.0.0.1:1455/auth/callback",
+                    params={"code": "wrong-code", "state": "wrong-state"},
+                    timeout=0.5,
+                )
+                break
+            except httpx.HTTPError as exc:
+                last_error = exc
+                time.sleep(0.05)
+        else:
+            if last_error is not None:
+                raise last_error
+            raise AssertionError("callback server did not become ready in time")
         httpx.get(
             "http://127.0.0.1:1455/auth/callback",
             params={"code": "auth-code", "state": "state123"},

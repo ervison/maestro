@@ -58,7 +58,7 @@ Full ProviderPlugin implementation for GitHub Copilot:
 - **Wire Format Helpers**:
   - `_convert_messages_to_wire()`: Maps neutral types to OpenAI chat format
   - `_convert_tools_to_wire()`: Maps Tool to function schema format
-  - `_parse_tool_call_delta()`: Parses SSE deltas into ToolCall
+  - Tool-call deltas are parsed inline while processing SSE events and assembled into the final `Message.tool_calls`
 
 ### 2. Test Suite (`tests/test_copilot_provider.py`)
 

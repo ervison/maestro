@@ -26,9 +26,9 @@ expected mitigation and the concrete evidence found in the codebase.
 | Threat ID | Category | Disposition | Evidence |
 |-----------|----------|-------------|----------|
 | T-07-01 | Spoofing | mitigate | Hardcoded GitHub OAuth and API endpoints defined in maestro/providers/copilot.py:28-33 (CLIENT_ID, DEVICE_CODE_URL, ACCESS_TOKEN_URL, COPILOT_API_BASE) — no dynamic URL composition from user input. |
-| T-07-02 | Tampering | mitigate | Token storage performed via auth.set("github-copilot", ...) in maestro/providers/copilot.py:298; auth._write_store writes files with secure mode 0o600 in maestro/auth.py:64-68. |
-| T-07-03 | Information Disclosure | mitigate | Implementation avoids logging secrets: copilot.py uses logger.debug for flow state only (examples: maestro/providers/copilot.py:276, 282, 299) and never logs the access_token value. No occurrences of logging access tokens were found in the Copilot provider implementation. |
-| T-07-04 | Denial of Service | mitigate | Device-code polling enforces a deadline/timeout: expires_in default 900s and deadline calculation in maestro/providers/copilot.py:244-256 and loop condition using deadline at 254-259. Polling respects interval + POLLING_SAFETY_MARGIN. |
+| T-07-02 | Tampering | mitigate | Token storage performed via `auth.set("github-copilot", ...)` in `CopilotProvider.login()` inside maestro/providers/copilot.py; `auth._write_store` writes files with secure mode 0o600 in maestro/auth.py. |
+| T-07-03 | Information Disclosure | mitigate | Implementation avoids logging secrets: `logger.debug` calls in `CopilotProvider.login()` log flow state only and never log the access_token value. No occurrences of logging access tokens were found in the Copilot provider implementation. |
+| T-07-04 | Denial of Service | mitigate | Device-code polling enforces a deadline/timeout: `expires_in` default 900s and `deadline = time.time() + expires_in` calculation in `CopilotProvider.login()`. Polling loop uses `while time.time() < deadline` with `POLLING_SAFETY_MARGIN` added per interval. |
 | T-07-05 | Elevation of Privilege | accept | Accepted risk recorded below (see "Accepted Risks"). The plan documents the reduced scope (read:user) as the rationale. |
 
 Threat Flags from SUMMARY.md
@@ -38,9 +38,9 @@ The phase SUMMARY (`07-01-SUMMARY.md`) contains a "Threat Surface Scan" that rep
 Notes, Review Findings, and Fixes
 --------------------------------
 During code review two warnings and one informational issue were raised (see .planning/phases/07-github-copilot-provider/07-REVIEW.md):
-- WR-01: SSE path did not fail fast on non-2xx responses — fixed in the implementation by checking the SSE response status and raising on non-success (maestro/providers/copilot.py:136-141).
-- WR-02: is_authenticated() previously reported true for unusable credential blobs — fixed by validating access_token presence (maestro/providers/copilot.py:305-308).
-- IN-01: Unused helper _parse_tool_call_delta() removed (refactor/fix applied).
+- WR-01: SSE path did not fail fast on non-2xx responses — fixed in `CopilotProvider.stream()` by checking `event_source.response.is_success` and raising on non-success.
+- WR-02: `is_authenticated()` previously reported true for unusable credential blobs — fixed in `CopilotProvider.is_authenticated()` by validating access_token presence via `bool(creds and creds.get("access_token"))`.
+- IN-01: Unused helper `_parse_tool_call_delta()` removed (refactor/fix applied).
 
 Those review findings were addressed and a short fix report is in 07-REVIEW-FIX.md. The changes are visible in the current implementation and the mitigations described in the plan remain present after the fixes.
 

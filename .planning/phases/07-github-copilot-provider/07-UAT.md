@@ -31,15 +31,11 @@ result: pass
 
 ### 5. Models CLI supports provider-filtered Copilot listing
 expected: `maestro models --provider github-copilot` is accepted and lists Copilot model IDs.
-result: issue
-reported: "CLI rejects --provider with: unrecognized arguments: --provider github-copilot"
-severity: major
+result: pass
 
 ### 6. Copilot is usable as an alternative runtime provider
 expected: `maestro run --model github-copilot/gpt-4o \"...\"` should route to Copilot provider stream path.
-result: issue
-reported: "CLI returns: Provider 'github-copilot' is discoverable but not runnable yet; Phase 5 must wire provider.stream()"
-severity: blocker
+result: pass
 
 ### 7. Auth state is false without token
 expected: `is_authenticated()` returns `False` when no Copilot token is stored.

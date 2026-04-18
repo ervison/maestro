@@ -889,7 +889,11 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_stream_integration(self):
-        """Real API call with Copilot (skipped if no credentials)."""
+        """Real API call with Copilot (opt-in via MAESTRO_RUN_INTEGRATION=1)."""
+        import os
+        if not os.environ.get("MAESTRO_RUN_INTEGRATION"):
+            pytest.skip("Set MAESTRO_RUN_INTEGRATION=1 to run integration tests")
+
         from maestro.providers.copilot import CopilotProvider
         from maestro.providers.base import Message
         from maestro import auth
@@ -912,14 +916,3 @@ class TestIntegration:
         assert len(chunks) >= 2
         assert isinstance(chunks[-1], Message)
         assert "hello" in chunks[-1].content.lower()
-
-
-class TestRegressionGuard:
-    """Placeholder to remind running full test suite."""
-
-    def test_existing_tests_still_pass(self):
-        """Marker: run full test suite to verify no regressions.
-
-        To run: python -m pytest tests/ -v
-        """
-        pass
