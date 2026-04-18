@@ -121,7 +121,7 @@ def main():
 
     elif args.command == "models":
         from maestro.providers.chatgpt import fetch_models, probe_available_models
-        from maestro.providers.registry import discover_providers, get_provider
+        from maestro.providers.registry import discover_providers
 
         if args.refresh:
             print("Refreshing models from models.dev...")
