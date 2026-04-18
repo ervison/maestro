@@ -108,7 +108,7 @@ def write_file(args: dict, workdir: Path) -> dict:
 def create_file(args: dict, workdir: Path) -> dict:
     path = resolve_path(args["path"], workdir)
     if path.exists():
-        return {"error": f"File already exists: {args['path']}"}
+        return {"error": f"File already exists: {args['path']}. Use write_file to overwrite, or choose a different filename."}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(args.get("content", ""))
     return {"ok": True}
@@ -171,26 +171,42 @@ _TOOL_FNS = {
 }
 
 
-def _confirm(tool_name: str, args: dict) -> bool:
+def _confirm(tool_name: str, args: dict) -> str:
+    """Prompt user for confirmation. Returns 'yes', 'no', or 'always'."""
     summary = ", ".join(f"{k}={v!r}" for k, v in list(args.items())[:3])
     print(f"\n  [maestro] {tool_name}({summary})")
-    ans = input("  Execute? [y/N]: ").strip().lower()
-    return ans in ("y", "yes")
+    ans = input("  Execute? [y/N/always]: ").strip().lower()
+    if ans in ("a", "always"):
+        return "always"
+    if ans in ("y", "yes"):
+        return "yes"
+    return "no"
 
 
-def execute_tool(name: str, args: dict, workdir: Path, auto: bool = False) -> dict:
+def execute_tool(
+    name: str, args: dict, workdir: Path, auto: bool = False
+) -> tuple[dict, bool]:
+    """Execute a tool and return (result, auto_escalated).
+
+    auto_escalated is True when the user answered 'always' during this call,
+    signalling that the caller should set auto=True for all subsequent tools.
+    """
     fn = _TOOL_FNS.get(name)
     if fn is None:
-        return {"error": f"Unknown tool: {name}"}
+        return {"error": f"Unknown tool: {name}"}, False
     if name in DESTRUCTIVE_TOOLS and not auto:
-        if not _confirm(name, args):
-            return {"error": "user denied"}
+        decision = _confirm(name, args)
+        if decision == "no":
+            return {"error": "user denied"}, False
+        auto_escalated = decision == "always"
+    else:
+        auto_escalated = False
     try:
-        return fn(args, workdir)
+        return fn(args, workdir), auto_escalated
     except PathOutsideWorkdirError as e:
-        return {"error": str(e)}
+        return {"error": str(e)}, auto_escalated
     except Exception as e:
-        return {"error": f"Tool error: {e}"}
+        return {"error": f"Tool error: {e}"}, auto_escalated
 
 
 TOOL_SCHEMAS = [

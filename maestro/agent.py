@@ -59,7 +59,6 @@ def _run_httpx_stream_sync(
                     input_items.append(
                         {
                             "type": "function_call",
-                            "id": tc.id,
                             "call_id": tc.id,
                             "name": tc.name,
                             "arguments": json.dumps(tc.arguments),
@@ -95,6 +94,7 @@ def _run_httpx_stream_sync(
             }
         )
 
+    import sys as _sys
     payload: dict = {
         "model": api_model,
         "instructions": instructions or "You are a helpful assistant.",
@@ -137,9 +137,12 @@ def _run_httpx_stream_sync(
             elif etype == "response.output_item.done":
                 item = event.get("item", {})
                 if item.get("type") == "function_call":
+                    # Responses API uses 'call_id' for function_call_output references;
+                    # 'id' is the output-item ID. Use call_id when present.
+                    tool_call_id = item.get("call_id") or item.get("id", "")
                     tool_calls.append(
                         ToolCall(
-                            id=item.get("id", ""),
+                            id=tool_call_id,
                             name=item.get("name", ""),
                             arguments=json.loads(item.get("arguments", "{}")),
                         )
@@ -190,15 +193,26 @@ def _convert_messages_to_neutral(
     return result
 
 
-def _run_provider_stream_sync(provider, messages: list[Message], model: str, tools: list[Tool] | None = None):
+def _run_provider_stream_sync(
+    provider,
+    messages: list[Message],
+    model: str,
+    tools: list[Tool] | None = None,
+    on_text=None,
+):
     """Synchronous wrapper for async provider.stream().
 
     Since _run_agentic_loop is synchronous but provider.stream() is async,
     we use asyncio.run() to bridge the gap.
+
+    on_text: optional callable(str) invoked immediately for each text chunk,
+             enabling real-time terminal output even though the outer loop is sync.
     """
     async def _inner():
         result = []
         async for chunk in provider.stream(messages, model, tools):
+            if isinstance(chunk, str) and on_text is not None:
+                on_text(chunk)
             result.append(chunk)
         return result
 
@@ -215,6 +229,8 @@ def _run_agentic_loop(
     max_iterations: int = 20,
     *,
     tokens: auth.TokenSet | None = None,
+    on_text=None,
+    on_tool_start=None,
 ) -> str:
     """Run the agentic loop using provider.stream() for HTTP delegation.
 
@@ -227,6 +243,10 @@ def _run_agentic_loop(
         auto: Whether to auto-execute destructive tools without confirmation
         max_iterations: Maximum tool-call iterations before giving up
         tokens: TokenSet for legacy httpx-based streaming (backward compatibility)
+        on_text: Optional callable(str) invoked with each text chunk as it arrives.
+                 Use for real-time streaming output to the terminal.
+        on_tool_start: Optional callable() invoked before executing tool calls.
+                       Use to stop a spinner before tool confirmation prompts.
 
     Returns:
         Final text response from the model
@@ -251,6 +271,10 @@ def _run_agentic_loop(
     # Convert tool schemas to neutral Tool types
     tools = _convert_tool_schemas(TOOL_SCHEMAS)
 
+    # Track recent tool calls to detect infinite loops (same tool+args repeated)
+    recent_tool_signatures: list[str] = []
+    MAX_REPEATED_CALLS = 3
+
     for iteration in range(max_iterations):
         # Stream from provider (sync wrapper for async generator)
         if use_legacy_path:
@@ -263,7 +287,7 @@ def _run_agentic_loop(
                     "Either provider or tokens must be provided to _run_agentic_loop"
                 )
             stream_results = _run_provider_stream_sync(
-                provider, neutral_messages, model, tools
+                provider, neutral_messages, model, tools, on_text=on_text
             )
 
         text_parts: list[str] = []
@@ -272,8 +296,8 @@ def _run_agentic_loop(
 
         for chunk in stream_results:
             if isinstance(chunk, str):
-                # Text chunk during streaming
                 text_parts.append(chunk)
+                # on_text already called inside _run_provider_stream_sync for real-time output
             elif isinstance(chunk, Message):
                 # Final message with complete response
                 final_message = chunk
@@ -291,6 +315,22 @@ def _run_agentic_loop(
         if not tool_calls:
             return final_text
 
+        # Detect infinite loop: same tool call signature repeated consecutively
+        call_sig = json.dumps(
+            [{"name": tc.name, "args": tc.arguments} for tc in tool_calls],
+            sort_keys=True,
+        )
+        recent_tool_signatures.append(call_sig)
+        if len(recent_tool_signatures) > MAX_REPEATED_CALLS:
+            recent_tool_signatures.pop(0)
+        if (
+            len(recent_tool_signatures) == MAX_REPEATED_CALLS
+            and len(set(recent_tool_signatures)) == 1
+        ):
+            raise RuntimeError(
+                f"Agent loop detected: same tool call repeated {MAX_REPEATED_CALLS} times — {call_sig[:200]}"
+            )
+
         # Preserve the assistant message that requested the tools
         neutral_messages.append(
             Message(
@@ -302,7 +342,13 @@ def _run_agentic_loop(
 
         # Execute each tool and append results as tool messages
         for tc in tool_calls:
-            result = execute_tool(tc.name, tc.arguments, wd, auto=auto)
+            if on_tool_start is not None:
+                on_tool_start()
+                on_tool_start = None  # only fire once per iteration
+            result, auto_escalated = execute_tool(tc.name, tc.arguments, wd, auto=auto)
+            if auto_escalated:
+                auto = True
+                print("  [maestro] Auto-approving all remaining tool calls.")
             neutral_messages.append(
                 Message(
                     role="tool",
@@ -403,11 +449,18 @@ def run(
     workdir: Path | None = None,
     auto: bool = False,
     provider=None,
+    stream_callback=None,
+    on_tool_start=None,
 ) -> str:
     """Run the agentic loop with the given model and prompt.
 
     Uses the given provider, or falls back to get_default_provider() to
     discover and use the first authenticated provider.
+
+    Args:
+        stream_callback: Optional callable(str) invoked with each text chunk
+                         as it arrives from the model. Pass a printing function
+                         for real-time terminal output.
     """
     # Use provided provider or fall back to default
     if provider is None:
@@ -427,6 +480,8 @@ def run(
             provider=provider,
             workdir=wd,
             auto=auto,
+            on_text=stream_callback,
+            on_tool_start=on_tool_start,
         )
         return AIMessage(content=text)
 

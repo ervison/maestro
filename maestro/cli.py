@@ -2,12 +2,53 @@
 
 import argparse
 import sys
+import threading
+import time
 import warnings
 
 from maestro import auth
 from maestro.agent import run
 from maestro.providers.chatgpt import DEFAULT_MODEL
 from maestro.providers.registry import get_provider
+
+
+class _Spinner:
+    """A simple terminal spinner for long-running operations."""
+
+    FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    INTERVAL = 0.08
+
+    def __init__(self, message: str = "Thinking..."):
+        self._message = message
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._started = False
+
+    def start(self) -> None:
+        if not sys.stdout.isatty():
+            return  # Don't show spinner in non-interactive terminals
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+        self._started = True
+
+    def stop(self) -> None:
+        if not self._started:
+            return
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=0.5)
+        # Clear the spinner line
+        print(f"\r{' ' * (len(self._message) + 4)}\r", end="", flush=True)
+        self._started = False
+
+    def _spin(self) -> None:
+        i = 0
+        while not self._stop_event.is_set():
+            frame = self.FRAMES[i % len(self.FRAMES)]
+            print(f"\r{frame} {self._message}", end="", flush=True)
+            i += 1
+            self._stop_event.wait(self.INTERVAL)
 
 
 def main():
@@ -322,11 +363,31 @@ def main():
                 # implementation, run() and the provider will raise a clear error.
                 pass
 
+            streamed: list[bool] = []
+            spinner = _Spinner()
+            spinner.start()
+
+            def _stream_print(chunk: str) -> None:
+                spinner.stop()
+                print(chunk, end="", flush=True)
+                streamed.append(True)
+
+            def _on_tool_start() -> None:
+                spinner.stop()
+
             result = run(
                 model_id, args.prompt, args.system, workdir=wd, auto=args.auto,
                 provider=provider,
+                stream_callback=_stream_print,
+                on_tool_start=_on_tool_start,
             )
-            print(result)
+            spinner.stop()  # ensure stopped if no text/tools were seen
+            if not streamed:
+                # No streaming chunks received — print the full result at once
+                print(result)
+            else:
+                # Streaming already printed the content; just end with a newline
+                print()
         except (RuntimeError, ValueError) as e:
             msg = str(e)
             if "not supported" in msg:

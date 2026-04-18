@@ -236,7 +236,7 @@ def _convert_messages_to_input(messages: list[Message]) -> list[dict]:
             for tc in msg.tool_calls:
                 input_items.append({
                     "type": "function_call",
-                    "id": tc.id,
+                    "call_id": tc.id,   # call_id links to function_call_output
                     "name": tc.name,
                     "arguments": json.dumps(tc.arguments),
                 })
@@ -300,7 +300,7 @@ def _parse_tool_call(item: dict) -> ToolCall:
         parsed_args = {}
 
     return ToolCall(
-        id=item.get("id", ""),
+        id=item.get("call_id") or item.get("id", ""),
         name=item.get("name", ""),
         arguments=parsed_args,
     )

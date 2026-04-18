@@ -237,8 +237,7 @@ class CopilotProvider:
 
                     # Check for finish_reason to determine completion
                     finish_reason = choices[0].get("finish_reason")
-                    if finish_reason == "tool_calls":
-                        # Tool calls complete, parse and yield final message
+                    if finish_reason in ("tool_calls", "stop", "length"):
                         break
 
         # Yield final Message with complete content and tool calls

@@ -442,7 +442,7 @@ def test_run_with_env_selected_unsupported_provider_calls_run(monkeypatch, capsy
 
 def test_run_with_model_flag_bypasses_invalid_config_reload(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello", "--model", "chatgpt/gpt-5.4"])
-    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto, provider=None: f"ran:{model_id}:{prompt}")
+    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto, provider=None, **kw: f"ran:{model_id}:{prompt}")
     monkeypatch.setattr(
         "maestro.config.load",
         lambda: (_ for _ in ()).throw(RuntimeError("Invalid config file")),
@@ -460,7 +460,7 @@ def test_run_without_explicit_selection_falls_back_to_chatgpt(monkeypatch, capsy
 
     monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello"])
     monkeypatch.delenv("MAESTRO_MODEL", raising=False)
-    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto, provider=None: f"ran:{model_id}:{prompt}")
+    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto, provider=None, **kw: f"ran:{model_id}:{prompt}")
 
     def fake_resolve_model(model_flag=None, agent_name=None):
         assert model_flag is None

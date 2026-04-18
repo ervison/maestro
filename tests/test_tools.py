@@ -141,39 +141,55 @@ def test_execute_shell_timeout(tmp_path):
 def test_execute_tool_read(tmp_path):
     from maestro.tools import execute_tool
     (tmp_path / "f.txt").write_text("hello")
-    result = execute_tool("read_file", {"path": "f.txt"}, tmp_path, auto=True)
+    result, _ = execute_tool("read_file", {"path": "f.txt"}, tmp_path, auto=True)
     assert result["content"] == "hello"
 
 def test_execute_tool_unknown(tmp_path):
     from maestro.tools import execute_tool
-    result = execute_tool("nonexistent_tool", {}, tmp_path, auto=True)
+    result, _ = execute_tool("nonexistent_tool", {}, tmp_path, auto=True)
     assert "error" in result
 
 def test_execute_tool_destructive_denied(tmp_path, monkeypatch):
     from maestro.tools import execute_tool
     monkeypatch.setattr("builtins.input", lambda _: "n")
-    result = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=False)
+    result, escalated = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=False)
     assert result == {"error": "user denied"}
+    assert escalated is False
     assert not (tmp_path / "x.py").exists()
 
 def test_execute_tool_destructive_auto(tmp_path):
     from maestro.tools import execute_tool
-    result = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=True)
+    result, _ = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=True)
     assert result == {"ok": True}
 
 
 def test_execute_tool_path_escape(tmp_path):
     from maestro.tools import execute_tool
-    result = execute_tool("read_file", {"path": "../../etc/passwd"}, tmp_path, auto=True)
+    result, _ = execute_tool("read_file", {"path": "../../etc/passwd"}, tmp_path, auto=True)
     assert "error" in result
 
 def test_execute_tool_missing_arg(tmp_path):
     from maestro.tools import execute_tool
-    result = execute_tool("read_file", {}, tmp_path, auto=True)
+    result, _ = execute_tool("read_file", {}, tmp_path, auto=True)
     assert "error" in result
 
 def test_execute_tool_destructive_approved(tmp_path, monkeypatch):
     from maestro.tools import execute_tool
     monkeypatch.setattr("builtins.input", lambda _: "y")
-    result = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=False)
+    result, escalated = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=False)
     assert result == {"ok": True}
+    assert escalated is False
+
+def test_execute_tool_always_escalates(tmp_path, monkeypatch):
+    from maestro.tools import execute_tool
+    monkeypatch.setattr("builtins.input", lambda _: "always")
+    result, escalated = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=False)
+    assert result == {"ok": True}
+    assert escalated is True
+
+def test_execute_tool_always_short_form(tmp_path, monkeypatch):
+    from maestro.tools import execute_tool
+    monkeypatch.setattr("builtins.input", lambda _: "a")
+    result, escalated = execute_tool("write_file", {"path": "x.py", "content": "x"}, tmp_path, auto=False)
+    assert result == {"ok": True}
+    assert escalated is True
