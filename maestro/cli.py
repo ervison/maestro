@@ -84,6 +84,12 @@ def main():
     models_p.add_argument(
         "--refresh", action="store_true", help="Force refresh models from models.dev catalog"
     )
+    models_p.add_argument(
+        "--provider",
+        default=None,
+        metavar="ID",
+        help="Show models only from this provider",
+    )
 
     # status
     sub.add_parser("status", help="Show auth status")
@@ -174,6 +180,8 @@ def main():
             print("Not logged in to chatgpt.")
 
     elif args.command == "models":
+        from maestro.models import get_available_models, format_model_list
+        from maestro.providers.registry import list_providers
         from maestro.providers.chatgpt import fetch_models, probe_available_models
 
         if args.refresh:
@@ -183,44 +191,43 @@ def main():
         if args.check:
             ts = auth.load()
             if not ts:
-                print("Not logged in.")
+                print("Not logged in to ChatGPT.")
                 sys.exit(1)
             ts = auth.ensure_valid(ts)
-            print("Probing models (this may take a moment)...")
+            print("Probing ChatGPT models (this may take a moment)...")
             available = probe_available_models(ts, force=True)
             all_models = fetch_models()
             for m in all_models:
                 if m in available:
-                    print(f"  {m}  [available]")
+                    print(f"  chatgpt/{m}  [available]")
                 else:
-                    print(f"  {m}  [not available for your account]")
+                    print(f"  chatgpt/{m}  [not available]")
             print(f"\n{len(available)}/{len(all_models)} models available.")
-        else:
-            # Show only available models (cached probe)
-            ts = auth.load()
-            if not ts:
-                # Not logged in — show full catalog
-                models = fetch_models()
-                print(f"Default: {auth.DEFAULT_MODEL}")
-                print("All known models (login to see which are available):")
-                for m in models:
-                    marker = " *" if m == auth.DEFAULT_MODEL else ""
-                    print(f"  {m}{marker}")
-            else:
-                ts = auth.ensure_valid(ts)
-                available = probe_available_models(ts)
-                if not available:
-                    print("No cached availability data. Run: maestro models --check")
-                    models = fetch_models()
-                    print(f"\nAll known models:")
-                    for m in models:
-                        print(f"  {m}")
+            return
+
+        # Multi-provider listing
+        models_by_provider = get_available_models()
+
+        if args.provider:
+            # Filter to single provider
+            if args.provider not in models_by_provider:
+                # Check if provider exists but has no models
+                discovered = list_providers()
+                if args.provider in discovered:
+                    print(f"Provider '{args.provider}' has no available models.")
+                    print("(Provider may require authentication: maestro auth login " + args.provider + ")")
                 else:
-                    print(f"Default: {auth.DEFAULT_MODEL}")
-                    print(f"Available models ({len(available)}):")
-                    for m in available:
-                        marker = " *" if m == auth.DEFAULT_MODEL else ""
-                        print(f"  {m}{marker}")
+                    print(f"Unknown provider: '{args.provider}'")
+                    print(f"Available providers: {', '.join(discovered)}")
+                sys.exit(1)
+            models_by_provider = {args.provider: models_by_provider[args.provider]}
+
+        if not models_by_provider:
+            print("No models available. Authenticate a provider first:")
+            print("  maestro auth login chatgpt")
+            sys.exit(0)
+
+        print(format_model_list(models_by_provider))
 
     elif args.command == "status":
         ts = auth.load()
