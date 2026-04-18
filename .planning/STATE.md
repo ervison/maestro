@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 10 plan validated, ready for execution
-stopped_at: Phase 10 plan validation
-last_updated: "2026-04-18T23:15:00.000Z"
-last_activity: 2026-04-18
+status: Phase 10 complete — scheduler & workers implemented
+stopped_at: Completed 10-01-SUMMARY.md
+last_updated: "2026-04-19T00:00:00.000Z"
+last_activity: 2026-04-19
 progress:
   total_phases: 11
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 14
-  completed_plans: 12
-  percent: 86
+  completed_plans: 13
+  percent: 93
 ---
 
 # Maestro — Project State
@@ -25,20 +25,20 @@ See: .planning/PROJECT.md (updated 2026-04-17)
 
 ## Current Position
 
-Phase: 10 of 11 (scheduler & workers)
-Plan: 10-01-PLAN.md validated and ready
-Status: Phase 10 plan validated, ready for execution
-Last activity: 2026-04-18
+Phase: 10 of 11 (complete)
+Plan: 10-01-PLAN.md — **EXECUTED**
+Status: Phase 10 complete — scheduler & workers implemented
+Last activity: 2026-04-19
 
-Progress: [████████░░] 86%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 3
-- Average duration: n/a
-- Total execution time: n/a
+- Total plans completed: 4
+- Average duration: 24 min
+- Total execution time: 96 min
 
 **By Phase:**
 
@@ -46,13 +46,16 @@ Progress: [████████░░] 86%
 |-------|-------|-------|----------|
 | 03-chatgpt-provider-migration | 1 | 8 min | 8 min |
 | 04-provider-registry | 1 | n/a | n/a |
-| 09 | 1 | - | - |
+| 05-agent-loop-refactor | 1 | 30 min | 30 min |
+| 08-dag-state-types-domains | 2 | 20 min | 10 min |
+| 09-planner | 1 | - | - |
+| **10-scheduler-workers** | **1** | **45 min** | **45 min** |
 
 **Recent Trend:**
 
-- Last shipped phase: 08-dag-state-types-domains
+- Last shipped phase: **10-scheduler-workers**
 - Trend: On track
-- Completed 3 additional phases today (parallel execution wave)
+- Multi-agent DAG execution now functional
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
@@ -60,6 +63,8 @@ Progress: [████████░░] 86%
 | 04-provider-registry | 1 | n/a | n/a |
 | 05-agent-loop-refactor | 1 | 30 min | 30 min |
 | 08-dag-state-types-domains | 2 | 20 min | 10 min |
+| 09-planner | 1 | - | - |
+| **10-scheduler-workers** | **1** | **45 min** | **45 min** |
 
 *Updated after each plan completion*
 
@@ -74,6 +79,8 @@ Recent decisions affecting current work:
 - Workers reuse `_run_agentic_loop` unchanged (minimize bug surface)
 - `ProviderPlugin` as Protocol, not ABC (structural typing for third-party)
 - LangGraph `Send` API for parallel fan-out dispatch
+- **[Phase 10]**: Separate `scheduler_route` (string returns) from `dispatch_route` (Send returns) — mixing causes LangGraph errors
+- **[Phase 10]**: Direct dependency checking for task readiness — simpler than incremental TopologicalSorter
 - [Phase 01]: Use dataclass (not Pydantic) for neutral types - internal containers, not API schemas
 - [Phase 01]: Use typing.Protocol (not ABC) - structural typing for third-party providers
 - [Phase 03]: Use `__getattr__` for lazy re-exports to avoid circular imports between auth.py and chatgpt.py
@@ -93,7 +100,7 @@ None yet.
 ### Blockers/Concerns
 
 - **Planner prompt quality**: Requires empirical iteration to prevent over-decomposition; addressed in Phase 9
-- **Multi-agent DAG complexity**: Need to validate Send API pattern with LangGraph 1.1.6; test with simple 2-worker case first
+- **Multi-agent DAG complexity**: ✓ Resolved in Phase 10 — Send API pattern validated with 2-worker tests, parallel fan-in working correctly
 
 ### Quick Tasks Completed
 
@@ -222,3 +229,27 @@ Resume files:
 
 - `.planning/phases/09-planner/09-01-SUMMARY.md` (to be created)
 - `.planning/phases/09-planner/09-01-PLAN.md`
+
+**Phase 10: Scheduler & Workers**
+
+- ✅ Extended AgentState with `failed` reducer field and worker-local NotRequired fields
+- ✅ Created `maestro/multi_agent.py` with scheduler_node, scheduler_route, dispatch_route, worker_node
+- ✅ Implemented parallel DAG execution via LangGraph Send API
+- ✅ Added domain-prompt composition in workers (get_domain_prompt + task prompt)
+- ✅ Installed safety guards: depth validation, workdir resolution, exception-to-state conversion
+- ✅ Compiled StateGraph with scheduler → dispatch → worker → scheduler loop
+- ✅ Added `run_multi_agent()` helper with required `depth` parameter (no default)
+- ✅ Created comprehensive test suite: 23 tests covering scheduler, dispatch, workers, graph integration
+- ✅ All 53 Phase 10 tests passing (30 planner schemas + 23 scheduler/worker)
+- ✅ No regressions in existing functionality (346 tests passing)
+
+**Commits:**
+
+- `892f736`: feat(10-01): extend execution state for scheduler/worker needs
+- `01889bd`: feat(10-01): implement scheduler and worker multi-agent execution
+- `db7d987`: chore(10-01): update planner __init__ docstring
+
+**Artifacts:**
+
+- `.planning/phases/10-scheduler-workers/10-01-SUMMARY.md`
+- `.planning/phases/10-scheduler-workers/10-01-PLAN.md`
