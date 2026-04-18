@@ -142,6 +142,9 @@ def planner_node(state: AgentState) -> dict:
         ValueError: If LLM output cannot be validated after max retries.
     """
     task = state["task"]
+    # Guard: bound task length to prevent excessive prompt injection surface
+    if len(task) > 8000:
+        raise ValueError(f"Task too long: {len(task)} chars (max 8000)")
     config = load_config()
 
     # Resolve model: config.agent.planner.model -> default provider model
@@ -198,10 +201,10 @@ def planner_node(state: AgentState) -> dict:
             logger.warning("Planner attempt %d/%d failed: %s", attempt, max_retries, exc)
             if attempt < max_retries:
                 # Add error feedback to messages for next retry
-                messages.append(Message(role="assistant", content=raw if 'raw' in dir() else ""))
+                messages.append(Message(role="assistant", content=raw if 'raw' in locals() else ""))
                 messages.append(Message(
                     role="user",
-                    content=f"Your previous response was invalid: {exc}\n\nPlease respond with valid JSON only, matching the schema exactly."
+                    content=f"Your previous response was invalid: {str(exc)[:200]}\n\nPlease respond with valid JSON only, matching the schema exactly."
                 ))
 
     raise ValueError(
