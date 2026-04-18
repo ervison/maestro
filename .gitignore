@@ -208,5 +208,5 @@ __marimo__/
 *.pyc
 **/__pycache__/
 **.workspace/
-
+**/.venv/
 .codex

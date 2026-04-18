@@ -18,6 +18,7 @@ maestro/providers/chatgpt.py
 maestro/providers/registry.py
 tests/test_agent_loop.py
 tests/test_agent_loop_provider.py
+tests/test_auth_browser_oauth.py
 tests/test_auth_store.py
 tests/test_chatgpt_provider.py
 tests/test_config.py

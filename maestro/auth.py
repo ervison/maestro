@@ -25,7 +25,8 @@ TOKEN_URL = "https://auth.openai.com/oauth/token"
 DEVICE_CODE_URL = "https://auth.openai.com/api/accounts/deviceauth/usercode"
 DEVICE_TOKEN_URL = "https://auth.openai.com/api/accounts/deviceauth/token"
 DEVICE_CALLBACK = "https://auth.openai.com/deviceauth/callback"
-REDIRECT_URI = "http://localhost:1455/auth/callback"
+CALLBACK_PORT = 1455
+REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/auth/callback"
 SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke"
 AUTH_CLAIM = "https://api.openai.com/auth"
 
@@ -320,7 +321,7 @@ def login_browser() -> TokenSet:
     if "code" not in result:
         raise RuntimeError("No authorization code received (timeout?)")
 
-    return _exchange_code(result["code"], verifier, redirect_uri)
+    return _exchange_code(result["code"], verifier, REDIRECT_URI)
 
 
 # --------------- Device Code flow ---------------

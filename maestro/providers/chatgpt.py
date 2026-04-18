@@ -5,8 +5,12 @@ encapsulating all ChatGPT-specific HTTP, SSE, and wire-format logic.
 """
 
 import json
-import httpx
+import logging
+import time
+from pathlib import Path
 from typing import AsyncIterator
+
+import httpx
 
 from maestro import auth
 from maestro.providers.base import (
@@ -15,6 +19,124 @@ from maestro.providers.base import (
     Tool,
     ToolCall,
 )
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Dynamic model catalog from models.dev
+# ---------------------------------------------------------------------------
+MODELS_DEV_URL = "https://models.dev/api.json"
+_CACHE_TTL = 3600  # 1 hour
+_CACHE_DIR = Path.home() / ".cache" / "maestro"
+
+
+def _cache_path() -> Path:
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    return _CACHE_DIR / "models-dev.json"
+
+
+def _read_cache() -> list[str] | None:
+    """Read cached models list if still fresh."""
+    path = _cache_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        if time.time() - data.get("ts", 0) < _CACHE_TTL:
+            return data.get("models", [])
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def _write_cache(models: list[str]) -> None:
+    try:
+        _cache_path().write_text(json.dumps({"ts": time.time(), "models": models}))
+    except OSError:
+        pass
+
+
+def _is_codex_model(model_id: str) -> bool:
+    """Filter for models usable via the ChatGPT Codex endpoint."""
+    return "gpt-5" in model_id or "codex" in model_id
+
+
+def fetch_models(*, force: bool = False) -> list[str]:
+    """Fetch OpenAI model list from models.dev catalog.
+
+    Returns filtered list of codex-compatible models.
+    Falls back to FALLBACK_MODELS on any error.
+    """
+    if not force:
+        cached = _read_cache()
+        if cached:
+            return cached
+
+    try:
+        resp = httpx.get(MODELS_DEV_URL, timeout=10, follow_redirects=True)
+        resp.raise_for_status()
+        catalog = resp.json()
+        openai_entry = catalog.get("openai", {})
+        all_models = list(openai_entry.get("models", {}).keys())
+        filtered = sorted([m for m in all_models if _is_codex_model(m)])
+        if filtered:
+            _write_cache(filtered)
+            return filtered
+    except Exception as exc:
+        logger.debug("Failed to fetch models from models.dev: %s", exc)
+
+    return FALLBACK_MODELS.copy()
+
+
+def _available_cache_path() -> Path:
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    return _CACHE_DIR / "models-available.json"
+
+
+def probe_available_models(
+    tokens: "auth.TokenSet",
+    *,
+    force: bool = False,
+    ttl: int = 86400,
+) -> list[str]:
+    """Probe which models are available for the authenticated account.
+
+    Results are cached for ``ttl`` seconds (default 24 h).
+    Use ``force=True`` or ``maestro models --check`` to re-probe.
+    """
+    path = _available_cache_path()
+
+    if not force and path.exists():
+        try:
+            data = json.loads(path.read_text())
+            if time.time() - data.get("ts", 0) < ttl:
+                return data.get("models", [])
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Late import to avoid circular dependency
+    from maestro.agent import _call_responses_api
+    from langchain_core.messages import HumanMessage
+
+    all_models = fetch_models()
+    msgs = [HumanMessage(content="hi")]
+    available: list[str] = []
+
+    for m in all_models:
+        try:
+            _call_responses_api(m, msgs, tokens)
+            available.append(m)
+        except RuntimeError:
+            pass
+
+    if available:
+        try:
+            path.write_text(json.dumps({"ts": time.time(), "models": available}))
+        except OSError:
+            pass
+
+    return available
+
 
 # Constants migrated from maestro/agent.py
 RESPONSES_ENDPOINT = f"{auth.CODEX_API_BASE}/codex/responses"
@@ -36,18 +158,20 @@ _REASONING_DEFAULTS: dict[str, str] = {
     "gpt-5.1": "medium",
 }
 
-# Model constants migrated from maestro/auth.py
-MODELS = [
+# Fallback model list (used when models.dev is unreachable)
+FALLBACK_MODELS = [
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.2",
-    # Extended family (may require Pro tier)
     "gpt-5-codex",
     "gpt-5.1-codex-max",
     "gpt-5.1-codex-mini",
     "gpt-5.4-nano",
     "gpt-5.1",
 ]
+
+# Dynamic model list — fetched from models.dev on first access
+MODELS = fetch_models()
 
 # Aliases: what the user types -> what the API expects
 MODEL_ALIASES: dict[str, str] = {
@@ -204,8 +328,8 @@ class ChatGPTProvider:
         return "ChatGPT"
 
     def list_models(self) -> list[str]:
-        """Return list of available model IDs for this provider."""
-        return MODELS.copy()
+        """Return list of available model IDs (fetched dynamically)."""
+        return fetch_models()
 
     async def stream(
         self,

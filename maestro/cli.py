@@ -70,6 +70,9 @@ def main():
     models_p.add_argument(
         "--check", action="store_true", help="Probe which models work for your account"
     )
+    models_p.add_argument(
+        "--refresh", action="store_true", help="Force refresh models from models.dev catalog"
+    )
 
     # status
     sub.add_parser("status", help="Show auth status")
@@ -110,33 +113,53 @@ def main():
         auth.logout()
 
     elif args.command == "models":
-        if args.check:
-            from langchain_core.messages import HumanMessage
-            from maestro.agent import _call_responses_api
+        from maestro.providers.chatgpt import fetch_models, probe_available_models
 
+        if args.refresh:
+            print("Refreshing models from models.dev...")
+            fetch_models(force=True)
+
+        if args.check:
             ts = auth.load()
             if not ts:
                 print("Not logged in.")
                 sys.exit(1)
             ts = auth.ensure_valid(ts)
-            msgs = [HumanMessage(content="hi")]
             print("Probing models (this may take a moment)...")
-            for m in auth.MODELS:
-                try:
-                    _call_responses_api(m, msgs, ts)
+            available = probe_available_models(ts, force=True)
+            all_models = fetch_models()
+            for m in all_models:
+                if m in available:
                     print(f"  {m}  [available]")
-                except RuntimeError as e:
-                    msg = str(e)
-                    if "not supported" in msg:
-                        print(f"  {m}  [not available for your account]")
-                    else:
-                        print(f"  {m}  [error: {msg[:60]}]")
+                else:
+                    print(f"  {m}  [not available for your account]")
+            print(f"\n{len(available)}/{len(all_models)} models available.")
         else:
-            print(f"Default: {auth.DEFAULT_MODEL}")
-            print("Models (use -m <name> to select):")
-            for m in auth.MODELS:
-                marker = " *" if m == auth.DEFAULT_MODEL else ""
-                print(f"  {m}{marker}")
+            # Show only available models (cached probe)
+            ts = auth.load()
+            if not ts:
+                # Not logged in — show full catalog
+                models = fetch_models()
+                print(f"Default: {auth.DEFAULT_MODEL}")
+                print("All known models (login to see which are available):")
+                for m in models:
+                    marker = " *" if m == auth.DEFAULT_MODEL else ""
+                    print(f"  {m}{marker}")
+            else:
+                ts = auth.ensure_valid(ts)
+                available = probe_available_models(ts)
+                if not available:
+                    print("No cached availability data. Run: maestro models --check")
+                    models = fetch_models()
+                    print(f"\nAll known models:")
+                    for m in models:
+                        print(f"  {m}")
+                else:
+                    print(f"Default: {auth.DEFAULT_MODEL}")
+                    print(f"Available models ({len(available)}):")
+                    for m in available:
+                        marker = " *" if m == auth.DEFAULT_MODEL else ""
+                        print(f"  {m}{marker}")
 
     elif args.command == "status":
         ts = auth.load()
