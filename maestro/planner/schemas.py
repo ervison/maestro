@@ -40,7 +40,7 @@ class AgentState(TypedDict):
 
 
 DomainName = Literal[
-    "backend", "testing", "docs", "devops", "general", "security"
+    "backend", "testing", "docs", "devops", "general", "security", "data"
 ]
 
 
@@ -58,9 +58,7 @@ class PlanTask(BaseModel):
         description="One of: backend, testing, docs, devops, general, security"
     )
     prompt: str = Field(description="Specific instruction for this worker")
-    deps: list[str] = Field(
-        ..., description="IDs of tasks that must complete first"
-    )
+    deps: list[str] = Field(..., description="IDs of tasks that must complete first")
 
 
 class AgentPlan(BaseModel):

@@ -6,11 +6,19 @@ from maestro.domains import DOMAINS, DEFAULT_DOMAIN, get_domain_prompt, list_dom
 
 
 # Expected domains per D-06 from CONTEXT.md
-EXPECTED_DOMAINS = {"backend", "testing", "docs", "devops", "general", "security"}
+EXPECTED_DOMAINS = {
+    "backend",
+    "testing",
+    "docs",
+    "devops",
+    "general",
+    "security",
+    "data",
+}
 
 
 def test_all_expected_domains_exist():
-    """All 6 required domains are defined."""
+    """All 7 required domains are defined."""
     assert set(DOMAINS.keys()) == EXPECTED_DOMAINS
 
 
@@ -49,7 +57,7 @@ def test_domain_prompt_mentions_working_directory(domain):
 
 
 def test_list_domains_returns_all():
-    """list_domains returns all 6 domain names."""
+    """list_domains returns all 7 domain names."""
     domains = list_domains()
     assert set(domains) == EXPECTED_DOMAINS
 

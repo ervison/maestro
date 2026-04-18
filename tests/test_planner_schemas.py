@@ -98,6 +98,19 @@ def test_agentplan_validates_task_types():
         AgentPlan(tasks=[{"id": "t1", "domain": "backend"}])  # type: ignore
 
 
+def test_agentplan_model_validate_json_accepts_valid_planner_payload():
+    """Planner-facing JSON payloads validate into an AgentPlan."""
+    payload = (
+        '{"tasks":[{"id":"t1","domain":"backend","prompt":"Build API","deps":[]}]}'
+    )
+
+    plan = AgentPlan.model_validate_json(payload)
+
+    assert len(plan.tasks) == 1
+    assert plan.tasks[0].id == "t1"
+    assert plan.tasks[0].domain == "backend"
+
+
 # --- DAG validator tests for malformed inputs ---
 
 
@@ -263,6 +276,19 @@ def test_agentstate_outputs_uses_merge_reducer():
     outputs_hint = hints.get("outputs")
     assert hasattr(outputs_hint, "__metadata__")
     assert _merge_dicts in outputs_hint.__metadata__
+
+
+def test_agentstate_reducers_preserve_parallel_worker_contributions():
+    """Reducer functions combine list and dict updates without dropping data."""
+    from maestro.planner.schemas import _merge_dicts
+
+    completed = operator.add(["t1"], ["t2"])
+    errors = operator.add(["worker-a failed"], ["worker-b failed"])
+    outputs = _merge_dicts({"t1": "api.py"}, {"t2": "test_api.py"})
+
+    assert completed == ["t1", "t2"]
+    assert errors == ["worker-a failed", "worker-b failed"]
+    assert outputs == {"t1": "api.py", "t2": "test_api.py"}
 
 
 def test_agentstate_has_required_fields():
