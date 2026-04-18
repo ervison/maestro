@@ -15,7 +15,7 @@ import time
 import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse, urlencode
 
 import httpx
 
@@ -173,6 +173,38 @@ def _generate_state() -> str:
     return secrets.token_hex(16)
 
 
+def _build_browser_redirect_uri(port: int) -> str:
+    return f"http://localhost:{port}/auth/callback"
+
+
+def _build_authorize_url(redirect_uri: str, challenge: str, state: str) -> str:
+    params = {
+        "response_type": "code",
+        "client_id": CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "scope": SCOPE,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+        "id_token_add_organizations": "true",
+        "codex_cli_simplified_flow": "true",
+        "originator": "codex_cli_rs",
+    }
+    return f"{AUTHORIZE_URL}?{urlencode(params)}"
+
+
+def _parse_browser_callback(path: str, expected_state: str) -> tuple[str | None, str | None]:
+    qs = parse_qs(urlparse(path).query)
+    if qs.get("state", [None])[0] != expected_state:
+        return None, "State mismatch"
+    if "error" in qs:
+        return None, qs["error"][0]
+    codes = qs.get("code")
+    if not codes:
+        return None, "No authorization code received"
+    return codes[0], None
+
+
 # --------------- Token exchange ---------------
 
 
@@ -240,23 +272,7 @@ def login_browser() -> TokenSet:
     verifier, challenge = _generate_pkce()
     state = _generate_state()
 
-    params = {
-        "response_type": "code",
-        "client_id": CLIENT_ID,
-        "redirect_uri": REDIRECT_URI,
-        "scope": SCOPE,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-        "state": state,
-        "id_token_add_organizations": "true",
-        "codex_cli_simplified_flow": "true",
-        "originator": "codex_cli_rs",
-    }
-    # Use urlencode (encodes spaces as '+') to match JS URLSearchParams behavior.
-    # OpenAI's auth server may reject %20-encoded scope values.
-    from urllib.parse import urlencode
-    query = urlencode(params)
-    url = f"{AUTHORIZE_URL}?{query}"
+    url = _build_authorize_url(REDIRECT_URI, challenge, state)
 
     result: dict = {}
     error: list = []
@@ -268,25 +284,13 @@ def login_browser() -> TokenSet:
             if parsed.path != "/auth/callback":
                 self.send_response(404)
                 self.end_headers()
-                self.wfile.write(b"Not found")
                 return
-            qs = parse_qs(parsed.query)
-            if qs.get("state", [None])[0] != state:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"State mismatch")
-                return
-            if "error" in qs:
-                error.append(qs["error"][0])
+            code, callback_error = _parse_browser_callback(self.path, state)
+            if callback_error:
+                error.append(callback_error)
                 self.send_response(400)
                 self.end_headers()
                 self.wfile.write(b"OAuth error")
-                return
-            code = qs.get("code", [None])[0]
-            if not code:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Missing code")
                 return
             result["code"] = code
             self.send_response(200)
