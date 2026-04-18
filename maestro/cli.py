@@ -127,7 +127,7 @@ def main():
                 sys.exit(1)
 
         elif args.auth_command == "status":
-            from maestro.providers.registry import list_providers, get_provider
+            from maestro.providers.registry import list_providers
 
             discovered = list_providers()
             stored = auth.all_providers()
