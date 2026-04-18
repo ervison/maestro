@@ -5,7 +5,7 @@ Defines the type foundation for the multi-agent DAG engine:
 - PlanTask/AgentPlan: Pydantic models for planner output validation
 """
 
-from typing import TypedDict, Annotated
+from typing import TypedDict, Annotated, Literal
 import operator
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -39,6 +39,11 @@ class AgentState(TypedDict):
     auto: bool  # Auto-approve flag
 
 
+DomainName = Literal[
+    "backend", "testing", "docs", "devops", "general", "security"
+]
+
+
 class PlanTask(BaseModel):
     """Single task in a multi-agent plan.
 
@@ -49,7 +54,7 @@ class PlanTask(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(description="Unique task identifier, e.g. t1")
-    domain: str = Field(
+    domain: DomainName = Field(
         description="One of: backend, testing, docs, devops, general, security"
     )
     prompt: str = Field(description="Specific instruction for this worker")
