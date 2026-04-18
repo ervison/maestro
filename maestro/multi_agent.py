@@ -407,6 +407,9 @@ def run_multi_agent(
         "workdir": str(workdir),
         "auto": auto,
         "ready_tasks": [],
+        # Pass caller's provider/model override so planner uses same settings as workers
+        "provider": provider,
+        "model": model,
     }
 
     planner_result = planner_node(planner_state)

@@ -147,25 +147,39 @@ def planner_node(state: AgentState) -> dict:
         raise ValueError(f"Task too long: {len(task)} chars (max 8000)")
     config = load_config()
 
-    # Resolve model: config.agent.planner.model -> default provider model
-    planner_model_raw = config.get("agent.planner.model")
+    # Check for runtime overrides from state (caller-supplied provider/model)
+    runtime_provider = state.get("provider")
+    runtime_model = state.get("model")
 
-    if planner_model_raw:
-        # Format: "provider_id/model_id" or just "model_id"
-        if "/" in planner_model_raw:
-            provider_id, model_id = planner_model_raw.split("/", 1)
-            try:
-                provider = get_provider(provider_id)
-            except (ValueError, KeyError):
-                logger.warning("Configured planner provider '%s' not found, using default", provider_id)
+    if runtime_provider is not None:
+        # Use caller-supplied provider override
+        provider = runtime_provider
+        # Use caller-supplied model if provided, else fall through to config/default
+        model_id = runtime_model
+    else:
+        # Resolve model: config.agent.planner.model -> default provider model
+        planner_model_raw = config.get("agent.planner.model")
+
+        if planner_model_raw:
+            # Format: "provider_id/model_id" or just "model_id"
+            if "/" in planner_model_raw:
+                provider_id, model_id = planner_model_raw.split("/", 1)
+                try:
+                    provider = get_provider(provider_id)
+                except (ValueError, KeyError):
+                    logger.warning("Configured planner provider '%s' not found, using default", provider_id)
+                    provider = get_default_provider()
+                    model_id = None
+            else:
                 provider = get_default_provider()
-                model_id = None
+                model_id = planner_model_raw
         else:
             provider = get_default_provider()
-            model_id = planner_model_raw
-    else:
-        provider = get_default_provider()
-        model_id = None
+            model_id = None
+
+    # Override model with runtime model if provided (even when provider was config-resolved)
+    if runtime_model is not None:
+        model_id = runtime_model
 
     # Resolve model_id to first available if not set
     if model_id is None:
