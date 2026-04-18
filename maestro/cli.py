@@ -113,11 +113,14 @@ def main():
         elif args.auth_command == "logout":
             from maestro.providers.registry import list_providers
 
-            # Validate provider exists
-            discovered = list_providers()
-            if args.provider not in discovered:
+            # Validate provider exists (discovered or has stored credentials)
+            discovered = set(list_providers())
+            stored = set(auth.all_providers())
+            known = discovered | stored
+
+            if args.provider not in known:
                 print(f"Unknown provider: '{args.provider}'")
-                print(f"Available providers: {', '.join(discovered)}")
+                print(f"Available providers: {', '.join(sorted(known)) or '(none installed)'}")
                 sys.exit(1)
 
             if auth.remove(args.provider):
