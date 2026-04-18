@@ -73,6 +73,13 @@ def main():
     models_p.add_argument(
         "--refresh", action="store_true", help="Force refresh models from models.dev catalog"
     )
+    # Allow filtering models by provider (e.g. --provider github-copilot)
+    models_p.add_argument(
+        "--provider",
+        dest="provider",
+        default=None,
+        help="Filter models to a specific provider id (e.g. 'github-copilot')",
+    )
 
     # status
     sub.add_parser("status", help="Show auth status")
@@ -114,10 +121,30 @@ def main():
 
     elif args.command == "models":
         from maestro.providers.chatgpt import fetch_models, probe_available_models
+        from maestro.providers.registry import discover_providers, get_provider
 
         if args.refresh:
             print("Refreshing models from models.dev...")
             fetch_models(force=True)
+
+        # If a provider filter is requested, try to use its list_models()
+        if args.provider:
+            try:
+                provider = get_provider(args.provider)
+            except ValueError as e:
+                print(str(e))
+                sys.exit(1)
+
+            try:
+                models = provider.list_models()
+            except Exception as e:
+                print(f"Error listing models for provider '{args.provider}': {e}")
+                sys.exit(1)
+
+            print(f"Models for provider '{args.provider}':")
+            for m in models:
+                print(f"  {m}")
+            sys.exit(0)
 
         if args.check:
             ts = auth.load()
@@ -204,12 +231,15 @@ def main():
                 provider = get_provider("chatgpt")
                 model_id = DEFAULT_MODEL
 
-            # Phase 5 will wire alternate providers; for now, reject non-ChatGPT providers
+            # Phase 5 will wire alternate providers; allow runtime providers that
+            # implement stream() to be executed. If the provider is missing
+            # stream() or raises at runtime, surface the error from run().
+            # This relaxes the legacy guard that prevented non-chatgpt providers
+            # from being runnable.
             if provider.id != "chatgpt":
-                raise RuntimeError(
-                    f"Provider '{provider.id}' is discoverable but not runnable yet; "
-                    "Phase 5 must wire provider.stream()"
-                )
+                # If the provider advertises itself but lacks a working stream
+                # implementation, run() and the provider will raise a clear error.
+                pass
 
             result = run(
                 model_id, args.prompt, args.system, workdir=wd, auto=args.auto
