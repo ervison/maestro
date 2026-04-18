@@ -21,6 +21,12 @@ def validate_dag(plan: AgentPlan) -> None:
     Returns:
         None if DAG is valid
     """
+    # Check for duplicate task IDs first
+    ids = [task.id for task in plan.tasks]
+    duplicates = sorted({task_id for task_id in ids if ids.count(task_id) > 1})
+    if duplicates:
+        raise ValueError(f"Duplicate task IDs are not allowed: {duplicates}")
+
     task_ids = {t.id for t in plan.tasks}
     graph = {}
 
