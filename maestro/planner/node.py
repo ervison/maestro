@@ -94,9 +94,14 @@ def _call_provider_with_schema(
                 else:
                     stream = provider.stream(messages=messages, model=model, tools=[])
 
-                async for msg in stream:
-                    if msg.content:
-                        chunks.append(msg.content)
+                async for chunk in stream:
+                    if isinstance(chunk, str):
+                        chunks.append(chunk)
+                    elif isinstance(chunk, Message) and chunk.content:
+                        # Only use Message.content if we haven't collected text chunks
+                        # to avoid double-appending (real providers send str deltas + final Message)
+                        if not chunks:
+                            chunks.append(chunk.content)
             except Exception:
                 raise
             return "".join(chunks)
@@ -115,12 +120,14 @@ def _call_provider_with_schema(
             # No running loop, use asyncio.run()
             return asyncio.run(_async_collect())
 
-    # Try api-level enforcement first
+    # Try api-level enforcement first, only fall back on unsupported kwargs
     try:
         return _collect_stream(use_response_format=True)
-    except Exception as exc:
+    except TypeError as exc:
+        # Provider doesn't support extra/response_format kwargs
         logger.debug("api-level response_format not supported (%s), falling back to prompt-only", exc)
         return _collect_stream(use_response_format=False)
+    # Let auth/network/runtime errors propagate
 
 
 def planner_node(state: AgentState) -> dict:
@@ -161,7 +168,7 @@ def planner_node(state: AgentState) -> dict:
     # Resolve model_id to first available if not set
     if model_id is None:
         models = provider.list_models()
-        model_id = models[0].id if models else "gpt-4o"
+        model_id = models[0] if models else "gpt-4o"
 
     system_prompt = _build_system_prompt()
     messages = [

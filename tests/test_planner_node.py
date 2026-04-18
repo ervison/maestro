@@ -55,12 +55,19 @@ async def _mock_stream_with_markdown(*args, **kwargs):
     yield Message(role="assistant", content=f"```json\n{plan_json}\n```")
 
 
+async def _mock_stream_with_text_chunks(*args, **kwargs):
+    """Async generator that yields only str chunks (some providers stream this way)."""
+    plan_json = json.dumps(_make_valid_plan_dict())
+    # Provider that only yields text chunks, no final Message
+    yield plan_json
+
+
 class MockProvider:
     """Mock provider for testing."""
 
     def __init__(self, stream_generator=None, models=None):
         self._stream_generator = stream_generator or _mock_stream_valid
-        self._models = models or [MagicMock(id="gpt-4o")]
+        self._models = models or ["gpt-4o"]
         self.stream_calls = []
 
     @property
@@ -291,6 +298,32 @@ def test_markdown_fences_stripped():
 
     assert "dag" in result
     assert "tasks" in result["dag"]
+
+
+def test_stream_with_text_chunks():
+    """Provider yielding str chunks before Message should be handled (CR-01 fix)."""
+    mock_provider = MockProvider(stream_generator=_mock_stream_with_text_chunks)
+
+    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
+        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+            state: AgentState = {
+                "task": "Create a simple API",
+                "dag": {},
+                "completed": [],
+                "outputs": {},
+                "errors": [],
+                "depth": 0,
+                "max_depth": 10,
+                "workdir": "/tmp",
+                "auto": False,
+            }
+
+            result = planner_node(state)
+
+    assert "dag" in result
+    assert "tasks" in result["dag"]
+    assert len(result["dag"]["tasks"]) == 1
+    assert result["dag"]["tasks"][0]["id"] == "t1"
 
 
 def test_planner_exports_prompt():
