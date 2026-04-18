@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 5 shipped, ready for Phase 6
-stopped_at: Phase 5 shipped
-last_updated: "2026-04-18T12:20:00Z"
-last_activity: 2026-04-18 -- Phase 5 ship gate complete (local), 195 tests passing
+status: Phase 6 shipped, ready for Phase 7
+stopped_at: Phase 6 shipped
+last_updated: "2026-04-18T14:30:00Z"
+last_activity: 2026-04-18 -- Phase 6 complete with 225 tests passing
 progress:
   total_phases: 11
-  completed_phases: 5
-  total_plans: 6
-  completed_plans: 6
-  percent: 45
+  completed_phases: 6
+  total_plans: 7
+  completed_plans: 7
+  percent: 55
 ---
 
 # Maestro — Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-17)
 
 **Core value:** A developer runs `maestro run --multi "task"` and gets all parts done in parallel by specialized agents
-**Current focus:** Phase 5 — Agent Loop Refactor (next up)
+**Current focus:** Phase 7 — GitHub Copilot Provider (next up)
 
 ## Current Position
 
-Phase: 5 of 11 (Agent Loop Refactor)
+Phase: 6 of 11 (Auth & Model CLI Commands)
 Plan: 1 of 1 in current phase
-Status: Shipped, ready for Phase 6
-Last activity: 2026-04-18 -- Phase 5 ship gate complete (local)
+Status: Shipped, ready for Phase 7
+Last activity: 2026-04-18 -- Phase 6 complete with auth/model CLI commands
 
-Progress: [█████░░░░░] 45%
+Progress: [██████░░░░] 55%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [█████░░░░░] 45%
 | 03-chatgpt-provider-migration | 1 | 8 min | 8 min |
 | 04-provider-registry | 1 | n/a | n/a |
 | 05-agent-loop-refactor | 1 | 30 min | 30 min |
+| 06-auth-model-cli-commands | 1 | 45 min | 45 min |
 
 *Updated after each plan completion*
 
@@ -77,6 +78,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Keep auth.py as primary credential store, chatgpt.py as consumer (not owner) of auth data
 - [Phase 05]: Provider handles auth validation internally; loop surfaces provider's RuntimeError unchanged
 - [Phase 05]: Use asyncio.run() to bridge sync _run_agentic_loop with async provider.stream()
+- [Phase 06]: Deprecated commands show clear warnings and route to new equivalents
+- [Phase 06]: Auth status displays provider names only, not credential contents (security)
 
 ### Pending Todos
 
@@ -102,9 +105,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-18T03:25:00Z
-Stopped at: Phase 5 complete
-Resume file: .planning/phases/05-agent-loop-refactor/05-01-SUMMARY.md
+Last session: 2026-04-18T14:30:00Z
+Stopped at: Phase 6 complete
+Resume file: .planning/phases/06-auth-model-cli-commands/06-01-SUMMARY.md
 
 ## Completed Work
 
@@ -163,3 +166,30 @@ Resume file: .planning/phases/05-agent-loop-refactor/05-01-SUMMARY.md
 
 - `.planning/phases/05-agent-loop-refactor/05-01-SUMMARY.md`
 - `.planning/phases/05-agent-loop-refactor/05-SHIP.md`
+
+**Phase 6: Auth & Model CLI Commands**
+
+- ✅ Added `auth logout <provider>` subcommand with provider validation
+- ✅ Added `auth status` subcommand to show all provider auth states
+- ✅ Updated deprecated `maestro logout` with deprecation warning
+- ✅ Added `--provider` filter flag to models command
+- ✅ Refactored models handler to use `get_available_models()` for multi-provider support
+- ✅ Created comprehensive CLI auth tests (11 tests)
+- ✅ Created CLI models tests (8 tests)
+- ✅ All 225 tests passing (190 baseline + 35 new)
+- ✅ AUTH-03, AUTH-05, AUTH-06, CONF-03, CONF-04 requirements satisfied
+
+**Commits:**
+
+- `47e313c`: feat(06-01): add auth logout and status subcommands to CLI
+- `fb41d30`: feat(06-01): update models subcommand for multi-provider support
+- `4943c7c`: test(06-01): add CLI auth command tests
+- `b383249`: test(06-01): add CLI models command tests
+- `9ee9a33`: fix(06-01): restore missing auth helper functions and update tests
+- `0ad6038`: docs(06-01): add plan execution summary
+
+**Artifacts:**
+
+- `.planning/phases/06-auth-model-cli-commands/06-01-SUMMARY.md`
+- `tests/test_cli_auth.py`
+- `tests/test_cli_models.py`

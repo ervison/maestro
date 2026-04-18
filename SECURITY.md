@@ -1,44 +1,21 @@
-# Phase 4 Security Audit
+## SECURED
 
-- Phase: 4 — provider registry
-- Audit date: 2026-04-18
-- Workdir: `/home/ervison/Documents/PROJETOS/labs/timeIA/maestro/.workspace/phase4`
-- Source of truth: current worktree
-- ASVS level: not specified in phase artifacts
-- Block policy: not specified in phase artifacts
-- threats_total: 3
-- threats_closed: 3
-- threats_open: 0
+**Phase:** 6 — auth-model-cli-commands
+**Threats Closed:** 3/3
+**ASVS Level:** not specified
 
-## Threat Verification
+### Threat Verification
+| Threat ID | Category | Disposition | Evidence |
+|-----------|----------|-------------|----------|
+| T-06-01 | Spoofing | accept | SECURITY.md: Accepted risks log entry for T-06-01 (this file) and `.planning/phases/06-auth-model-cli-commands/06-01-SUMMARY.md:167-171` documents provider validation on logout |
+| T-06-02 | Information Disclosure | mitigate | `maestro/cli.py:141-149` — auth status prints only provider IDs and "authenticated/not authenticated"; no credential contents printed; covered by `tests/test_cli_auth.py` |
+| T-06-03 | Tampering | existing | `maestro/auth.py:66-69` and `tests/test_auth_store.py:36-82` — auth store written with secure create mode `os.open(..., 0o600)` and `AUTH_FILE.chmod(0o600)` enforced |
 
-| Threat ID | Category | Disposition | Status | Evidence |
-|---|---|---|---|---|
-| T-04-01 | Information Disclosure — config file permissions | mitigate | CLOSED | `maestro/config.py:146-154` writes config with `os.open(..., 0o600)` and enforces `chmod(0o600)`; covered by `tests/test_config.py:168-174` |
-| T-04-02 | Tampering / Code Execution Boundary — provider discovery remains static entry-point based | mitigate | CLOSED | `maestro/providers/registry.py:150-194` uses `importlib.metadata.entry_points(group="maestro.providers")`; provider loading is constrained to installed entry points and malformed providers are rejected/skipped |
-| T-04-03 | Information Disclosure / Auth Boundary — default resolution must not expose unauthenticated providers | mitigate | CLOSED | `maestro/providers/registry.py:233-276` returns first usable provider or ChatGPT fallback; `maestro/models.py:116-159` only lists usable providers; covered by `tests/test_model_resolution.py:292-355` |
+### Unregistered Flags
+None. No `## Threat Flags` were present in the Phase 06 summary.
 
-## Accepted Risks Log
+## Accepted Risks
 
-None recorded for Phase 4.
-
-## Transfer Log
-
-None recorded for Phase 4.
-
-## Unregistered Flags
-
-None. No `## Threat Flags` section was present in `04-01-SUMMARY.md` or `.planning/research/SUMMARY.md`.
-
-## Findings by Severity
-
-- Critical: 0
-- High: 0
-- Medium: 0
-- Low: 0
-- Info: 0
-
-## Notes
-
-- Phase 4 plan did not provide a structured `<threat_model>` block or `<config>` block; verification used the explicit `## Threat Model` bullets in `04-01-PLAN.md:111-115`.
-- Current Phase 4 behavior does not introduce a default-path auth bypass: non-ChatGPT providers remain discoverable, but `maestro run` still fails closed for explicitly selected unrunnable providers in `maestro/cli.py:173-185`.
+| Threat ID | Rationale | Recorded In |
+|-----------|-----------|-------------|
+| T-06-01 | Provider ID spoofing is accepted for this phase because provider IDs are validated against the discovered registry and unknown IDs are rejected with a helpful error. Operational risk accepted to preserve UX for multi-provider workflows. | `.planning/phases/06-auth-model-cli-commands/06-01-SUMMARY.md:167-171` and this SECURITY.md |
