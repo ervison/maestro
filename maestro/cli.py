@@ -247,7 +247,8 @@ def main():
                 pass
 
             result = run(
-                model_id, args.prompt, args.system, workdir=wd, auto=args.auto
+                model_id, args.prompt, args.system, workdir=wd, auto=args.auto,
+                provider=provider,
             )
             print(result)
         except (RuntimeError, ValueError) as e:

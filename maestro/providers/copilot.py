@@ -32,17 +32,6 @@ COPILOT_API_BASE = "https://api.githubcopilot.com"
 SCOPE = "read:user"
 POLLING_SAFETY_MARGIN = 5  # seconds extra beyond interval
 
-# ---------------------------------------------------------------------------
-# Model catalog for Copilot
-# ---------------------------------------------------------------------------
-COPILOT_MODELS = [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-turbo",
-    "gpt-3.5-turbo",
-]
-
-
 class CopilotProvider:
     """GitHub Copilot provider using OpenAI Chat Completions API.
 
@@ -61,76 +50,67 @@ class CopilotProvider:
         return "GitHub Copilot"
 
     def list_models(self) -> list[str]:
-        """Return list of available model IDs.
+        """Return list of available model IDs from the Copilot API.
 
-        If the user is authenticated, attempt to fetch the account's available
-        models from the Copilot API. On any failure, fall back to the static
-        COPILOT_MODELS list so the CLI remains useful offline/unauthed.
+        Requires authentication. Fetches models dynamically so the list
+        reflects ALL models available on the user's Copilot subscription
+        (including non-GPT models like Gemini, Anthropic, etc.).
+
+        Raises:
+            RuntimeError: If not authenticated or API request fails.
         """
         creds = auth.get("github-copilot")
-        if creds and creds.get("access_token"):
-            token = creds.get("access_token")
-            try:
-                resp = httpx.get(
-                    f"{COPILOT_API_BASE}/models",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+        if not creds or not creds.get("access_token"):
+            raise RuntimeError(
+                "Not authenticated. Run: maestro auth login github-copilot"
+            )
 
-                # Normalise a few common shapes for returned models.
-                # Possible shapes observed across providers:
-                # - { "models": ["id1", "id2"] }
-                # - { "models": [{"id": "id1"}, {"id": "id2"}] }
-                # - { "available_models": ["id1"] }
-                # - { "model_ids": {"id1": {...}, "id2": {...}} }
-                models = []
+        token = creds["access_token"]
+        try:
+            resp = httpx.get(
+                f"{COPILOT_API_BASE}/models",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to fetch models from Copilot API: {exc}"
+            ) from exc
 
-                if isinstance(data, dict):
-                    # Try list fields first
-                    for key in ("models", "available_models", "model_ids"):
-                        if key in data:
-                            val = data[key]
-                            # If it's a list of strings
-                            if isinstance(val, list) and all(isinstance(m, str) for m in val):
-                                models = val
-                                break
-                            # If it's a list of dicts with id/name
-                            if isinstance(val, list) and all(isinstance(m, dict) for m in val):
-                                extracted = []
-                                for item in val:
-                                    mid = item.get("id") or item.get("model") or item.get("name")
-                                    if isinstance(mid, str):
-                                        extracted.append(mid)
-                                if extracted:
-                                    models = extracted
-                                    break
-                            # If it's a dict mapping ids -> metadata
-                            if isinstance(val, dict):
-                                # keys are model ids
-                                keys = [k for k in val.keys() if isinstance(k, str)]
-                                if keys:
-                                    models = keys
-                                    break
+        # Parse response — normalise common shapes:
+        # - { "models": ["id1", "id2"] }
+        # - { "models": [{"id": "id1"}, ...] }
+        # - { "data": [{"id": "id1"}, ...] }  (OpenAI-style)
+        models: list[str] = []
 
-                    # As a last resort, if the top-level object looks like a mapping of
-                    # model_id -> metadata, return its keys.
-                    if not models:
-                        top_keys = [k for k in data.keys() if isinstance(k, str)]
-                        # Heuristic: if many keys and values are dicts, treat as model map
-                        if top_keys and all(isinstance(data[k], dict) for k in top_keys):
-                            models = top_keys
+        if isinstance(data, dict):
+            for key in ("models", "data", "available_models", "model_ids"):
+                if key not in data:
+                    continue
+                val = data[key]
+                if isinstance(val, list):
+                    for item in val:
+                        if isinstance(item, str):
+                            models.append(item)
+                        elif isinstance(item, dict):
+                            mid = item.get("id") or item.get("model") or item.get("name")
+                            if isinstance(mid, str):
+                                models.append(mid)
+                    if models:
+                        break
+                elif isinstance(val, dict):
+                    models = [k for k in val if isinstance(k, str)]
+                    if models:
+                        break
 
-                # If we found a list of model ids, return it
-                if isinstance(models, list) and all(isinstance(m, str) for m in models) and models:
-                    return models
+        if not models:
+            raise RuntimeError(
+                f"Could not parse model list from Copilot API response: {str(data)[:200]}"
+            )
 
-            except Exception:
-                logger.debug("Failed to fetch models from Copilot API; falling back to static list", exc_info=True)
-
-        # Fallback: return the known static list (GPT-focused) so CLI remains useful
-        return COPILOT_MODELS.copy()
+        return models
 
     async def stream(
         self,

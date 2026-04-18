@@ -250,8 +250,8 @@ def test_login_browser_matches_working_plugin_authorize_url(monkeypatch):
     params = parse_qs(parsed.query)
 
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == auth.AUTHORIZE_URL
-    assert params["redirect_uri"] == ["http://127.0.0.1:1455/auth/callback"]
-    assert params["scope"] == ["openid profile email offline_access"]
+    assert params["redirect_uri"] == [auth.REDIRECT_URI]
+    assert params["scope"] == [auth.SCOPE]
     assert params["code_challenge"] == ["challenge"]
     assert params["code_challenge_method"] == ["S256"]
     assert params["state"] == ["state-token"]
@@ -373,12 +373,20 @@ def test_old_status_no_deprecation(monkeypatch, capsys):
     assert not any(item.category is DeprecationWarning for item in caught)
 
 
-def test_run_with_explicit_unsupported_provider_exits_cleanly(monkeypatch, capsys):
+def test_run_with_explicit_unsupported_provider_calls_run(monkeypatch, capsys):
+    """Non-chatgpt providers are now allowed to run (guard relaxed in Phase 7)."""
     class DummyProvider:
         id = "other"
 
     monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello", "--model", "other/model"])
-    monkeypatch.setattr(cli, "run", lambda *args, **kwargs: pytest.fail("run should not be called"))
+
+    run_called = {}
+
+    def fake_run(*args, **kwargs):
+        run_called["yes"] = True
+        return "done"
+
+    monkeypatch.setattr(cli, "run", fake_run)
 
     def fake_resolve_model(model_flag=None, agent_name=None):
         assert model_flag == "other/model"
@@ -386,13 +394,9 @@ def test_run_with_explicit_unsupported_provider_exits_cleanly(monkeypatch, capsy
 
     monkeypatch.setattr("maestro.models.resolve_model", fake_resolve_model)
 
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
+    cli.main()
 
-    captured = capsys.readouterr()
-    assert exc_info.value.code == 1
-    assert "Provider 'other' is discoverable but not runnable yet" in captured.out
-    assert "Traceback" not in captured.err
+    assert run_called.get("yes"), "run() should have been called for non-chatgpt providers"
 
 
 def test_run_with_invalid_model_format_exits_cleanly(monkeypatch, capsys):
@@ -408,13 +412,21 @@ def test_run_with_invalid_model_format_exits_cleanly(monkeypatch, capsys):
     assert "Traceback" not in captured.err
 
 
-def test_run_with_env_selected_unsupported_provider_exits_cleanly(monkeypatch, capsys):
+def test_run_with_env_selected_unsupported_provider_calls_run(monkeypatch, capsys):
+    """Non-chatgpt providers resolved via env are now allowed to run."""
     class DummyProvider:
         id = "other"
 
     monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello"])
     monkeypatch.setenv("MAESTRO_MODEL", "other/model")
-    monkeypatch.setattr(cli, "run", lambda *args, **kwargs: pytest.fail("run should not be called"))
+
+    run_called = {}
+
+    def fake_run(*args, **kwargs):
+        run_called["yes"] = True
+        return "done"
+
+    monkeypatch.setattr(cli, "run", fake_run)
 
     def fake_resolve_model(model_flag=None, agent_name=None):
         assert model_flag is None
@@ -422,18 +434,14 @@ def test_run_with_env_selected_unsupported_provider_exits_cleanly(monkeypatch, c
 
     monkeypatch.setattr("maestro.models.resolve_model", fake_resolve_model)
 
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
+    cli.main()
 
-    captured = capsys.readouterr()
-    assert exc_info.value.code == 1
-    assert "Provider 'other' is discoverable but not runnable yet" in captured.out
-    assert "Traceback" not in captured.err
+    assert run_called.get("yes"), "run() should have been called for env-selected non-chatgpt providers"
 
 
 def test_run_with_model_flag_bypasses_invalid_config_reload(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello", "--model", "chatgpt/gpt-5.4"])
-    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto: f"ran:{model_id}:{prompt}")
+    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto, provider=None: f"ran:{model_id}:{prompt}")
     monkeypatch.setattr(
         "maestro.config.load",
         lambda: (_ for _ in ()).throw(RuntimeError("Invalid config file")),
@@ -451,7 +459,7 @@ def test_run_without_explicit_selection_falls_back_to_chatgpt(monkeypatch, capsy
 
     monkeypatch.setattr(sys, "argv", ["maestro", "run", "hello"])
     monkeypatch.delenv("MAESTRO_MODEL", raising=False)
-    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto: f"ran:{model_id}:{prompt}")
+    monkeypatch.setattr(cli, "run", lambda model_id, prompt, system, workdir, auto, provider=None: f"ran:{model_id}:{prompt}")
 
     def fake_resolve_model(model_flag=None, agent_name=None):
         assert model_flag is None
@@ -477,8 +485,9 @@ def test_callback_server_survives_stray_request_before_real_callback(monkeypatch
 
     code_received = {}
 
-    def fake_exchange(code, verifier):
+    def fake_exchange(code, verifier, redirect_uri):
         code_received["code"] = code
+        assert redirect_uri == auth.REDIRECT_URI
         return TokenSet(
             access="tok", refresh="ref", expires=9999999.0,
             account_id="acc", email="test@example.com",
@@ -519,7 +528,7 @@ def test_callback_server_rejects_wrong_path_with_404(monkeypatch):
     monkeypatch.setattr(auth, "_generate_pkce", lambda: ("verifier", "challenge"))
     monkeypatch.setattr(auth, "_generate_state", lambda: "state-token")
     monkeypatch.setattr(auth.webbrowser, "open", lambda url: None)
-    monkeypatch.setattr(auth, "_exchange_code", lambda c, v: TokenSet(
+    monkeypatch.setattr(auth, "_exchange_code", lambda c, v, r: TokenSet(
         access="tok", refresh="ref", expires=9999999.0,
         account_id="acc", email="test@example.com",
     ))

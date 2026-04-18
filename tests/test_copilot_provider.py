@@ -67,6 +67,18 @@ class TestAuthMethods:
         provider = CopilotProvider()
         assert provider.is_authenticated() is True
 
+    def test_is_authenticated_false_when_token_missing(self, tmp_path, monkeypatch):
+        """is_authenticated() returns False for malformed credentials without token."""
+        from maestro.providers.copilot import CopilotProvider
+        from maestro import auth
+
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(json.dumps({"github-copilot": {}}))
+        monkeypatch.setattr(auth, "AUTH_FILE", auth_file)
+
+        provider = CopilotProvider()
+        assert provider.is_authenticated() is False
+
 
 class TestLogin:
     """Verify OAuth device code flow."""
@@ -393,26 +405,74 @@ class TestLogin:
 class TestModelListing:
     """Verify model listing functionality."""
 
-    def test_list_models_returns_known_models(self):
-        """list_models() returns expected model IDs."""
-        from maestro.providers.copilot import CopilotProvider, COPILOT_MODELS
+    def test_list_models_requires_auth(self):
+        """list_models() raises RuntimeError when not authenticated."""
+        from maestro.providers.copilot import CopilotProvider
 
         provider = CopilotProvider()
-        models = provider.list_models()
+        with patch("maestro.providers.copilot.auth") as mock_auth:
+            mock_auth.get.return_value = None
+            with pytest.raises(RuntimeError, match="Not authenticated"):
+                provider.list_models()
 
-        expected = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
-        assert models == expected
-
-    def test_list_models_returns_copy(self):
-        """list_models() returns a copy, not the original list."""
-        from maestro.providers.copilot import CopilotProvider, COPILOT_MODELS
+    def test_list_models_from_api_string_list(self):
+        """list_models() parses {models: [str, ...]} response."""
+        from maestro.providers.copilot import CopilotProvider
 
         provider = CopilotProvider()
-        models = provider.list_models()
-        models.append("fake-model")
+        fake_resp = MagicMock()
+        fake_resp.raise_for_status = MagicMock()
+        fake_resp.json.return_value = {"models": ["gpt-4o", "claude-sonnet"]}
 
-        # Original should be unchanged
-        assert "fake-model" not in COPILOT_MODELS
+        with patch("maestro.providers.copilot.auth") as mock_auth:
+            mock_auth.get.return_value = {"access_token": "ghu_test"}
+            with patch("maestro.providers.copilot.httpx.get", return_value=fake_resp):
+                models = provider.list_models()
+
+        assert models == ["gpt-4o", "claude-sonnet"]
+
+    def test_list_models_from_api_dict_list(self):
+        """list_models() parses {data: [{id: str}, ...]} response (OpenAI-style)."""
+        from maestro.providers.copilot import CopilotProvider
+
+        provider = CopilotProvider()
+        fake_resp = MagicMock()
+        fake_resp.raise_for_status = MagicMock()
+        fake_resp.json.return_value = {"data": [{"id": "gpt-4o"}, {"id": "gemini-2.0-flash"}]}
+
+        with patch("maestro.providers.copilot.auth") as mock_auth:
+            mock_auth.get.return_value = {"access_token": "ghu_test"}
+            with patch("maestro.providers.copilot.httpx.get", return_value=fake_resp):
+                models = provider.list_models()
+
+        assert models == ["gpt-4o", "gemini-2.0-flash"]
+
+    def test_list_models_api_error_raises(self):
+        """list_models() raises RuntimeError on API failure."""
+        from maestro.providers.copilot import CopilotProvider
+
+        provider = CopilotProvider()
+
+        with patch("maestro.providers.copilot.auth") as mock_auth:
+            mock_auth.get.return_value = {"access_token": "ghu_test"}
+            with patch("maestro.providers.copilot.httpx.get", side_effect=httpx.HTTPError("timeout")):
+                with pytest.raises(RuntimeError, match="Failed to fetch models"):
+                    provider.list_models()
+
+    def test_list_models_unparseable_raises(self):
+        """list_models() raises RuntimeError when response shape is unrecognized."""
+        from maestro.providers.copilot import CopilotProvider
+
+        provider = CopilotProvider()
+        fake_resp = MagicMock()
+        fake_resp.raise_for_status = MagicMock()
+        fake_resp.json.return_value = {"unexpected": "shape"}
+
+        with patch("maestro.providers.copilot.auth") as mock_auth:
+            mock_auth.get.return_value = {"access_token": "ghu_test"}
+            with patch("maestro.providers.copilot.httpx.get", return_value=fake_resp):
+                with pytest.raises(RuntimeError, match="Could not parse model list"):
+                    provider.list_models()
 
 
 class TestWireFormatConversion:
@@ -586,6 +646,47 @@ class TestStream:
         assert captured_headers.get("x-initiator") == "user"
         assert captured_headers.get("Openai-Intent") == "conversation-edits"
         assert captured_headers.get("Authorization") == "Bearer ghu_test_token"
+
+    @pytest.mark.asyncio
+    async def test_stream_raises_on_api_error_response(self, tmp_path, monkeypatch):
+        """stream() raises RuntimeError when Copilot returns a non-2xx response."""
+        from maestro.providers.copilot import CopilotProvider
+        from maestro.providers.base import Message
+        from maestro import auth
+
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(
+            json.dumps({"github-copilot": {"access_token": "ghu_test_token"}})
+        )
+        monkeypatch.setattr(auth, "AUTH_FILE", auth_file)
+
+        provider = CopilotProvider()
+
+        mock_response = AsyncMock()
+        mock_response.is_success = False
+        mock_response.status_code = 401
+        mock_response.aread.return_value = b'{"error":"unauthorized"}'
+
+        mock_event_source = AsyncMock()
+        mock_event_source.response = mock_response
+
+        def mock_aconnect_sse(client, method, url, **kwargs):
+            class MockContext:
+                async def __aenter__(self):
+                    return mock_event_source
+
+                async def __aexit__(self, *args):
+                    pass
+
+            return MockContext()
+
+        with patch("maestro.providers.copilot.aconnect_sse", mock_aconnect_sse):
+            with pytest.raises(RuntimeError, match="API error 401"):
+                async for _ in provider.stream(
+                    messages=[Message(role="user", content="Hello")],
+                    model="gpt-4o",
+                ):
+                    pass
 
     @pytest.mark.asyncio
     async def test_stream_yields_text_deltas(self, tmp_path, monkeypatch):
