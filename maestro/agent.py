@@ -110,6 +110,7 @@ def _run_agentic_loop(
 
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
+        final_message: Message | None = None
 
         for chunk in stream_results:
             if isinstance(chunk, str):
@@ -117,14 +118,29 @@ def _run_agentic_loop(
                 text_parts.append(chunk)
             elif isinstance(chunk, Message):
                 # Final message with complete response
-                text_parts.append(chunk.content)
+                final_message = chunk
                 tool_calls = chunk.tool_calls
+
+        # Determine final text: use streamed deltas if any, else use final message content
+        if text_parts:
+            final_text = "".join(text_parts)
+        elif final_message:
+            final_text = final_message.content
+        else:
+            raise RuntimeError("No output received from agent loop")
 
         # No tool calls → final answer
         if not tool_calls:
-            if text_parts:
-                return "".join(text_parts)
-            raise RuntimeError("No output received from agent loop")
+            return final_text
+
+        # Preserve the assistant message that requested the tools
+        neutral_messages.append(
+            Message(
+                role="assistant",
+                content=final_text,
+                tool_calls=tool_calls,
+            )
+        )
 
         # Execute each tool and append results as tool messages
         for tc in tool_calls:
