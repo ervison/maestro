@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 7 complete, ready for Phase 8
-stopped_at: Phase 7 complete
+status: Phase 7 shipped — PR #6
+stopped_at: Phase 7 shipped
 last_updated: "2026-04-18T14:00:00Z"
-last_activity: 2026-04-18 -- Phase 7 GitHub Copilot provider implementation complete
+last_activity: 2026-04-18 -- Phase 7 shipped — PR #6
 progress:
   total_phases: 11
   completed_phases: 7
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-17)
 
 Phase: 7 of 11 (GitHub Copilot Provider)
 Plan: 1 of 1 in current phase
-Status: Complete, ready for Phase 8
-Last activity: 2026-04-18 -- Phase 7 GitHub Copilot provider implementation complete
+Status: Shipped — PR #6
+Last activity: 2026-04-18 -- Phase 7 shipped — PR #6
 
 Progress: [███████░░░] 64%
 
