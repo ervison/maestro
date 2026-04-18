@@ -19,9 +19,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Agent Loop Refactor** - Wire provider.stream() into the agentic loop with zero regressions ✅ COMPLETE (2026-04-18)
 - [x] **Phase 6: Auth & Model CLI Commands** - Expose auth management and model discovery to users ✅ COMPLETE (2026-04-18)
 - [ ] **Phase 7: GitHub Copilot Provider** - Second provider with device code OAuth
-- [ ] **Phase 8: DAG State, Types & Domains** - Multi-agent type system and domain prompt definitions
-- [ ] **Phase 9: Planner** - LLM-driven DAG generation with structured output validation
-- [ ] **Phase 10: Scheduler & Workers** - Parallel execution engine with dependency dispatch and recursion guards
+- [x] **Phase 8: DAG State, Types & Domains** - Multi-agent type system and domain prompt definitions ✅ COMPLETE (2026-04-18)
+- [x] **Phase 9: Planner** - LLM-driven DAG generation with structured output validation ✅ COMPLETE (2026-04-18)
+- [x] **Phase 10: Scheduler & Workers** - Parallel execution engine with dependency dispatch and recursion guards ✅ COMPLETE (2026-04-19)
 - [ ] **Phase 11: Aggregator & Multi-Agent CLI** - Final summary pass and `--multi` flag integration
 
 ## Phase Details
@@ -139,52 +139,62 @@ Plans:
 Plans:
 - [ ] 07-01-PLAN.md — Create CopilotProvider with OAuth device code flow, wire format conversion, and comprehensive tests
 
-### Phase 8: DAG State, Types & Domains
+### Phase 8: DAG State, Types & Domains ✅ COMPLETE
 **Goal**: The multi-agent type system and domain specialization prompts are defined and independently validated
 **Depends on**: Phase 5 (provider infrastructure stable)
 **Requirements**: STATE-01, STATE-02, STATE-03, STATE-04, DOM-01, DOM-02, DOM-03, DOM-04
 **Success Criteria** (what must be TRUE):
-  1. `AgentState` TypedDict uses `Annotated[list, operator.add]` reducers for `completed` and `errors`, and a dict merge reducer for `outputs` — safe for parallel writes with no silent data loss
-  2. `PlanTask` and `AgentPlan` Pydantic models validate structure: `id`, `domain`, `prompt`, `deps` fields accept valid JSON and reject missing/invalid fields
-  3. DAG validator rejects cycles (via `graphlib.TopologicalSorter`) and invalid dependency references before any dispatch
-  4. `maestro/domains.py` defines 7 built-in domains (backend, testing, docs, devops, data, security, general) with specialized system prompts
-  5. Unrecognized domain values fall back to the `general` domain without error
-**Plans**: 2 plans
+  1. ✅ `AgentState` TypedDict uses `Annotated[list, operator.add]` reducers for `completed` and `errors`, and a dict merge reducer for `outputs` — safe for parallel writes with no silent data loss
+  2. ✅ `PlanTask` and `AgentPlan` Pydantic models validate structure: `id`, `domain`, `prompt`, `deps` fields accept valid JSON and reject missing/invalid fields
+  3. ✅ DAG validator rejects cycles (via `graphlib.TopologicalSorter`) and invalid dependency references before any dispatch
+  4. ✅ `maestro/domains.py` defines 7 built-in domains (backend, testing, docs, devops, data, security, general) with specialized system prompts
+  5. ✅ Unrecognized domain values fall back to the `general` domain without error
+**Plans**: 2 plans (COMPLETE)
+**Artifacts**:
+  - `.planning/phases/08-dag-state-types-domains/08-01-SUMMARY.md`
+  - `.planning/phases/08-dag-state-types-domains/08-02-SUMMARY.md`
 
 Plans:
-- [ ] 08-01-PLAN.md — AgentState TypedDict with reducers, PlanTask/AgentPlan Pydantic schemas, DAG validator
-- [ ] 08-02-PLAN.md — Domain system with 6 built-in domains and fallback behavior
+- [x] 08-01-PLAN.md — AgentState TypedDict with reducers, PlanTask/AgentPlan Pydantic schemas, DAG validator
+- [x] 08-02-PLAN.md — Domain system with 6 built-in domains and fallback behavior
 
-### Phase 9: Planner
+### Phase 9: Planner ✅ COMPLETE
 **Goal**: The planner node generates a validated task DAG from a user prompt via LLM structured output
 **Depends on**: Phase 5, Phase 8
 **Requirements**: PLAN-01, PLAN-02, PLAN-03, PLAN-04
 **Success Criteria** (what must be TRUE):
-  1. Planner receives a user task string and returns a valid `AgentPlan` JSON via LLM structured output
-  2. Planner output is validated by `AgentPlan.model_validate_json()` — invalid output is rejected and not passed to the scheduler
-  3. Planner uses a configurable model (via `config.agent.planner.model`), separate from worker models
-  4. Planner system prompt produces atomic tasks with domain assignments and avoids over-decomposition
-**Plans**: TBD
+  1. ✅ Planner receives a user task string and returns a valid `AgentPlan` JSON via LLM structured output
+  2. ✅ Planner output is validated by `AgentPlan.model_validate_json()` — invalid output is rejected and not passed to the scheduler
+  3. ✅ Planner uses a configurable model (via `config.agent.planner.model`), separate from worker models
+  4. ✅ Planner system prompt produces atomic tasks with domain assignments and avoids over-decomposition
+**Plans**: 1 plan (COMPLETE)
+**Artifacts**:
+  - `.planning/phases/09-planner/09-01-SUMMARY.md`
 
 Plans:
-- [x] 09-01: TBD
+- [x] 09-01-PLAN.md — Implement planner node with structured output validation and retry logic
 
-### Phase 10: Scheduler & Workers
+### Phase 10: Scheduler & Workers ✅ COMPLETE
 **Goal**: Tasks execute in parallel respecting dependencies with domain-specialized agents and recursion safety
 **Depends on**: Phase 8, Phase 9
 **Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-04, WORK-01, WORK-02, WORK-03, WORK-04, WORK-05, WORK-06, WORK-07, WORK-08
 **Success Criteria** (what must be TRUE):
-  1. Scheduler dispatches ready tasks (no unmet dependencies) in parallel via LangGraph `Send` API
-  2. After a batch completes, scheduler re-evaluates newly unblocked tasks and dispatches the next batch — repeats until all DAG tasks are complete
-  3. Each Worker runs `_run_agentic_loop` with a domain-specialized system prompt from `domains.py`
-  4. Path guard (workdir containment) is enforced inside every Worker — attempting a write outside workdir is blocked
-  5. Worker errors are collected in `AgentState.errors` (non-fatal) and independent tasks continue executing
-  6. `depth` is a required argument (no default); Workers at `max_depth` cannot recurse further (default max_depth=2)
-  7. Worker output and task ID are appended to shared `AgentState` via reducers — a 2-worker test confirms both outputs are present (no silent last-write-wins)
-**Plans**: TBD
+  1. ✅ Scheduler dispatches ready tasks (no unmet dependencies) in parallel via LangGraph `Send` API
+  2. ✅ After a batch completes, scheduler re-evaluates newly unblocked tasks and dispatches the next batch — repeats until all DAG tasks are complete
+  3. ✅ Each Worker runs `_run_agentic_loop` with a domain-specialized system prompt from `domains.py`
+  4. ✅ Path guard (workdir containment) is enforced inside every Worker — attempting a write outside workdir is blocked
+  5. ✅ Worker errors are collected in `AgentState.errors` (non-fatal) and independent tasks continue executing
+  6. ✅ `depth` is a required argument (no default); Workers at `max_depth` cannot recurse further (default max_depth=2)
+  7. ✅ Worker output and task ID are appended to shared `AgentState` via reducers — a 2-worker test confirms both outputs are present (no silent last-write-wins)
+**Plans**: 1 plan (COMPLETE)
+**Artifacts**:
+  - `.planning/phases/10-scheduler-workers/10-01-SUMMARY.md`
+  - `maestro/multi_agent.py` (388 lines) — scheduler, dispatch, worker nodes, compiled graph
+  - `tests/test_scheduler_workers.py` (712 lines, 23 tests)
+  - 53 Phase 10 tests passing, 3 commits
 
 Plans:
-- [ ] 10-01: TBD
+- [x] 10-01-PLAN.md — Scheduler & Workers implementation with parallel DAG execution
 
 ### Phase 11: Aggregator & Multi-Agent CLI
 **Goal**: Users activate multi-agent mode via CLI and optionally receive a final aggregated summary
