@@ -729,3 +729,130 @@ def test_graph_executes_dependent_task_chain():
 
         # t1 should execute before t2
         assert execution_order.index("t1") < execution_order.index("t2")
+
+
+def test_worker_node_passes_provider_model_to_agent_loop():
+    """worker_node passes provider and model to _run_agentic_loop."""
+    mock_provider = MagicMock()
+    mock_provider.list_models.return_value = ["custom-model"]
+
+    with patch("maestro.multi_agent._run_agentic_loop") as mock_loop:
+        mock_loop.return_value = "Task completed"
+
+        state = {
+            "task": "test",
+            "dag": {"tasks": []},
+            "completed": [],
+            "failed": [],
+            "outputs": {},
+            "errors": [],
+            "depth": 0,
+            "max_depth": 2,
+            "workdir": ".",
+            "auto": False,
+            "ready_tasks": [],
+            "current_task_id": "t1",
+            "current_task_domain": "backend",
+            "current_task_prompt": "Build API",
+            "provider": mock_provider,
+            "model": "custom-model-v2",
+        }
+
+        result = worker_node(state)
+
+        # Verify _run_agentic_loop was called with correct provider and model
+        mock_loop.assert_called_once()
+        call_kwargs = mock_loop.call_args.kwargs
+        assert call_kwargs["provider"] is mock_provider
+        assert call_kwargs["model"] == "custom-model-v2"
+
+        # Task should complete successfully
+        assert result["completed"] == ["t1"]
+
+
+def test_dispatch_route_forwards_provider_model_to_workers():
+    """dispatch_route includes provider and model in Send payloads."""
+    mock_provider = MagicMock()
+
+    state = {
+        "task": "test",
+        "dag": {"tasks": []},
+        "completed": [],
+        "failed": [],
+        "outputs": {},
+        "errors": [],
+        "depth": 1,
+        "max_depth": 3,
+        "workdir": "/tmp/test",
+        "auto": True,
+        "provider": mock_provider,
+        "model": "gpt-4o-custom",
+        "ready_tasks": [
+            {"id": "t1", "domain": "backend", "prompt": "Task 1"},
+        ],
+    }
+
+    result = dispatch_route(state)
+
+    assert len(result) == 1
+    send = result[0]
+    assert send.arg["provider"] is mock_provider
+    assert send.arg["model"] == "gpt-4o-custom"
+
+
+def test_run_multi_agent_threads_provider_model_to_planner_and_workers():
+    """run_multi_agent passes provider/model overrides to both planner and workers."""
+    mock_provider = MagicMock()
+    mock_provider.list_models.return_value = ["custom-model"]
+
+    # Track what provider/model were used in planner and workers
+    planner_calls = []
+    worker_calls = []
+
+    def mock_planner_node(state):
+        """Mock planner that records provider/model and returns a simple DAG."""
+        planner_calls.append({
+            "provider": state.get("provider"),
+            "model": state.get("model"),
+        })
+        return {
+            "dag": {
+                "tasks": [
+                    {"id": "t1", "domain": "backend", "prompt": "Test task", "deps": []}
+                ]
+            }
+        }
+
+    def mock_run_loop(messages, model, instructions, workdir, auto, **kwargs):
+        """Mock worker that records provider/model."""
+        worker_calls.append({
+            "provider": kwargs.get("provider"),
+            "model": model,
+        })
+        return "Completed"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("maestro.multi_agent._run_agentic_loop", side_effect=mock_run_loop):
+            with patch("maestro.planner.node.planner_node", side_effect=mock_planner_node):
+                result = run_multi_agent(
+                    task="Test task",
+                    workdir=Path(tmpdir),
+                    auto=True,
+                    depth=0,
+                    max_depth=2,
+                    provider=mock_provider,
+                    model="custom-model-v2",
+                )
+
+    # Verify planner received the provider/model overrides
+    assert len(planner_calls) == 1
+    assert planner_calls[0]["provider"] is mock_provider
+    assert planner_calls[0]["model"] == "custom-model-v2"
+
+    # Verify worker received the provider/model overrides
+    assert len(worker_calls) == 1
+    assert worker_calls[0]["provider"] is mock_provider
+    assert worker_calls[0]["model"] == "custom-model-v2"
+
+    # Verify task completed
+    assert result.get("t1") == "Completed"
