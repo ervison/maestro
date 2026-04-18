@@ -51,9 +51,10 @@ class TestAuthLogout:
         """auth logout removes credentials when logged in."""
         with patch("maestro.cli.auth.remove", return_value=True) as mock_remove:
             with patch("maestro.providers.registry.list_providers", return_value=["chatgpt"]):
-                monkeypatch.setattr("sys.argv", ["maestro", "auth", "logout", "chatgpt"])
-                main()
-                mock_remove.assert_called_once_with("chatgpt")
+                with patch("maestro.cli.auth.all_providers", return_value=[]):
+                    monkeypatch.setattr("sys.argv", ["maestro", "auth", "logout", "chatgpt"])
+                    main()
+                    mock_remove.assert_called_once_with("chatgpt")
         
         captured = capsys.readouterr()
         assert "Logged out" in captured.out
@@ -62,12 +63,13 @@ class TestAuthLogout:
         """auth logout shows error when not logged in."""
         with patch("maestro.cli.auth.remove", return_value=False) as mock_remove:
             with patch("maestro.providers.registry.list_providers", return_value=["chatgpt"]):
-                monkeypatch.setattr("sys.argv", ["maestro", "auth", "logout", "chatgpt"])
-                
-                with pytest.raises(SystemExit) as exc:
-                    main()
-                assert exc.value.code == 1
-                mock_remove.assert_called_once_with("chatgpt")
+                with patch("maestro.cli.auth.all_providers", return_value=[]):
+                    monkeypatch.setattr("sys.argv", ["maestro", "auth", "logout", "chatgpt"])
+                    
+                    with pytest.raises(SystemExit) as exc:
+                        main()
+                    assert exc.value.code == 1
+                    mock_remove.assert_called_once_with("chatgpt")
         
         captured = capsys.readouterr()
         assert "Not logged in" in captured.out
@@ -75,11 +77,12 @@ class TestAuthLogout:
     def test_auth_logout_unknown_provider(self, monkeypatch, capsys):
         """auth logout unknown-provider shows error."""
         with patch("maestro.providers.registry.list_providers", return_value=["chatgpt"]):
-            monkeypatch.setattr("sys.argv", ["maestro", "auth", "logout", "unknown"])
-            
-            with pytest.raises(SystemExit) as exc:
-                main()
-            assert exc.value.code == 1
+            with patch("maestro.cli.auth.all_providers", return_value=[]):
+                monkeypatch.setattr("sys.argv", ["maestro", "auth", "logout", "unknown"])
+                
+                with pytest.raises(SystemExit) as exc:
+                    main()
+                assert exc.value.code == 1
         
         captured = capsys.readouterr()
         assert "Unknown provider" in captured.out
