@@ -336,18 +336,19 @@ def test_old_login_shows_deprecation(monkeypatch, capsys):
     assert "Logged in as: test@example.com" in captured.out
 
 
-def test_old_logout_no_deprecation(monkeypatch):
+def test_old_logout_deprecation(monkeypatch):
+    """Old logout command shows deprecation warning and calls auth.remove."""
     calls = []
 
-    monkeypatch.setattr(auth, "logout", lambda: calls.append("logout"))
+    monkeypatch.setattr(auth, "remove", lambda pid: calls.append(("remove", pid)) or True)
     monkeypatch.setattr(sys, "argv", ["maestro", "logout"])
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         cli.main()
 
-    assert calls == ["logout"]
-    assert not any(item.category is DeprecationWarning for item in caught)
+    assert calls == [("remove", "chatgpt")]
+    assert any(item.category is DeprecationWarning for item in caught)
 
 
 def test_old_status_no_deprecation(monkeypatch, capsys):

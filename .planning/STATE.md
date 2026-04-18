@@ -78,6 +78,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Keep auth.py as primary credential store, chatgpt.py as consumer (not owner) of auth data
 - [Phase 05]: Provider handles auth validation internally; loop surfaces provider's RuntimeError unchanged
 - [Phase 05]: Use asyncio.run() to bridge sync _run_agentic_loop with async provider.stream()
+- [Phase 06]: Deprecated commands show clear warnings and route to new equivalents
+- [Phase 06]: Auth status displays provider names only, not credential contents (security)
 
 ### Pending Todos
 
