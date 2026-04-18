@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 8 shipped, ready for Phase 9
-stopped_at: Phase 8 shipped
-last_updated: "2026-04-18T17:45:00Z"
-last_activity: 2026-04-18 -- Phase 8 complete, DAG state types and domain system implemented
+status: Phase 9 shipped, ready for Phase 10
+stopped_at: Phase 9 shipped
+last_updated: "2026-04-18T18:30:00Z"
+last_activity: 2026-04-18 -- Phase 9 complete, planner node with LLM-driven DAG generation implemented
 progress:
   total_phases: 11
-  completed_phases: 8
-  total_plans: 8
-  completed_plans: 8
-  percent: 73
+  completed_phases: 9
+  total_plans: 9
+  completed_plans: 9
+  percent: 82
 ---
 
 # Maestro — Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-17)
 
 **Core value:** A developer runs `maestro run --multi "task"` and gets all parts done in parallel by specialized agents
-**Current focus:** Phase 8 — Multi-Agent DAG (next up)
+**Current focus:** Phase 10 — Scheduler and Workers
 
 ## Current Position
 
-Phase: 8 of 11 (DAG State, Types & Domains)
-Plan: 2 of 2 in current phase (both complete)
-Status: Shipped, ready for Phase 9
-Last activity: 2026-04-18 -- Phase 8 complete, multi-agent type system and domain system implemented
+Phase: 9 of 11 (Planner Node)
+Plan: 1 of 1 in current phase (complete)
+Status: Shipped, ready for Phase 10
+Last activity: 2026-04-18 -- Phase 9 complete, planner node with structured output validation and retry logic
 
-Progress: [███████░░░] 73%
+Progress: [████████░░] 82%
 
 ## Performance Metrics
 
@@ -197,3 +197,26 @@ Resume files:
 - `.planning/phases/08-dag-state-types-domains/08-01-SUMMARY.md`
 - `.planning/phases/08-dag-state-types-domains/08-02-SUMMARY.md`
 - `.planning/phases/08-dag-state-types-domains/08-VERIFICATION.md`
+
+**Phase 9: Planner Node**
+
+- ✅ Created `maestro/planner/node.py` with `planner_node()` function for LangGraph integration
+- ✅ LLM-driven DAG generation using structured output (Pydantic AgentPlan validation)
+- ✅ API-level JSON schema enforcement with fallback to prompt-only for non-supporting providers
+- ✅ Retry logic with up to 3 attempts on validation failure, with error feedback to LLM
+- ✅ Model resolution from `config.agent.planner.model` with provider/model format support
+- ✅ Automatic fallback to default provider when configured provider not found
+- ✅ Markdown code fence stripping for robust JSON parsing
+- ✅ DAG validation via `validate_dag()` for cycle and invalid dependency detection
+- ✅ `PLANNER_SYSTEM_PROMPT` exported from package with 7 domain definitions
+- ✅ 9 new tests added (all passing), no regressions in 132 non-network tests
+- ✅ 314 total tests passing (network-related failures are pre-existing)
+
+**Commits:**
+
+- `a5404f4`: feat(09-01): implement planner node with structured output validation and retry logic
+
+**Artifacts:**
+
+- `.planning/phases/09-planner/09-01-SUMMARY.md` (to be created)
+- `.planning/phases/09-planner/09-01-PLAN.md`

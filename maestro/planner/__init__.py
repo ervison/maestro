@@ -8,6 +8,7 @@ This package provides:
 
 from .schemas import AgentState, PlanTask, AgentPlan, _merge_dicts
 from .validator import validate_dag
+from .node import planner_node, PLANNER_SYSTEM_PROMPT
 
 __all__ = [
     "AgentState",
@@ -15,4 +16,6 @@ __all__ = [
     "AgentPlan",
     "_merge_dicts",
     "validate_dag",
+    "planner_node",
+    "PLANNER_SYSTEM_PROMPT",
 ]
