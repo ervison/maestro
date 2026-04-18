@@ -268,6 +268,14 @@ def test_agentstate_errors_uses_add_reducer():
     assert operator.add in errors_hint.__metadata__
 
 
+def test_agentstate_failed_uses_add_reducer():
+    """AgentState.failed uses operator.add as reducer."""
+    hints = get_type_hints(AgentState, include_extras=True)
+    failed_hint = hints.get("failed")
+    assert hasattr(failed_hint, "__metadata__")
+    assert operator.add in failed_hint.__metadata__
+
+
 def test_agentstate_outputs_uses_merge_reducer():
     """AgentState.outputs uses _merge_dicts as reducer."""
     from maestro.planner.schemas import _merge_dicts
@@ -283,10 +291,12 @@ def test_agentstate_reducers_preserve_parallel_worker_contributions():
     from maestro.planner.schemas import _merge_dicts
 
     completed = operator.add(["t1"], ["t2"])
+    failed = operator.add(["t3"], ["t4"])
     errors = operator.add(["worker-a failed"], ["worker-b failed"])
     outputs = _merge_dicts({"t1": "api.py"}, {"t2": "test_api.py"})
 
     assert completed == ["t1", "t2"]
+    assert failed == ["t3", "t4"]
     assert errors == ["worker-a failed", "worker-b failed"]
     assert outputs == {"t1": "api.py", "t2": "test_api.py"}
 
@@ -298,11 +308,17 @@ def test_agentstate_has_required_fields():
         "task",
         "dag",
         "completed",
+        "failed",
         "outputs",
         "errors",
         "depth",
         "max_depth",
         "workdir",
         "auto",
+        "ready_tasks",
+        # NotRequired fields are also in type hints but not required at runtime
+        "current_task_id",
+        "current_task_domain",
+        "current_task_prompt",
     }
     assert set(hints.keys()) == required_fields

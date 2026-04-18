@@ -5,7 +5,7 @@ Defines the type foundation for the multi-agent DAG engine:
 - PlanTask/AgentPlan: Pydantic models for planner output validation
 """
 
-from typing import TypedDict, Annotated, Literal
+from typing import TypedDict, Annotated, Literal, NotRequired
 import operator
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -24,19 +24,26 @@ class AgentState(TypedDict):
     """LangGraph state for multi-agent execution.
 
     Uses Annotated reducers to enable safe parallel writes:
-    - completed/errors: list append via operator.add
+    - completed/errors/failed: list append via operator.add
     - outputs: dict merge via _merge_dicts
     """
 
     task: str  # Original user task
     dag: dict  # Serialized AgentPlan (for scheduler reconstruction)
     completed: Annotated[list[str], operator.add]  # Task IDs that finished
+    failed: Annotated[list[str], operator.add]  # Task IDs that failed (non-fatal)
     outputs: Annotated[dict[str, str], _merge_dicts]  # task_id -> output mapping
     errors: Annotated[list[str], operator.add]  # Error messages from workers
     depth: int  # Current recursion depth
     max_depth: int  # Recursion limit
     workdir: str  # Shared working directory
     auto: bool  # Auto-approve flag
+    # Scheduler-owned field (no reducer - scheduler writes atomically)
+    ready_tasks: list[dict]  # Current batch of ready tasks (task_id, domain, prompt)
+    # Worker-local fields (NotRequired - only present during worker execution)
+    current_task_id: NotRequired[str]  # ID of task being executed by this worker
+    current_task_domain: NotRequired[str]  # Domain of task being executed
+    current_task_prompt: NotRequired[str]  # Prompt for task being executed
 
 
 DomainName = Literal[
