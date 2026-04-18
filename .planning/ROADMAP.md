@@ -110,10 +110,10 @@ Plans:
   3. `maestro auth status` shows all providers and their authentication state (authenticated/not authenticated)
   4. `maestro models` lists available models from all authenticated providers
   5. `maestro run --model github-copilot/gpt-4o "task"` resolves and uses the specified provider/model
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 06-01: TBD
+- [ ] 06-01-PLAN.md — Add auth login/logout/status and models CLI subcommands with multi-provider support
 
 ### Phase 7: GitHub Copilot Provider
 **Goal**: Users can authenticate with GitHub Copilot via device code OAuth and use it as an alternative provider
