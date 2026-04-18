@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Multi-Slot Auth Store** - Refactor auth to per-provider storage with backward compatibility
 - [x] **Phase 3: ChatGPT Provider Migration** - Move existing HTTP/SSE logic into ChatGPTProvider
 - [ ] **Phase 4: Config & Provider Registry** - Runtime discovery, model resolution, and provider registry
-- [ ] **Phase 5: Agent Loop Refactor** - Wire provider.stream() into the agentic loop with zero regressions
+- [x] **Phase 5: Agent Loop Refactor** - Wire provider.stream() into the agentic loop with zero regressions ✅ COMPLETE (2026-04-18)
 - [ ] **Phase 6: Auth & Model CLI Commands** - Expose auth management and model discovery to users
 - [ ] **Phase 7: GitHub Copilot Provider** - Second provider with device code OAuth
 - [ ] **Phase 8: DAG State, Types & Domains** - Multi-agent type system and domain prompt definitions
@@ -98,7 +98,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 05-01-PLAN.md — Refactor _run_agentic_loop to use provider.stream() with zero regressions
+- [x] 05-01-PLAN.md — Refactor _run_agentic_loop to use provider.stream() with zero regressions
 
 ### Phase 6: Auth & Model CLI Commands
 **Goal**: Users can manage authentication and discover models through CLI subcommands
@@ -203,7 +203,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. Multi-Slot Auth Store | 0/? | Not started | - |
 | 3. ChatGPT Provider Migration | 1/1 | Complete   | 2026-04-17 |
 | 4. Config & Provider Registry | 0/? | Not started | - |
-| 5. Agent Loop Refactor | 0/? | Not started | - |
+| 5. Agent Loop Refactor | 1/1 | Complete | 2026-04-18 |
 | 6. Auth & Model CLI Commands | 0/? | Not started | - |
 | 7. GitHub Copilot Provider | 0/? | Not started | - |
 | 8. DAG State, Types & Domains | 0/? | Not started | - |

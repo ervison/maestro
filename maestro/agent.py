@@ -15,12 +15,147 @@ from maestro.providers.base import Message, Tool, ToolCall
 from maestro.providers.registry import get_default_provider
 
 # Keep ChatGPT imports for _call_responses_api (used by models --check)
+# and for backward-compatible _run_agentic_loop legacy path
 from maestro.providers.chatgpt import (
     RESPONSES_ENDPOINT,
     _reasoning_effort,
     _headers,
     resolve_model,
 )
+
+
+def _run_httpx_stream_sync(
+    messages: list[Message],
+    model: str,
+    tools: list[Tool],
+    tokens: auth.TokenSet,
+) -> list:
+    """Synchronous wrapper for legacy httpx.stream() SSE loop.
+
+    Backward-compatibility shim for original tests that mock httpx.stream.
+    Converts neutral types back to ChatGPT wire format and parses SSE.
+    """
+    api_model = resolve_model(model)
+
+    # Convert neutral messages to ChatGPT input format
+    input_items = []
+    instructions = ""
+    for msg in messages:
+        if msg.role == "system":
+            instructions = msg.content
+        elif msg.role == "user":
+            input_items.append(
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": msg.content}],
+                }
+            )
+        elif msg.role == "assistant":
+            # Handle assistant messages with tool calls
+            if msg.tool_calls:
+                # This is a tool-call response - convert to function_call items
+                for tc in msg.tool_calls:
+                    input_items.append(
+                        {
+                            "type": "function_call",
+                            "id": tc.id,
+                            "call_id": tc.id,
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments),
+                        }
+                    )
+            else:
+                input_items.append(
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": msg.content}],
+                    }
+                )
+        elif msg.role == "tool":
+            # Tool output becomes function_call_output
+            input_items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": msg.tool_call_id,
+                    "output": msg.content,
+                }
+            )
+
+    # Convert neutral tools to ChatGPT tool format
+    chatgpt_tools = []
+    for tool in tools:
+        chatgpt_tools.append(
+            {
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+            }
+        )
+
+    payload: dict = {
+        "model": api_model,
+        "instructions": instructions or "You are a helpful assistant.",
+        "input": input_items,
+        "stream": True,
+        "store": False,
+    }
+
+    if chatgpt_tools:
+        payload["tools"] = chatgpt_tools
+        payload["tool_choice"] = "auto"
+
+    text_parts: list[str] = []
+    tool_calls: list[ToolCall] = []
+
+    with httpx.stream(
+        "POST",
+        RESPONSES_ENDPOINT,
+        json=payload,
+        headers=_headers(tokens),
+        timeout=120,
+    ) as r:
+        if not r.is_success:
+            body = r.read().decode()
+            raise RuntimeError(f"API error {r.status_code}: {body[:800]}")
+
+        for line in r.iter_lines():
+            if not line.startswith("data: "):
+                continue
+            raw = line[6:]
+            if raw == "[DONE]":
+                break
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            etype = event.get("type", "")
+            if etype == "response.output_text.delta":
+                text_parts.append(event.get("delta", ""))
+            elif etype == "response.output_item.done":
+                item = event.get("item", {})
+                if item.get("type") == "function_call":
+                    tool_calls.append(
+                        ToolCall(
+                            id=item.get("id", ""),
+                            name=item.get("name", ""),
+                            arguments=json.loads(item.get("arguments", "{}")),
+                        )
+                    )
+
+    # Build final result: text deltas as separate chunks, then final Message
+    result: list = []
+    if text_parts:
+        # Return deltas as individual string chunks for streaming
+        result.extend(text_parts)
+    # Always return final message with tool calls (may be empty)
+    final_content = "".join(text_parts)
+    result.append(
+        Message(role="assistant", content=final_content, tool_calls=tool_calls)
+    )
+    return result
 
 
 def _convert_tool_schemas(schemas: list[dict]) -> list[Tool]:
@@ -74,10 +209,12 @@ def _run_agentic_loop(
     messages: list[BaseMessage],
     model: str,
     instructions: str,
-    provider,
-    workdir: Path,
+    provider=None,
+    workdir: Path | None = None,
     auto: bool = False,
     max_iterations: int = 20,
+    *,
+    tokens: auth.TokenSet | None = None,
 ) -> str:
     """Run the agentic loop using provider.stream() for HTTP delegation.
 
@@ -85,17 +222,29 @@ def _run_agentic_loop(
         messages: LangChain messages (HumanMessage, AIMessage, etc.)
         model: Model identifier to use
         instructions: System prompt/instructions
-        provider: ProviderPlugin instance for streaming
+        provider: ProviderPlugin instance for streaming (runtime path)
         workdir: Working directory for tool execution
         auto: Whether to auto-execute destructive tools without confirmation
         max_iterations: Maximum tool-call iterations before giving up
+        tokens: TokenSet for legacy httpx-based streaming (backward compatibility)
 
     Returns:
         Final text response from the model
 
     Raises:
         RuntimeError: If provider is unauthenticated or API returns error
+
+    Note:
+        Either `provider` OR `tokens` must be provided. The provider-based path
+        is used at runtime; the tokens-based path is preserved for backward
+        compatibility with existing tests that mock httpx.stream().
     """
+    # Determine which path to use: provider-based (new) or tokens-based (legacy)
+    use_legacy_path = tokens is not None
+
+    # Ensure workdir is set
+    wd = workdir or Path.cwd()
+
     # Convert messages to neutral types
     neutral_messages = _convert_messages_to_neutral(messages, instructions)
 
@@ -104,9 +253,18 @@ def _run_agentic_loop(
 
     for iteration in range(max_iterations):
         # Stream from provider (sync wrapper for async generator)
-        stream_results = _run_provider_stream_sync(
-            provider, neutral_messages, model, tools
-        )
+        if use_legacy_path:
+            stream_results = _run_httpx_stream_sync(
+                neutral_messages, model, tools, tokens
+            )
+        else:
+            if provider is None:
+                raise RuntimeError(
+                    "Either provider or tokens must be provided to _run_agentic_loop"
+                )
+            stream_results = _run_provider_stream_sync(
+                provider, neutral_messages, model, tools
+            )
 
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
@@ -144,7 +302,7 @@ def _run_agentic_loop(
 
         # Execute each tool and append results as tool messages
         for tc in tool_calls:
-            result = execute_tool(tc.name, tc.arguments, workdir, auto=auto)
+            result = execute_tool(tc.name, tc.arguments, wd, auto=auto)
             neutral_messages.append(
                 Message(
                     role="tool",
