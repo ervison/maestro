@@ -95,6 +95,8 @@ def _convert_messages_to_input(messages: list[Message]) -> list[dict]:
     """Convert neutral Messages to Responses API input format.
 
     Maps provider-neutral Message types to ChatGPT/OpenAI wire format.
+    Preserves tool-call context by emitting function_call items before
+    their corresponding function_call_output items.
     """
     input_items: list[dict] = []
 
@@ -106,6 +108,15 @@ def _convert_messages_to_input(messages: list[Message]) -> list[dict]:
                 "content": [{"type": "input_text", "text": msg.content}],
             })
         elif msg.role == "assistant":
+            # First emit any tool_calls as function_call items
+            for tc in msg.tool_calls:
+                input_items.append({
+                    "type": "function_call",
+                    "id": tc.id,
+                    "name": tc.name,
+                    "arguments": json.dumps(tc.arguments),
+                })
+            # Then emit the assistant message content
             input_items.append({
                 "type": "message",
                 "role": "assistant",
