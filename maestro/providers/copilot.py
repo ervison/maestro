@@ -61,7 +61,30 @@ class CopilotProvider:
         return "GitHub Copilot"
 
     def list_models(self) -> list[str]:
-        """Return list of available model IDs."""
+        """Return list of available model IDs.
+
+        If the user is authenticated, attempt to fetch the account's available
+        models from the Copilot API. On any failure, fall back to the static
+        COPILOT_MODELS list so the CLI remains useful offline/unauthed.
+        """
+        creds = auth.get("github-copilot")
+        if creds and creds.get("access_token"):
+            token = creds.get("access_token")
+            try:
+                resp = httpx.get(
+                    f"{COPILOT_API_BASE}/models",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                # Accept a few common shapes for returned models
+                models = data.get("models") or data.get("model_ids") or data.get("available_models")
+                if isinstance(models, list) and all(isinstance(m, str) for m in models):
+                    return models
+            except Exception:
+                logger.debug("Failed to fetch models from Copilot API; falling back to static list", exc_info=True)
+
         return COPILOT_MODELS.copy()
 
     async def stream(
@@ -376,6 +399,5 @@ def _convert_tools_to_wire(tools: list[Tool]) -> list[dict]:
         }
         for tool in tools
     ]
-
 
 
