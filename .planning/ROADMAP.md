@@ -93,12 +93,12 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. `_run_agentic_loop` calls `provider.stream()` instead of direct `httpx.stream()` calls — HTTP layer is fully provider-delegated
   2. Unauthenticated provider raises `RuntimeError` with actionable message: "Run `maestro auth login <provider_id>`"
-  3. All 26 existing tests pass without any modification after the refactor
+  3. All 190 existing tests pass without any modification after the refactor
   4. `maestro run "task"` behaves identically to pre-refactor single-agent behavior
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 05-01: TBD
+- [ ] 05-01-PLAN.md — Refactor _run_agentic_loop to use provider.stream() with zero regressions
 
 ### Phase 6: Auth & Model CLI Commands
 **Goal**: Users can manage authentication and discover models through CLI subcommands
