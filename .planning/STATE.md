@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 7 shipped — PR #6
-stopped_at: Phase 7 shipped
-last_updated: "2026-04-18T14:00:00Z"
-last_activity: 2026-04-18 -- Phase 7 shipped — PR #6
+status: Phase 8 shipped, ready for Phase 9
+stopped_at: Phase 8 shipped
+last_updated: "2026-04-18T17:45:00Z"
+last_activity: 2026-04-18 -- Phase 8 complete, DAG state types and domain system implemented
 progress:
   total_phases: 11
-  completed_phases: 7
-  total_plans: 7
-  completed_plans: 7
-  percent: 64
+  completed_phases: 8
+  total_plans: 8
+  completed_plans: 8
+  percent: 73
 ---
 
 # Maestro — Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-17)
 
 ## Current Position
 
-Phase: 7 of 11 (GitHub Copilot Provider)
-Plan: 1 of 1 in current phase
-Status: Shipped — PR #6
-Last activity: 2026-04-18 -- Phase 7 shipped — PR #6
+Phase: 8 of 11 (DAG State, Types & Domains)
+Plan: 2 of 2 in current phase (both complete)
+Status: Shipped, ready for Phase 9
+Last activity: 2026-04-18 -- Phase 8 complete, multi-agent type system and domain system implemented
 
-Progress: [███████░░░] 64%
+Progress: [███████░░░] 73%
 
 ## Performance Metrics
 
@@ -49,15 +49,16 @@ Progress: [███████░░░] 64%
 
 **Recent Trend:**
 
-- Last shipped phase: 07-github-copilot-provider
+- Last shipped phase: 08-dag-state-types-domains
 - Trend: On track
+- Completed 3 additional phases today (parallel execution wave)
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 03-chatgpt-provider-migration | 1 | 8 min | 8 min |
 | 04-provider-registry | 1 | n/a | n/a |
 | 05-agent-loop-refactor | 1 | 30 min | 30 min |
-| 07-github-copilot-provider | 1 | 45 min | 45 min |
+| 08-dag-state-types-domains | 2 | 20 min | 10 min |
 
 *Updated after each plan completion*
 
@@ -78,8 +79,11 @@ Recent decisions affecting current work:
 - [Phase 03]: Keep auth.py as primary credential store, chatgpt.py as consumer (not owner) of auth data
 - [Phase 05]: Provider handles auth validation internally; loop surfaces provider's RuntimeError unchanged
 - [Phase 05]: Use asyncio.run() to bridge sync _run_agentic_loop with async provider.stream()
-- [Phase 06]: Deprecated commands show clear warnings and route to new equivalents
-- [Phase 06]: Auth status displays provider names only, not credential contents (security)
+- [Phase 08]: AgentState reducers: use `Annotated[list, operator.add]` for 'completed' and 'errors' (list append)
+- [Phase 08]: PlanTask/AgentPlan: strict Pydantic models with `extra="forbid"`, deps is required `list[str]`
+- [Phase 08]: DAG validator: reject cycles using `graphlib.TopologicalSorter.prepare()`
+- [Phase 08]: Domains: backend, testing, docs, devops, security, data, general
+- [Phase 08]: Domain fallback: unknown domains fall back to 'general' without error
 
 ### Pending Todos
 
@@ -105,9 +109,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-18T14:00:00Z
-Stopped at: Phase 7 complete
-Resume file: .planning/phases/07-github-copilot-provider/07-01-SUMMARY.md
+Last session: 2026-04-18T17:45:00Z
+Stopped at: Phase 8 complete
+Resume files: 
+  - .planning/phases/08-dag-state-types-domains/08-01-SUMMARY.md
+  - .planning/phases/08-dag-state-types-domains/08-02-SUMMARY.md
 
 ## Completed Work
 
@@ -167,22 +173,27 @@ Resume file: .planning/phases/07-github-copilot-provider/07-01-SUMMARY.md
 - `.planning/phases/05-agent-loop-refactor/05-01-SUMMARY.md`
 - `.planning/phases/05-agent-loop-refactor/05-SHIP.md`
 
-**Phase 7: GitHub Copilot Provider**
+**Phase 8: DAG State, Types & Domains**
 
-- ✅ Created `maestro/providers/copilot.py` with CopilotProvider (351 lines)
-- ✅ Implemented OAuth device code flow with slow_down handling (AUTH-07)
-- ✅ Implemented `stream()` with OpenAI chat completions wire format
-- ✅ Added required headers: x-initiator, Openai-Intent (per D-02)
-- ✅ Registered entry point `github-copilot` in pyproject.toml
-- ✅ Added httpx-sse dependency for SSE streaming
-- ✅ Added 26 comprehensive tests (1 integration skipped)
-- ✅ All 118 provider-related tests passing
-- ✅ Requirements satisfied: COPILOT-01 through COPILOT-05, AUTH-04, AUTH-07
+- ✅ Created `maestro/planner/` package with AgentState, schemas, and validator
+- ✅ AgentState TypedDict with `Annotated[list, operator.add]` reducers for safe parallel writes
+- ✅ PlanTask Pydantic model with `extra="forbid"` and required `deps: list[str]`
+- ✅ AgentPlan Pydantic model for planner output validation
+- ✅ validate_dag using graphlib.TopologicalSorter for cycle and invalid dep detection
+- ✅ Created `maestro/domains.py` with 6 built-in domains (backend, testing, docs, devops, security, general)
+- ✅ get_domain_prompt with fallback to "general" for unknown domains
+- ✅ All domain prompts mention shared working directory and domain scoping
+- ✅ 53 new tests added (22 planner + 31 domains), all passing
+- ✅ No regressions in Phase 8 specific functionality
 
 **Commits:**
 
-- `4fe5997`: feat(07-01): implement GitHub Copilot provider with OAuth device code flow
+- `aeac8ff`: feat(08-01): add multi-agent type system with AgentState, schemas, and DAG validator
+- `87c4c39`: feat(08-02): add domain system for multi-agent worker specialization
+- `568480b`: docs(08-01,08-02): add execution summaries for both plans
 
 **Artifacts:**
 
-- `.planning/phases/07-github-copilot-provider/07-01-SUMMARY.md`
+- `.planning/phases/08-dag-state-types-domains/08-01-SUMMARY.md`
+- `.planning/phases/08-dag-state-types-domains/08-02-SUMMARY.md`
+- `.planning/phases/08-dag-state-types-domains/08-VERIFICATION.md`
