@@ -1,9 +1,9 @@
 """
-LangGraph agent that uses ChatGPT Plus/Pro subscription
-via the Codex Responses API backend — with agentic tool loop.
+LangGraph agent that uses LLM providers via the provider plugin system.
 """
 
 import json
+import asyncio
 import httpx
 from pathlib import Path
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
@@ -11,105 +11,114 @@ from langgraph.func import entrypoint, task
 
 from maestro import auth
 from maestro.tools import execute_tool, TOOL_SCHEMAS
+from maestro.providers.base import Message, Tool, ToolCall
+from maestro.providers.registry import get_default_provider
 
-# Import ChatGPT transport helpers from provider module (Phase 3 canonical source)
+# Keep ChatGPT imports for _call_responses_api (used by models --check)
 from maestro.providers.chatgpt import (
     RESPONSES_ENDPOINT,
-    USER_AGENT,
     _reasoning_effort,
     _headers,
     resolve_model,
 )
 
 
+def _convert_tool_schemas(schemas: list[dict]) -> list[Tool]:
+    """Convert raw tool schema dicts to neutral Tool types."""
+    return [
+        Tool(
+            name=s["name"],
+            description=s.get("description", ""),
+            parameters=s.get("parameters", {}),
+        )
+        for s in schemas
+    ]
+
+
+def _convert_messages_to_neutral(
+    messages: list[BaseMessage], instructions: str | None = None
+) -> list[Message]:
+    """Convert LangChain messages to neutral Message types."""
+    result: list[Message] = []
+
+    # Add system message as first message if provided
+    if instructions:
+        result.append(Message(role="system", content=instructions))
+
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            result.append(Message(role="user", content=msg.content))
+        elif isinstance(msg, AIMessage):
+            result.append(Message(role="assistant", content=msg.content))
+        # SystemMessage is handled above via instructions parameter
+
+    return result
+
+
+def _run_provider_stream_sync(provider, messages: list[Message], model: str, tools: list[Tool] | None = None):
+    """Synchronous wrapper for async provider.stream().
+
+    Since _run_agentic_loop is synchronous but provider.stream() is async,
+    we use asyncio.run() to bridge the gap.
+    """
+    async def _inner():
+        result = []
+        async for chunk in provider.stream(messages, model, tools):
+            result.append(chunk)
+        return result
+
+    return asyncio.run(_inner())
+
+
 def _run_agentic_loop(
     messages: list[BaseMessage],
     model: str,
     instructions: str,
-    tokens: auth.TokenSet,
+    provider,
     workdir: Path,
     auto: bool = False,
     max_iterations: int = 20,
 ) -> str:
-    api_model = auth.resolve_model(model)
+    """Run the agentic loop using provider.stream() for HTTP delegation.
 
-    # Build initial input list (user/assistant messages only — no developer)
-    input_items: list[dict] = []
-    for msg in messages:
-        if isinstance(msg, HumanMessage):
-            input_items.append(
-                {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": msg.content}],
-                }
-            )
-        elif isinstance(msg, AIMessage):
-            input_items.append(
-                {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": msg.content}],
-                }
-            )
+    Args:
+        messages: LangChain messages (HumanMessage, AIMessage, etc.)
+        model: Model identifier to use
+        instructions: System prompt/instructions
+        provider: ProviderPlugin instance for streaming
+        workdir: Working directory for tool execution
+        auto: Whether to auto-execute destructive tools without confirmation
+        max_iterations: Maximum tool-call iterations before giving up
+
+    Returns:
+        Final text response from the model
+
+    Raises:
+        RuntimeError: If provider is unauthenticated or API returns error
+    """
+    # Convert messages to neutral types
+    neutral_messages = _convert_messages_to_neutral(messages, instructions)
+
+    # Convert tool schemas to neutral Tool types
+    tools = _convert_tool_schemas(TOOL_SCHEMAS)
 
     for iteration in range(max_iterations):
-        payload = {
-            "model": api_model,
-            "instructions": instructions or "You are a helpful assistant.",
-            "input": input_items,
-            "tools": TOOL_SCHEMAS,
-            "stream": True,
-            "store": False,
-            "reasoning": {
-                "effort": _reasoning_effort(api_model),
-                "summary": "auto",
-            },
-            "text": {"verbosity": "medium"},
-            "include": ["reasoning.encrypted_content"],
-        }
+        # Stream from provider (sync wrapper for async generator)
+        stream_results = _run_provider_stream_sync(
+            provider, neutral_messages, model, tools
+        )
 
         text_parts: list[str] = []
-        tool_calls: list[dict] = []
+        tool_calls: list[ToolCall] = []
 
-        with httpx.stream(
-            "POST",
-            RESPONSES_ENDPOINT,
-            json=payload,
-            headers=_headers(tokens),
-            timeout=120,
-        ) as r:
-            if not r.is_success:
-                body = r.read().decode()
-                raise RuntimeError(
-                    f"API error {r.status_code} (iter {iteration}): {body[:800]}"
-                )
-
-            for line in r.iter_lines():
-                if not line.startswith("data: "):
-                    continue
-                raw = line[6:]
-                if raw == "[DONE]":
-                    break
-                try:
-                    event = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-
-                etype = event.get("type", "")
-                if etype == "response.output_text.delta":
-                    text_parts.append(event.get("delta", ""))
-                elif etype == "response.output_item.done":
-                    item = event.get("item", {})
-                    if item.get("type") == "function_call":
-                        tool_calls.append(item)
-                elif etype == "response.done":
-                    resp = event.get("response", {})
-                    for out in resp.get("output", []):
-                        if out.get("type") == "message" and not text_parts:
-                            for part in out.get("content", []):
-                                if part.get("type") == "output_text":
-                                    text_parts.append(part["text"])
+        for chunk in stream_results:
+            if isinstance(chunk, str):
+                # Text chunk during streaming
+                text_parts.append(chunk)
+            elif isinstance(chunk, Message):
+                # Final message with complete response
+                text_parts.append(chunk.content)
+                tool_calls = chunk.tool_calls
 
         # No tool calls → final answer
         if not tool_calls:
@@ -117,31 +126,15 @@ def _run_agentic_loop(
                 return "".join(text_parts)
             raise RuntimeError("No output received from agent loop")
 
-        # Append model's function_call items to input
+        # Execute each tool and append results as tool messages
         for tc in tool_calls:
-            input_items.append(
-                {
-                    "type": "function_call",
-                    "id": tc.get("id", ""),
-                    "call_id": tc.get("id", ""),
-                    "name": tc["name"],
-                    "arguments": tc["arguments"],
-                }
-            )
-
-        # Execute each tool and append results
-        for tc in tool_calls:
-            try:
-                args = json.loads(tc["arguments"])
-            except json.JSONDecodeError:
-                args = {}
-            result = execute_tool(tc["name"], args, workdir, auto=auto)
-            input_items.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": tc.get("id", ""),
-                    "output": json.dumps(result),
-                }
+            result = execute_tool(tc.name, tc.arguments, workdir, auto=auto)
+            neutral_messages.append(
+                Message(
+                    role="tool",
+                    content=json.dumps(result),
+                    tool_call_id=tc.id,
+                )
             )
 
     raise RuntimeError(f"Agent loop exceeded max_iterations={max_iterations}")
@@ -236,11 +229,14 @@ def run(
     workdir: Path | None = None,
     auto: bool = False,
 ) -> str:
-    """Run the agentic loop with the given model and prompt."""
-    tokens = auth.load()
-    if not tokens:
-        raise RuntimeError("Not logged in. Run: maestro login")
-    tokens = auth.ensure_valid(tokens)
+    """Run the agentic loop with the given model and prompt.
+
+    Uses get_default_provider() to discover and use the first authenticated
+    provider (or ChatGPT fallback). The provider raises RuntimeError with
+    actionable guidance if not authenticated.
+    """
+    # Get default provider from registry - provider handles auth validation
+    provider = get_default_provider()
 
     wd = workdir or Path.cwd()
     instructions = (
@@ -253,7 +249,7 @@ def run(
             messages=msgs,
             model=model_name,
             instructions=instructions,
-            tokens=tokens,
+            provider=provider,
             workdir=wd,
             auto=auto,
         )
