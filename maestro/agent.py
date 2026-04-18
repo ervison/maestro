@@ -402,15 +402,16 @@ def run(
     system: str | None = None,
     workdir: Path | None = None,
     auto: bool = False,
+    provider=None,
 ) -> str:
     """Run the agentic loop with the given model and prompt.
 
-    Uses get_default_provider() to discover and use the first authenticated
-    provider (or ChatGPT fallback). The provider raises RuntimeError with
-    actionable guidance if not authenticated.
+    Uses the given provider, or falls back to get_default_provider() to
+    discover and use the first authenticated provider.
     """
-    # Get default provider from registry - provider handles auth validation
-    provider = get_default_provider()
+    # Use provided provider or fall back to default
+    if provider is None:
+        provider = get_default_provider()
 
     wd = workdir or Path.cwd()
     instructions = (

@@ -15,6 +15,7 @@ maestro.egg-info/top_level.txt
 maestro/providers/__init__.py
 maestro/providers/base.py
 maestro/providers/chatgpt.py
+maestro/providers/copilot.py
 maestro/providers/registry.py
 tests/test_agent_loop.py
 tests/test_agent_loop_provider.py
@@ -24,6 +25,7 @@ tests/test_chatgpt_provider.py
 tests/test_cli_auth.py
 tests/test_cli_models.py
 tests/test_config.py
+tests/test_copilot_provider.py
 tests/test_model_resolution.py
 tests/test_provider_protocol.py
 tests/test_provider_registry.py

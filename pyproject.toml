@@ -8,6 +8,7 @@ dependencies = [
     "langchain>=0.3",
     "langchain-openai>=0.3",
     "httpx>=0.27",
+    "httpx-sse>=0.4",
 ]
 
 [project.optional-dependencies]
@@ -21,7 +22,11 @@ maestro = "maestro.cli:main"
 
 [project.entry-points."maestro.providers"]
 chatgpt = "maestro.providers.chatgpt:ChatGPTProvider"
+github-copilot = "maestro.providers.copilot:CopilotProvider"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: marks tests as integration tests requiring real credentials (opt-in via MAESTRO_RUN_INTEGRATION=1)",
+]
