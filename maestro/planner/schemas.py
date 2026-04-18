@@ -5,7 +5,7 @@ Defines the type foundation for the multi-agent DAG engine:
 - PlanTask/AgentPlan: Pydantic models for planner output validation
 """
 
-from typing import TypedDict, Annotated, Literal, NotRequired
+from typing import TypedDict, Annotated, Literal, NotRequired, Any
 import operator
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -44,6 +44,9 @@ class AgentState(TypedDict):
     current_task_id: NotRequired[str]  # ID of task being executed by this worker
     current_task_domain: NotRequired[str]  # Domain of task being executed
     current_task_prompt: NotRequired[str]  # Prompt for task being executed
+    # Provider/model configuration (NotRequired - resolved at runtime)
+    provider: NotRequired[Any]  # ProviderPlugin instance
+    model: NotRequired[str]  # Model identifier
 
 
 DomainName = Literal[

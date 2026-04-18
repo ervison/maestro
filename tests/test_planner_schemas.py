@@ -320,5 +320,8 @@ def test_agentstate_has_required_fields():
         "current_task_id",
         "current_task_domain",
         "current_task_prompt",
+        # Provider/model configuration for multi-agent execution
+        "provider",
+        "model",
     }
     assert set(hints.keys()) == required_fields

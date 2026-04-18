@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from graphlib import TopologicalSorter, CycleError
 
 from langgraph.graph import StateGraph, START, END
@@ -21,7 +21,8 @@ from maestro.planner.schemas import AgentState, AgentPlan
 from maestro.planner.validator import validate_dag
 from maestro.domains import get_domain_prompt
 from maestro.agent import _run_agentic_loop
-from langchain_core.messages import HumanMessage
+from maestro.providers.registry import get_default_provider
+from langchain_core.messages import BaseMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,13 @@ def scheduler_node(state: AgentState) -> dict:
         Keys: ready_tasks (list[dict]), errors (list[str] - optional)
     """
     plan = _materialize_plan(state["dag"])
+    # Validate the DAG to catch duplicate IDs, invalid refs, etc.
+    try:
+        validate_dag(plan)
+    except ValueError as e:
+        error_msg = f"DAG validation failed: {e}"
+        logger.error(error_msg)
+        return {"ready_tasks": [], "errors": [error_msg]}
     completed = set(state.get("completed", []))
     failed = set(state.get("failed", []))
     terminal = completed | failed
@@ -128,7 +136,7 @@ def scheduler_node(state: AgentState) -> dict:
         # If there are unfinished tasks that aren't blocked, that's an unexpected state
         # but we'll let the graph continue and eventually time out or be handled elsewhere
 
-    result = {"ready_tasks": list(ready_tasks)}
+    result: dict[str, Any] = {"ready_tasks": list(ready_tasks)}
     if errors:
         result["errors"] = errors
 
@@ -202,10 +210,12 @@ def dispatch_route(state: AgentState) -> list[Send]:
     max_depth = state["max_depth"]
     workdir = state["workdir"]
     auto = state["auto"]
+    provider = state.get("provider")
+    model = state.get("model")
 
     sends = []
     for task in ready_tasks:
-        payload = {
+        payload: dict[str, Any] = {
             "current_task_id": task["id"],
             "current_task_domain": task["domain"],
             "current_task_prompt": task["prompt"],
@@ -214,6 +224,11 @@ def dispatch_route(state: AgentState) -> list[Send]:
             "workdir": workdir,
             "auto": auto,
         }
+        # Pass provider/model through to worker
+        if provider is not None:
+            payload["provider"] = provider
+        if model is not None:
+            payload["model"] = model
         sends.append(Send("worker", payload))
         logger.debug("Dispatching task %s (domain=%s)", task["id"], task["domain"])
 
@@ -226,6 +241,7 @@ def worker_node(state: AgentState) -> dict:
     Worker receives task via Send payload with:
     - current_task_id, current_task_domain, current_task_prompt
     - depth, max_depth, workdir, auto
+    - provider, model (optional, resolved in worker if not provided)
 
     Returns reducer-safe state updates:
     - On success: {"completed": [task_id], "outputs": {task_id: output}}
@@ -244,6 +260,9 @@ def worker_node(state: AgentState) -> dict:
     max_depth = state.get("max_depth", 2)
     workdir_str = state.get("workdir", ".")
     auto = state.get("auto", False)
+    # Provider/model may be passed through state or resolved here
+    provider = state.get("provider")
+    model = state.get("model", "gpt-4o")
 
     # Validate required fields
     if not task_id or not domain or not prompt:
@@ -281,14 +300,19 @@ def worker_node(state: AgentState) -> dict:
     system_prompt = f"{domain_prompt}\n\n## Your Task\n\n{prompt}"
 
     try:
+        # Resolve provider if not provided through state
+        if provider is None:
+            provider = get_default_provider()
+
         # Execute using _run_agentic_loop
         # Note: We pass an empty list for messages since the task prompt is in system
         # Actually, we should pass the task as a HumanMessage
-        messages = [HumanMessage(content=prompt)]
+        messages: list[BaseMessage] = [HumanMessage(content=prompt)]
         result = _run_agentic_loop(
             messages=messages,
-            model="gpt-4o",  # TODO: Get from config or state
+            model=model,
             instructions=system_prompt,
+            provider=provider,
             workdir=workdir,
             auto=auto,
         )
@@ -335,6 +359,7 @@ def run_multi_agent(
     """Run multi-agent DAG execution on a task.
 
     This is a thin synchronous wrapper around the compiled LangGraph.
+    It uses planner_node to generate the DAG, then executes it via the graph.
 
     Args:
         task: The user task to decompose and execute
@@ -360,14 +385,19 @@ def run_multi_agent(
     if not workdir.is_dir():
         raise ValueError(f"workdir is not a directory: {workdir}")
 
-    # TODO: Integrate with planner_node to get initial DAG
-    # For now, this is a placeholder - the graph needs a dag to run
-    # This function will need to be called with a pre-populated state
-    # or we'll need to add planner invocation here
+    # Resolve provider if not provided
+    if provider is None:
+        provider = get_default_provider()
 
-    initial_state: AgentState = {
+    # Resolve model
+    model = model or "gpt-4o"
+
+    # Call planner to generate the DAG
+    from maestro.planner.node import planner_node
+
+    planner_state: AgentState = {
         "task": task,
-        "dag": {"tasks": []},  # Placeholder - should come from planner
+        "dag": {"tasks": []},  # Will be populated by planner
         "completed": [],
         "failed": [],
         "outputs": {},
@@ -379,8 +409,31 @@ def run_multi_agent(
         "ready_tasks": [],
     }
 
+    planner_result = planner_node(planner_state)
+    dag = planner_result.get("dag")
+
+    if dag is None:
+        raise RuntimeError("Planner failed to produce a DAG")
+
+    # Build initial state for graph execution
+    initial_state: AgentState = {
+        "task": task,
+        "dag": dag,
+        "completed": [],
+        "failed": [],
+        "outputs": {},
+        "errors": [],
+        "depth": depth,
+        "max_depth": max_depth,
+        "workdir": str(workdir),
+        "auto": auto,
+        "ready_tasks": [],
+        "provider": provider,
+        "model": model,
+    }
+
     # Run the graph
-    final_state = graph.invoke(initial_state)
+    final_state = cast(dict[str, Any], graph.invoke(cast(Any, initial_state)))
 
     # Return outputs dict
     return final_state.get("outputs", {})
