@@ -25,9 +25,8 @@ TOKEN_URL = "https://auth.openai.com/oauth/token"
 DEVICE_CODE_URL = "https://auth.openai.com/api/accounts/deviceauth/usercode"
 DEVICE_TOKEN_URL = "https://auth.openai.com/api/accounts/deviceauth/token"
 DEVICE_CALLBACK = "https://auth.openai.com/deviceauth/callback"
-REDIRECT_URI = "http://127.0.0.1:1455/auth/callback"
-SCOPE = "openid profile email offline_access"
-CALLBACK_PORT = 1455
+REDIRECT_URI = "http://localhost:1455/auth/callback"
+SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke"
 AUTH_CLAIM = "https://api.openai.com/auth"
 
 CODEX_API_BASE = "https://chatgpt.com/backend-api"
@@ -169,6 +168,38 @@ def _generate_pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
+def _build_browser_redirect_uri(port: int) -> str:
+    return f"http://localhost:{port}/auth/callback"
+
+
+def _build_authorize_url(redirect_uri: str, challenge: str, state: str) -> str:
+    params = {
+        "response_type": "code",
+        "client_id": CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "scope": SCOPE,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+        "id_token_add_organizations": "true",
+        "codex_cli_simplified_flow": "true",
+        "originator": "codex_cli_rs",
+    }
+    return f"{AUTHORIZE_URL}?{urlencode(params)}"
+
+
+def _parse_browser_callback(path: str, expected_state: str) -> tuple[str | None, str | None]:
+    qs = parse_qs(urlparse(path).query)
+    if qs.get("state", [None])[0] != expected_state:
+        return None, "State mismatch"
+    if "error" in qs:
+        return None, qs["error"][0]
+    codes = qs.get("code")
+    if not codes:
+        return None, "No authorization code received"
+    return codes[0], None
+
+
 # --------------- Token exchange ---------------
 
 
@@ -236,32 +267,16 @@ def login_browser() -> TokenSet:
     verifier, challenge = _generate_pkce()
     state = secrets.token_hex(16)
 
-    params = {
-        "response_type": "code",
-        "client_id": CLIENT_ID,
-        "redirect_uri": REDIRECT_URI,
-        "scope": SCOPE,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-        "state": state,
-        "id_token_add_organizations": "true",
-        "codex_cli_simplified_flow": "true",
-        "originator": "codex_cli_rs",
-    }
-    url = f"{AUTHORIZE_URL}?{urlencode(params)}"
-
     result: dict = {}
     error: list = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            qs = parse_qs(urlparse(self.path).query)
-            if qs.get("state", [None])[0] != state:
-                error.append("State mismatch")
-            elif "error" in qs:
-                error.append(qs["error"][0])
+            code, callback_error = _parse_browser_callback(self.path, state)
+            if callback_error:
+                error.append(callback_error)
             else:
-                result["code"] = qs["code"][0]
+                result["code"] = code
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
@@ -270,7 +285,9 @@ def login_browser() -> TokenSet:
         def log_message(self, *_):
             pass
 
-    srv = http.server.HTTPServer(("127.0.0.1", CALLBACK_PORT), Handler)
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    redirect_uri = _build_browser_redirect_uri(srv.server_address[1])
+    url = _build_authorize_url(redirect_uri, challenge, state)
     t = threading.Thread(target=srv.handle_request, daemon=True)
     t.start()
 
@@ -285,7 +302,7 @@ def login_browser() -> TokenSet:
     if "code" not in result:
         raise RuntimeError("No authorization code received (timeout?)")
 
-    return _exchange_code(result["code"], verifier)
+    return _exchange_code(result["code"], verifier, redirect_uri)
 
 
 # --------------- Device Code flow ---------------
@@ -356,4 +373,3 @@ def __getattr__(name: str):
 
         return getattr(chatgpt, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
