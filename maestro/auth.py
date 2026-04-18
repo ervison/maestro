@@ -25,8 +25,9 @@ TOKEN_URL = "https://auth.openai.com/oauth/token"
 DEVICE_CODE_URL = "https://auth.openai.com/api/accounts/deviceauth/usercode"
 DEVICE_TOKEN_URL = "https://auth.openai.com/api/accounts/deviceauth/token"
 DEVICE_CALLBACK = "https://auth.openai.com/deviceauth/callback"
+CALLBACK_HOST = "localhost"
 CALLBACK_PORT = 1455
-REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/auth/callback"
+REDIRECT_URI = f"http://{CALLBACK_HOST}:{CALLBACK_PORT}/auth/callback"
 SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke"
 AUTH_CLAIM = "https://api.openai.com/auth"
 
@@ -301,7 +302,7 @@ def login_browser() -> TokenSet:
         def log_message(self, *_):
             pass
 
-    srv = http.server.HTTPServer(("127.0.0.1", CALLBACK_PORT), Handler)
+    srv = http.server.HTTPServer((CALLBACK_HOST, CALLBACK_PORT), Handler)
     srv.timeout = 1  # poll every 1 second
 
     def serve_until_done():
