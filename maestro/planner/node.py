@@ -98,10 +98,9 @@ def _call_provider_with_schema(
                     if isinstance(chunk, str):
                         chunks.append(chunk)
                     elif isinstance(chunk, Message) and chunk.content:
-                        # Only use Message.content if we haven't collected text chunks
-                        # to avoid double-appending (real providers send str deltas + final Message)
-                        if not chunks:
-                            chunks.append(chunk.content)
+                        # Final Message.content is canonical — it is the complete,
+                        # assembled response. Replace any accumulated str deltas with it.
+                        chunks = [chunk.content]
             except Exception:
                 raise
             return "".join(chunks)
@@ -194,7 +193,7 @@ def planner_node(state: AgentState) -> dict:
             logger.debug("Planner produced valid DAG with %d tasks on attempt %d", len(plan.tasks), attempt)
             return {"dag": plan.model_dump()}
 
-        except Exception as exc:
+        except (ValueError, json.JSONDecodeError) as exc:
             last_error = exc
             logger.warning("Planner attempt %d/%d failed: %s", attempt, max_retries, exc)
             if attempt < max_retries:

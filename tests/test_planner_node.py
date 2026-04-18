@@ -62,6 +62,17 @@ async def _mock_stream_with_text_chunks(*args, **kwargs):
     yield plan_json
 
 
+async def _mock_stream_mixed_chunks_then_message(*args, **kwargs):
+    """Async generator that yields str deltas then a complete final Message (canonical)."""
+    plan_json = json.dumps(_make_valid_plan_dict())
+    # Simulate partial str deltas (simulate streaming)
+    half = len(plan_json) // 2
+    yield plan_json[:half]   # str delta #1 — partial, not valid JSON alone
+    yield plan_json[half:]   # str delta #2 — rest of the content
+    # Final Message is the complete assembled response — should replace deltas
+    yield Message(role="assistant", content=plan_json)
+
+
 class MockProvider:
     """Mock provider for testing."""
 
@@ -370,3 +381,63 @@ def test_config_fallback_to_default_provider():
     assert "dag" in result
     # Should fall back to default provider
     assert len(mock_default.stream_calls) >= 1
+
+
+def test_stream_mixed_chunks_then_message_uses_message_as_canonical():
+    """When stream yields str deltas followed by final Message, Message.content wins."""
+    mock_provider = MockProvider(stream_generator=_mock_stream_mixed_chunks_then_message)
+
+    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
+        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+            state: AgentState = {
+                "task": "Create a simple API",
+                "dag": {},
+                "completed": [],
+                "outputs": {},
+                "errors": [],
+                "depth": 0,
+                "max_depth": 10,
+                "workdir": "/tmp",
+                "auto": False,
+            }
+
+            result = planner_node(state)
+
+    # The final Message.content is the canonical response and must be used
+    assert "dag" in result
+    assert "tasks" in result["dag"]
+    assert len(result["dag"]["tasks"]) == 1
+    assert result["dag"]["tasks"][0]["id"] == "t1"
+
+
+def test_non_parse_errors_propagate_without_retry():
+    """Auth/network/runtime errors must NOT trigger retry — propagate immediately."""
+    call_count = 0
+
+    async def _mock_stream_raises_runtime(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("Connection refused")
+        yield  # make it a generator
+
+    mock_provider = MockProvider(stream_generator=_mock_stream_raises_runtime)
+
+    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
+        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+            state: AgentState = {
+                "task": "Create a simple API",
+                "dag": {},
+                "completed": [],
+                "outputs": {},
+                "errors": [],
+                "depth": 0,
+                "max_depth": 10,
+                "workdir": "/tmp",
+                "auto": False,
+            }
+
+            with pytest.raises(RuntimeError, match="Connection refused"):
+                planner_node(state)
+
+    # Should NOT retry on RuntimeError — called exactly once
+    assert call_count == 1
