@@ -20,6 +20,8 @@ def main():
     # auth
     auth_p = sub.add_parser("auth", help="Authentication management")
     auth_sub = auth_p.add_subparsers(dest="auth_command")
+
+    # auth login
     auth_login_p = auth_sub.add_parser("login", help="Authenticate with a provider")
     auth_login_p.add_argument(
         "provider", nargs="?", default="chatgpt", help="Provider to authenticate with"
@@ -27,6 +29,15 @@ def main():
     auth_login_p.add_argument(
         "--device", action="store_true", help="Use device code flow (headless)"
     )
+
+    # auth logout
+    auth_logout_p = auth_sub.add_parser("logout", help="Log out of a provider")
+    auth_logout_p.add_argument(
+        "provider", help="Provider to log out of"
+    )
+
+    # auth status
+    auth_sub.add_parser("status", help="Show authentication status for all providers")
 
     # login
     login_p = sub.add_parser("login", help="Authenticate with ChatGPT")
@@ -92,6 +103,44 @@ def main():
                     print(str(e))
                     sys.exit(1)
                 provider.login()
+
+        elif args.auth_command == "logout":
+            from maestro.providers.registry import list_providers
+
+            # Validate provider exists
+            discovered = list_providers()
+            if args.provider not in discovered:
+                print(f"Unknown provider: '{args.provider}'")
+                print(f"Available providers: {', '.join(discovered)}")
+                sys.exit(1)
+
+            if auth.remove(args.provider):
+                print(f"Logged out of {args.provider}.")
+            else:
+                print(f"Not logged in to {args.provider}.")
+                sys.exit(1)
+
+        elif args.auth_command == "status":
+            from maestro.providers.registry import list_providers, get_provider
+
+            discovered = list_providers()
+            stored = auth.all_providers()
+
+            if not discovered:
+                print("No providers installed.")
+                sys.exit(0)
+
+            print("Provider Status:")
+            for pid in discovered:
+                try:
+                    provider = get_provider(pid)
+                    if provider.is_authenticated():
+                        print(f"  {pid}: authenticated")
+                    else:
+                        print(f"  {pid}: not authenticated")
+                except Exception:
+                    print(f"  {pid}: error loading provider")
+
         else:
             auth_p.print_help()
 
@@ -110,7 +159,19 @@ def main():
         print(f"Logged in as: {ts.email or ts.account_id}")
 
     elif args.command == "logout":
-        auth.logout()
+        print(
+            "'maestro logout' is deprecated. Use 'maestro auth logout chatgpt' instead.",
+            file=sys.stderr,
+        )
+        warnings.warn(
+            "'maestro logout' is deprecated. Use 'maestro auth logout chatgpt' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if auth.remove("chatgpt"):
+            print("Logged out of chatgpt.")
+        else:
+            print("Not logged in to chatgpt.")
 
     elif args.command == "models":
         from maestro.providers.chatgpt import fetch_models, probe_available_models
