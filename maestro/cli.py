@@ -133,7 +133,6 @@ def main():
             from maestro.providers.registry import list_providers
 
             discovered = list_providers()
-            stored = auth.all_providers()
 
             if not discovered:
                 print("No providers installed.")
@@ -225,6 +224,13 @@ def main():
                     print(f"Available providers: {', '.join(discovered)}")
                 sys.exit(1)
             models_by_provider = {args.provider: provider_models}
+
+        # Filter out providers with empty model lists
+        models_by_provider = {
+            provider_id: models
+            for provider_id, models in models_by_provider.items()
+            if models
+        }
 
         if not models_by_provider:
             print("No models available. Authenticate a provider first:")
