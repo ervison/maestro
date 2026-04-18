@@ -133,6 +133,13 @@ class CopilotProvider:
                 headers=headers,
                 timeout=120,
             ) as event_source:
+                response = event_source.response
+                if not response.is_success:
+                    body = await response.aread()
+                    raise RuntimeError(
+                        f"API error {response.status_code}: {body[:800].decode()}"
+                    )
+
                 text_parts: list[str] = []
                 tool_calls_buffer: dict[str, dict] = {}  # id -> {id, name, arguments}
 
@@ -297,7 +304,8 @@ class CopilotProvider:
 
     def is_authenticated(self) -> bool:
         """Return True if valid credentials are currently available."""
-        return auth.get("github-copilot") is not None
+        creds = auth.get("github-copilot")
+        return bool(creds and creds.get("access_token"))
 
 
 # ---------------------------------------------------------------------------
@@ -370,38 +378,4 @@ def _convert_tools_to_wire(tools: list[Tool]) -> list[dict]:
     ]
 
 
-def _parse_tool_call_delta(delta: dict) -> ToolCall | None:
-    """Parse a tool call delta from SSE stream.
 
-    Args:
-        delta: The delta object from the SSE event.
-
-    Returns:
-        ToolCall if delta contains complete tool call info, None otherwise.
-    """
-    if "tool_calls" not in delta:
-        return None
-
-    tc_list = delta.get("tool_calls", [])
-    if not tc_list:
-        return None
-
-    tc = tc_list[0]
-    tc_id = tc.get("id", "")
-    func = tc.get("function", {})
-    name = func.get("name", "")
-    arguments = func.get("arguments", "")
-
-    if not tc_id or not name:
-        return None
-
-    try:
-        parsed_args = json.loads(arguments) if arguments else {}
-    except json.JSONDecodeError:
-        parsed_args = {}
-
-    return ToolCall(
-        id=tc_id,
-        name=name,
-        arguments=parsed_args,
-    )
