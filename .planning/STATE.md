@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 5 shipped, ready for Phase 6
-stopped_at: Phase 5 shipped
-last_updated: "2026-04-18T12:20:00Z"
-last_activity: 2026-04-18 -- Phase 5 ship gate complete (local), 195 tests passing
+status: Phase 8 shipped, ready for Phase 9
+stopped_at: Phase 8 shipped
+last_updated: "2026-04-18T17:45:00Z"
+last_activity: 2026-04-18 -- Phase 8 complete, DAG state types and domain system implemented
 progress:
   total_phases: 11
-  completed_phases: 5
-  total_plans: 6
-  completed_plans: 6
-  percent: 45
+  completed_phases: 8
+  total_plans: 8
+  completed_plans: 8
+  percent: 73
 ---
 
 # Maestro — Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-17)
 
 ## Current Position
 
-Phase: 5 of 11 (Agent Loop Refactor)
-Plan: 1 of 1 in current phase
-Status: Shipped, ready for Phase 6
-Last activity: 2026-04-18 -- Phase 5 ship gate complete (local)
+Phase: 8 of 11 (DAG State, Types & Domains)
+Plan: 2 of 2 in current phase (both complete)
+Status: Shipped, ready for Phase 9
+Last activity: 2026-04-18 -- Phase 8 complete, multi-agent type system and domain system implemented
 
-Progress: [█████░░░░░] 45%
+Progress: [███████░░░] 73%
 
 ## Performance Metrics
 
@@ -49,14 +49,16 @@ Progress: [█████░░░░░] 45%
 
 **Recent Trend:**
 
-- Last shipped phase: 05-agent-loop-refactor
+- Last shipped phase: 08-dag-state-types-domains
 - Trend: On track
+- Completed 3 additional phases today (parallel execution wave)
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 03-chatgpt-provider-migration | 1 | 8 min | 8 min |
 | 04-provider-registry | 1 | n/a | n/a |
 | 05-agent-loop-refactor | 1 | 30 min | 30 min |
+| 08-dag-state-types-domains | 2 | 20 min | 10 min |
 
 *Updated after each plan completion*
 
@@ -77,6 +79,11 @@ Recent decisions affecting current work:
 - [Phase 03]: Keep auth.py as primary credential store, chatgpt.py as consumer (not owner) of auth data
 - [Phase 05]: Provider handles auth validation internally; loop surfaces provider's RuntimeError unchanged
 - [Phase 05]: Use asyncio.run() to bridge sync _run_agentic_loop with async provider.stream()
+- [Phase 08]: AgentState reducers: use `Annotated[list, operator.add]` for 'completed' and 'errors' (list append)
+- [Phase 08]: PlanTask/AgentPlan: strict Pydantic models with `extra="forbid"`, deps is required `list[str]`
+- [Phase 08]: DAG validator: reject cycles using `graphlib.TopologicalSorter.prepare()`
+- [Phase 08]: Domains: backend, testing, docs, devops, security, general (security replaces data per CONTEXT.md D-06)
+- [Phase 08]: Domain fallback: unknown domains fall back to 'general' without error
 
 ### Pending Todos
 
@@ -102,9 +109,11 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-18T03:25:00Z
-Stopped at: Phase 5 complete
-Resume file: .planning/phases/05-agent-loop-refactor/05-01-SUMMARY.md
+Last session: 2026-04-18T17:45:00Z
+Stopped at: Phase 8 complete
+Resume files: 
+  - .planning/phases/08-dag-state-types-domains/08-01-SUMMARY.md
+  - .planning/phases/08-dag-state-types-domains/08-02-SUMMARY.md
 
 ## Completed Work
 
@@ -163,3 +172,28 @@ Resume file: .planning/phases/05-agent-loop-refactor/05-01-SUMMARY.md
 
 - `.planning/phases/05-agent-loop-refactor/05-01-SUMMARY.md`
 - `.planning/phases/05-agent-loop-refactor/05-SHIP.md`
+
+**Phase 8: DAG State, Types & Domains**
+
+- ✅ Created `maestro/planner/` package with AgentState, schemas, and validator
+- ✅ AgentState TypedDict with `Annotated[list, operator.add]` reducers for safe parallel writes
+- ✅ PlanTask Pydantic model with `extra="forbid"` and required `deps: list[str]`
+- ✅ AgentPlan Pydantic model for planner output validation
+- ✅ validate_dag using graphlib.TopologicalSorter for cycle and invalid dep detection
+- ✅ Created `maestro/domains.py` with 6 built-in domains (backend, testing, docs, devops, security, general)
+- ✅ get_domain_prompt with fallback to "general" for unknown domains
+- ✅ All domain prompts mention shared working directory and domain scoping
+- ✅ 53 new tests added (22 planner + 31 domains), all passing
+- ✅ No regressions in Phase 8 specific functionality
+
+**Commits:**
+
+- `aeac8ff`: feat(08-01): add multi-agent type system with AgentState, schemas, and DAG validator
+- `87c4c39`: feat(08-02): add domain system for multi-agent worker specialization
+- `568480b`: docs(08-01,08-02): add execution summaries for both plans
+
+**Artifacts:**
+
+- `.planning/phases/08-dag-state-types-domains/08-01-SUMMARY.md`
+- `.planning/phases/08-dag-state-types-domains/08-02-SUMMARY.md`
+- `.planning/phases/08-dag-state-types-domains/08-VERIFICATION.md`
