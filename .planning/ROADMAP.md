@@ -141,10 +141,11 @@ Plans:
   3. DAG validator rejects cycles (via `graphlib.TopologicalSorter`) and invalid dependency references before any dispatch
   4. `maestro/domains.py` defines 6 built-in domains (backend, testing, docs, devops, data, general) with specialized system prompts
   5. Unrecognized domain values fall back to the `general` domain without error
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 08-01: TBD
+- [ ] 08-01-PLAN.md — AgentState TypedDict with reducers, PlanTask/AgentPlan Pydantic schemas, DAG validator
+- [ ] 08-02-PLAN.md — Domain system with 6 built-in domains and fallback behavior
 
 ### Phase 9: Planner
 **Goal**: The planner node generates a validated task DAG from a user prompt via LLM structured output
