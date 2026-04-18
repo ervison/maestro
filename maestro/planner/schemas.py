@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 def _merge_dicts(a: dict, b: dict) -> dict:
     """Merge two dicts, used as reducer for AgentState.outputs.
-    
+
     This reducer allows parallel workers to safely write to outputs
     without overwriting each other's data.
     """
@@ -22,11 +22,12 @@ def _merge_dicts(a: dict, b: dict) -> dict:
 
 class AgentState(TypedDict):
     """LangGraph state for multi-agent execution.
-    
+
     Uses Annotated reducers to enable safe parallel writes:
     - completed/errors: list append via operator.add
     - outputs: dict merge via _merge_dicts
     """
+
     task: str  # Original user task
     dag: dict  # Serialized AgentPlan (for scheduler reconstruction)
     completed: Annotated[list[str], operator.add]  # Task IDs that finished
@@ -40,35 +41,32 @@ class AgentState(TypedDict):
 
 class PlanTask(BaseModel):
     """Single task in a multi-agent plan.
-    
+
     Validated via Pydantic with strict mode (extra="forbid") to reject
     unexpected fields from LLM output.
     """
+
     model_config = ConfigDict(extra="forbid")
-    
-    id: str = Field(
-        description="Unique task identifier, e.g. t1"
-    )
+
+    id: str = Field(description="Unique task identifier, e.g. t1")
     domain: str = Field(
         description="One of: backend, testing, docs, devops, general, security"
     )
-    prompt: str = Field(
-        description="Specific instruction for this worker"
-    )
+    prompt: str = Field(description="Specific instruction for this worker")
     deps: list[str] = Field(
-        default_factory=list,
-        description="IDs of tasks that must complete first"
+        default_factory=list, description="IDs of tasks that must complete first"
     )
 
 
 class AgentPlan(BaseModel):
     """Complete multi-agent plan with task list.
-    
+
     Validated via Pydantic with strict mode (extra="forbid") to reject
     unexpected fields from LLM output.
     """
+
     model_config = ConfigDict(extra="forbid")
-    
+
     tasks: list[PlanTask] = Field(
         description="List of tasks in execution order (dependencies considered)"
     )

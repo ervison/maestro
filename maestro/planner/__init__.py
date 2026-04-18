@@ -11,7 +11,7 @@ from .validator import validate_dag
 
 __all__ = [
     "AgentState",
-    "PlanTask", 
+    "PlanTask",
     "AgentPlan",
     "_merge_dicts",
     "validate_dag",
