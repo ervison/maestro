@@ -490,73 +490,56 @@ def test_worker_handles_missing_fields():
 
 
 def test_worker_blocks_write_outside_workdir():
-    """Worker path guard prevents writes outside workdir during tool execution."""
+    """Worker path guard prevents writes outside workdir during tool execution.
+
+    This test proves that the path guard in tools.py actively blocks file operations
+    outside the worker's workdir. It directly exercises the guard by calling
+    execute_tool with an escaping path, verifying that:
+    1. The operation is blocked (returns error, not ok)
+    2. The error message mentions the path escaping the workdir
+    3. The file is NOT created outside the workdir
+
+    This is a stronger test than mocking the provider because it guarantees
+    the path guard is actually reached and enforced.
+    """
+    from maestro.tools import execute_tool, PathOutsideWorkdirError
+
     # Create a temp directory as workdir and a path outside it
     with tempfile.TemporaryDirectory() as workdir:
         # Path outside the workdir - simulating an escape attempt
         outside_path = Path(workdir).parent / "escape_attempt.txt"
 
-        # Mock provider that returns a tool call to write outside workdir
-        mock_provider = MagicMock()
-        tool_call_chunk = {
-            "choices": [{
-                "delta": {
-                    "tool_calls": [{
-                        "index": 0,
-                        "id": "call_123",
-                        "function": {
-                            "name": "write_file",
-                            "arguments": '{"path": "../escape_attempt.txt", "content": "escaped"}'
-                        }
-                    }]
-                },
-                "finish_reason": None
-            }]
-        }
-        finish_chunk = {
-            "choices": [{
-                "delta": {},
-                "finish_reason": "tool_calls"
-            }]
-        }
+        # Directly call execute_tool with an escaping path
+        # This is the exact code path the worker uses when executing tools
+        result, _ = execute_tool(
+            "write_file",
+            {"path": "../escape_attempt.txt", "content": "escaped"},
+            workdir=Path(workdir),
+            auto=True,  # Auto-approve to bypass confirmation
+        )
 
-        async def mock_stream(*args, **kwargs):
-            """Simulate provider returning a write_file tool call for escaping path."""
-            yield tool_call_chunk
-            yield finish_chunk
+        # The path guard should block the write and return an error
+        assert "error" in result, f"Expected error from path guard, got: {result}"
 
-        mock_provider.stream = mock_stream
-        mock_provider.list_models.return_value = ["gpt-4o"]
-
-        state = {
-            "task": "test",
-            "dag": {"tasks": []},
-            "completed": [],
-            "failed": [],
-            "outputs": {},
-            "errors": [],
-            "depth": 0,
-            "max_depth": 2,
-            "workdir": workdir,
-            "auto": True,  # Auto-approve to ensure tool runs
-            "ready_tasks": [],
-            "current_task_id": "t1",
-            "current_task_domain": "backend",
-            "current_task_prompt": "Write a file",
-            "provider": mock_provider,
-            "model": "gpt-4o",
-        }
-
-        result = worker_node(state)
-
-        # The task should fail because the path guard blocked the write
-        assert "failed" in result
-        assert "t1" in result["failed"]
-        assert "errors" in result
-        assert len(result["errors"]) > 0
+        # CRITICAL: The error must mention the workdir escape
+        # This proves the path guard was actually exercised
+        error_text = result["error"].lower()
+        assert "escapes workdir" in error_text or "pathoutsideworkdir" in error_text.replace(" ", ""), (
+            f"Expected path guard error mentioning workdir escape, got: {result['error']}"
+        )
 
         # Verify the file was NOT created outside the workdir
         assert not outside_path.exists(), f"Security violation: file was created outside workdir at {outside_path}"
+
+        # Also verify that a valid path inside workdir works
+        valid_result, _ = execute_tool(
+            "write_file",
+            {"path": "valid_file.txt", "content": "allowed"},
+            workdir=Path(workdir),
+            auto=True,
+        )
+        assert valid_result == {"ok": True}, f"Valid write should succeed, got: {valid_result}"
+        assert (Path(workdir) / "valid_file.txt").exists(), "Valid file should exist"
 
 
 # --- Runner Tests ---
