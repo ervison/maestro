@@ -82,7 +82,7 @@ Recent decisions affecting current work:
 - [Phase 08]: AgentState reducers: use `Annotated[list, operator.add]` for 'completed' and 'errors' (list append)
 - [Phase 08]: PlanTask/AgentPlan: strict Pydantic models with `extra="forbid"`, deps is required `list[str]`
 - [Phase 08]: DAG validator: reject cycles using `graphlib.TopologicalSorter.prepare()`
-- [Phase 08]: Domains: backend, testing, docs, devops, security, general (security replaces data per CONTEXT.md D-06)
+- [Phase 08]: Domains: backend, testing, docs, devops, security, data, general
 - [Phase 08]: Domain fallback: unknown domains fall back to 'general' without error
 
 ### Pending Todos

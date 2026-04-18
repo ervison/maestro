@@ -56,9 +56,9 @@ Phase 8 behavior is validated in isolation, but the current worktree is **not** 
 - **DOM-01 — PASS**
   - `maestro/domains.py` defines the domain prompt mapping and fallback helper.
 
-- **DOM-02 — PASS with note**
-  - Implementation matches `08-CONTEXT.md` and plan artifacts: `backend`, `testing`, `docs`, `devops`, `general`, `security`.
-  - `REQUIREMENTS.md` still says `data` instead of `security`; this is a documentation drift, not an implementation defect for Phase 8.
+- **DOM-02 — PASS**
+  - Implementation matches `08-CONTEXT.md`, requirements, and plan artifacts: `backend`, `testing`, `docs`, `devops`, `general`, `data`, `security`.
+  - Validation notes refreshed to reflect the current Phase 8 domain contract.
 
 - **DOM-03 — PASS**
   - Unknown domain values fall back to `general` without raising.

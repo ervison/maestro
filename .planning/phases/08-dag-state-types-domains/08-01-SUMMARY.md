@@ -98,7 +98,7 @@ None - all functionality fully implemented.
 
 - Used `Annotated[list, operator.add]` for list fields to allow safe parallel appends
 - Used `_merge_dicts` custom reducer for outputs dict to enable parallel writes without overwrites
-- Set `deps` as required field with `default_factory=list` for explicit empty dependency lists
+- Set `deps` as a required field that must be explicitly provided, using an empty list for tasks with no dependencies
 - Chose `extra="forbid"` over `extra="ignore"` to catch malformed LLM output early
 
 ## Artifacts

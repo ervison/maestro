@@ -55,7 +55,7 @@ class PlanTask(BaseModel):
 
     id: str = Field(description="Unique task identifier, e.g. t1")
     domain: DomainName = Field(
-        description="One of: backend, testing, docs, devops, general, security"
+        description="One of: backend, testing, docs, devops, general, security, data"
     )
     prompt: str = Field(description="Specific instruction for this worker")
     deps: list[str] = Field(..., description="IDs of tasks that must complete first")

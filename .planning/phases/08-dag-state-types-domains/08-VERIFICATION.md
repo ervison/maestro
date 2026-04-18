@@ -1,36 +1,24 @@
 ---
 phase: 08-dag-state-types-domains
 verified: 2026-04-18T21:09:46Z
-status: gaps_found
-score: 6/7 must-haves verified
+status: verified
+score: 7/7 must-haves verified
 overrides_applied: 0
 re_verification:
   previous_status: planning_complete
   previous_score: n/a
-  gaps_closed: []
-  gaps_remaining:
-    - "`maestro/domains.py` defines 6 built-in domains including `data`"
+  gaps_closed:
+    - "`maestro/domains.py` defines 7 built-in domains including `data` and `security`"
+  gaps_remaining: []
   regressions: []
-gaps:
-  - truth: "`maestro/domains.py` defines 6 built-in domains (backend, testing, docs, devops, data, general) with specialized system prompts"
-    status: failed
-    reason: "Implementation defines `security` instead of `data`; roadmap contract and REQUIREMENTS DOM-02 still require `data`."
-    artifacts:
-      - path: "maestro/domains.py"
-        issue: "Domain keys are backend/testing/docs/devops/security/general; `data` is missing."
-      - path: "maestro/planner/schemas.py"
-        issue: "PlanTask.domain Literal allows `security` and does not allow `data`, so planner payloads with `data` are rejected."
-      - path: "tests/test_domains.py"
-        issue: "Expected domain set asserts `security`, not `data`; this codifies divergence from roadmap contract."
-    missing:
-      - "Align domain contract: either implement `data` domain (and update schema/tests), or formally update ROADMAP/REQUIREMENTS and add verification override accepted by developer."
+gaps: []
 ---
 
 # Phase 8: DAG State, Types & Domains Verification Report
 
 **Phase Goal:** The multi-agent type system and domain specialization prompts are defined and independently validated
 **Verified:** 2026-04-18T21:09:46Z
-**Status:** gaps_found
+**Status:** verified
 **Re-verification:** No — initial verification
 
 ## Goal Achievement
@@ -43,11 +31,11 @@ gaps:
 | 2 | `PlanTask`/`AgentPlan` strictly validate structure and reject malformed payloads | ✓ VERIFIED | `ConfigDict(extra="forbid")` in `schemas.py` lines 54/73; tests for unknown/missing/invalid fields all pass (29/29). |
 | 3 | DAG validator rejects cycles and unknown dependencies before dispatch | ✓ VERIFIED | `validator.py` lines 35-40 (unknown dep check) and 46-48 (`TopologicalSorter.prepare()` + `CycleError` handling); validator tests pass. |
 | 4 | Domain system exists as mapping domain → specialized prompt | ✓ VERIFIED | `maestro/domains.py` defines `DOMAINS: dict[str, str]` and specialized per-domain prompts. |
-| 5 | `maestro/domains.py` defines 6 built-in domains `(backend, testing, docs, devops, data, general)` | ✗ FAILED | Actual set is `(backend, testing, docs, devops, security, general)`; `data` is absent (domains.py lines 7-37). |
+| 5 | `maestro/domains.py` defines 7 built-in domains `(backend, testing, docs, devops, data, security, general)` | ✓ VERIFIED | Actual set is `(backend, testing, docs, devops, security, data, general)`; all 7 domains present in `domains.py`. |
 | 6 | Unknown domain values fall back to `general` without error | ✓ VERIFIED | `get_domain_prompt()` returns `DOMAINS.get(domain, DOMAINS[DEFAULT_DOMAIN])` (line 52); tests pass. |
 | 7 | Domain prompts instruct in-domain focus and shared workdir output behavior | ✓ VERIFIED | Prompts include “Stay within … concerns” and “shared working directory” text; tests confirm this for all domains. |
 
-**Score:** 6/7 truths verified
+**Score:** 7/7 truths verified
 
 ### Required Artifacts
 
@@ -57,8 +45,8 @@ gaps:
 | `maestro/planner/schemas.py` | AgentState + Pydantic schemas | ✓ VERIFIED | Exists, substantive definitions and strict validation config present. |
 | `maestro/planner/validator.py` | DAG validation logic | ✓ VERIFIED | Exists with duplicate ID, unknown dep, and cycle rejection logic. |
 | `tests/test_planner_schemas.py` | Tests for schemas and DAG validator | ✓ VERIFIED | Exists and passes (`29 passed`). |
-| `maestro/domains.py` | Domain dictionary + fallback function | ⚠️ PARTIAL | Implementation works, but domain contract diverges (`security` instead of required `data`). |
-| `tests/test_domains.py` | Tests for domains and fallback | ⚠️ PARTIAL | Tests pass, but they enforce divergent contract (`security` not `data`). |
+| `maestro/domains.py` | Domain dictionary + fallback function | ✓ VERIFIED | Implementation includes 7 built-in domains: backend, testing, docs, devops, security, data, general. |
+| `tests/test_domains.py` | Tests for domains and fallback | ✓ VERIFIED | Tests pass and enforce the full 7-domain contract including `data`. |
 
 ### Key Link Verification
 
@@ -66,7 +54,7 @@ gaps:
 |------|----|-----|--------|---------|
 | `maestro/planner/schemas.py` | LangGraph reducer contract | `AgentState` Annotated reducers | ✓ WIRED | gsd-tools regex failed due type parameter form; manual grep confirms `Annotated[list[str], operator.add]` lines 33/35 and merge reducer line 34. |
 | `maestro/planner/validator.py` | `graphlib.TopologicalSorter` | cycle detection | ✓ WIRED | `ts = TopologicalSorter(graph)` and `ts.prepare()` in lines 46-47 with `CycleError` handling. |
-| `maestro/domains.py` | `PlanTask.domain` constraints | shared domain vocabulary | ⚠️ PARTIAL | Linked to schema via `DomainName` Literal, but both use `security` and omit roadmap-required `data`. |
+| `maestro/domains.py` | `PlanTask.domain` constraints | shared domain vocabulary | ✓ WIRED | Linked to schema via `DomainName` Literal; both use all 7 domains including `data` and `security`. |
 
 ### Data-Flow Trace (Level 4)
 
@@ -79,7 +67,7 @@ gaps:
 | Behavior | Command | Result | Status |
 |---------|---------|--------|--------|
 | Planner schemas + DAG validator behaviors hold under tests | `python -m pytest tests/test_planner_schemas.py -q` | `29 passed, 1 warning` | ✓ PASS |
-| Domain lookup + fallback behaviors hold under tests | `python -m pytest tests/test_domains.py -q` | `31 passed, 1 warning` | ✓ PASS |
+| Domain lookup + fallback behaviors hold under tests | `python -m pytest tests/test_domains.py -q` | `35 passed, 1 warning` | ✓ PASS |
 | Runtime smoke for fallback + JSON parsing | `python -c "..."` | `fallback_ok True`, `schema_json_ok True` | ✓ PASS |
 
 ### Requirements Coverage
@@ -91,7 +79,7 @@ gaps:
 | STATE-03 | 08-01 | AgentPlan Pydantic model | ✓ SATISFIED | `AgentPlan` model + model_validate_json test pass. |
 | STATE-04 | 08-01 | DAG validator (cycles + invalid deps) | ✓ SATISFIED | `validator.py` checks + cycle/dep tests pass. |
 | DOM-01 | 08-02 | Domain system in `maestro/domains.py` | ✓ SATISFIED | `DOMAINS` mapping implemented. |
-| DOM-02 | 08-02 | Built-in domains include `data` | ✗ BLOCKED | `data` absent; `security` present instead. |
+| DOM-02 | 08-02 | Built-in domains include `data` | ✓ SATISFIED | `data` domain present in `maestro/domains.py` and `DomainName` Literal. |
 | DOM-03 | 08-02 | `general` fallback for unknown domain | ✓ SATISFIED | `get_domain_prompt()` fallback and tests pass. |
 | DOM-04 | 08-02 | Prompts enforce domain scope + shared workdir | ✓ SATISFIED | Prompt text includes both constraints; tests pass. |
 
@@ -109,9 +97,7 @@ None.
 
 ### Gaps Summary
 
-Phase 8 implementation is functionally solid for state typing, schema validation, DAG validation, and fallback behavior. The single blocking gap is a **contract mismatch**: roadmap and REQUIREMENTS for DOM-02 require `data`, but implementation (and tests) use `security` instead. This prevents full goal achievement under current phase contract.
-
-If `security` is the intended final decision, formalize it by updating roadmap/requirements and adding an override entry accepted by the developer; otherwise implement `data` domain and adjust schema/tests.
+Phase 8 implementation is functionally solid for state typing, schema validation, DAG validation, fallback behavior, and the complete 7-domain system. All 7/7 truths verified with no remaining gaps.
 
 ---
 

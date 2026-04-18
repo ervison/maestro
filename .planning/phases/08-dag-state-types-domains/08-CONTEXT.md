@@ -8,7 +8,7 @@ Decisions:
 - PlanTask/AgentPlan schemas: strict Pydantic models. 'deps' is required and must be list[str]. Unknown fields are forbidden.
 - Dep parsing: planner must emit list[str]; no coercion allowed.
 - DAG validator: reject cycles using graphlib.TopologicalSorter.prepare() and raise CycleError for planner to fix.
-- Domains to include: backend, testing, docs, devops, general, security
+- Domains to include: backend, testing, docs, devops, general, security, data
 - Worker path guard: strict containment — workers must not write outside EXECUTION_ROOT; attempts are blocked and reported.
 
 Artifacts to generate:

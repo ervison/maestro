@@ -139,7 +139,7 @@ Plans:
   1. `AgentState` TypedDict uses `Annotated[list, operator.add]` reducers for `completed` and `errors`, and a dict merge reducer for `outputs` — safe for parallel writes with no silent data loss
   2. `PlanTask` and `AgentPlan` Pydantic models validate structure: `id`, `domain`, `prompt`, `deps` fields accept valid JSON and reject missing/invalid fields
   3. DAG validator rejects cycles (via `graphlib.TopologicalSorter`) and invalid dependency references before any dispatch
-  4. `maestro/domains.py` defines 6 built-in domains (backend, testing, docs, devops, data, general) with specialized system prompts
+  4. `maestro/domains.py` defines 7 built-in domains (backend, testing, docs, devops, data, security, general) with specialized system prompts
   5. Unrecognized domain values fall back to the `general` domain without error
 **Plans**: 2 plans
 

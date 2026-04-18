@@ -4,6 +4,7 @@ Uses graphlib.TopologicalSorter to detect cycles and validate
 that all dependency references are valid task IDs.
 """
 
+from collections import Counter
 from graphlib import TopologicalSorter, CycleError
 
 from .schemas import AgentPlan
@@ -21,9 +22,9 @@ def validate_dag(plan: AgentPlan) -> None:
     Returns:
         None if DAG is valid
     """
-    # Check for duplicate task IDs first
-    ids = [task.id for task in plan.tasks]
-    duplicates = sorted({task_id for task_id in ids if ids.count(task_id) > 1})
+    # Check for duplicate task IDs first (O(n) via Counter)
+    counts = Counter(task.id for task in plan.tasks)
+    duplicates = sorted(task_id for task_id, n in counts.items() if n > 1)
     if duplicates:
         raise ValueError(f"Duplicate task IDs are not allowed: {duplicates}")
 
@@ -41,7 +42,7 @@ def validate_dag(plan: AgentPlan) -> None:
         graph[task.id] = task.deps
 
     # Check for cycles
-    if graph:  # Only check if there are tasks with dependencies
+    if graph:  # Only check if the plan contains tasks
         try:
             ts = TopologicalSorter(graph)
             ts.prepare()
