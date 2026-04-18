@@ -3,6 +3,8 @@ maestro/__init__.py
 maestro/agent.py
 maestro/auth.py
 maestro/cli.py
+maestro/config.py
+maestro/models.py
 maestro/tools.py
 maestro.egg-info/PKG-INFO
 maestro.egg-info/SOURCES.txt
@@ -13,8 +15,12 @@ maestro.egg-info/top_level.txt
 maestro/providers/__init__.py
 maestro/providers/base.py
 maestro/providers/chatgpt.py
+maestro/providers/registry.py
 tests/test_agent_loop.py
 tests/test_auth_store.py
 tests/test_chatgpt_provider.py
+tests/test_config.py
+tests/test_model_resolution.py
 tests/test_provider_protocol.py
+tests/test_provider_registry.py
 tests/test_tools.py

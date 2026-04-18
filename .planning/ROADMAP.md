@@ -81,10 +81,10 @@ Plans:
   3. `resolve_model()` follows the priority chain: `--model` flag → `MAESTRO_MODEL` env → `config.agent.<name>.model` → `config.model` → first model of first authenticated provider
   4. Model string `"provider_id/model_id"` format is validated; invalid format raises `ValueError` with guidance message
   5. Absent `~/.maestro/config.json` falls back gracefully to ChatGPT as default provider
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 04-01: TBD
+- [ ] 04-01-PLAN.md — Provider registry discovery and config-driven model resolution
 
 ### Phase 5: Agent Loop Refactor
 **Goal**: The agentic loop delegates all HTTP communication to the provider abstraction with zero regressions
