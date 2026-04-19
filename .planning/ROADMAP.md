@@ -206,10 +206,10 @@ Plans:
   3. `--auto` and `--workdir` flags pass through from CLI to all workers
   4. Lifecycle events (planner done, worker started, worker done) print to stdout during `--multi` execution
   5. Aggregator runs after all workers complete and produces a final summary (optional, configurable)
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 11-01: TBD
+- [ ] 11-01-PLAN.md — CLI --multi flag, aggregator node, lifecycle events, and comprehensive tests
 
 ## Progress
 
