@@ -154,15 +154,6 @@ def scheduler_node(state: AgentState) -> dict:
     return result
 
 
-def planner_node_with_lifecycle(state: AgentState) -> dict:
-    """Wrapper around planner_node that adds lifecycle event."""
-    from maestro.planner.node import planner_node
-
-    result = planner_node(state)
-    _print_lifecycle("planner", "done")
-    return result
-
-
 def scheduler_route(state: AgentState) -> str:
     """Route from scheduler to dispatch or aggregator.
 
@@ -428,19 +419,24 @@ def aggregator_node(state: AgentState) -> dict:
                 chunks = [chunk.content]
         return "".join(chunks)
 
+    # Separate loop detection from aggregation execution to properly handle
+    # provider-side RuntimeError without confusing it with "no running loop" case
     try:
-        # Handle both sync and async contexts (running loop vs no loop)
         loop = asyncio.get_running_loop()
-        if loop.is_running():
+    except RuntimeError:
+        loop = None
+
+    try:
+        if loop and loop.is_running():
             # Called from an already running event loop (e.g., async test)
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                summary = pool.submit(asyncio.run, _aggregate()).result()
-        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                summary = pool.submit(lambda: asyncio.run(_aggregate())).result()
+        elif loop is not None:
             # Loop exists but isn't running
             summary = loop.run_until_complete(_aggregate())
-    except RuntimeError:
-        # No running loop - safe to use asyncio.run()
-        summary = asyncio.run(_aggregate())
+        else:
+            # No running loop - safe to use asyncio.run()
+            summary = asyncio.run(_aggregate())
     except Exception as e:
         logger.exception("Aggregator failed: %s", e)
         summary = f"Failed to generate summary: {e}"
