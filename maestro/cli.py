@@ -8,6 +8,7 @@ import warnings
 
 from maestro import auth
 from maestro.agent import run
+from maestro.multi_agent import run_multi_agent
 from maestro.providers.chatgpt import DEFAULT_MODEL
 from maestro.providers.registry import get_provider
 
@@ -115,6 +116,16 @@ def main():
         default=None,
         metavar="PATH",
         help="Working directory for file tools (default: current directory)",
+    )
+    run_p.add_argument(
+        "--multi",
+        action="store_true",
+        help="Run in multi-agent mode (DAG pipeline)",
+    )
+    run_p.add_argument(
+        "--no-aggregate",
+        action="store_true",
+        help="Skip final aggregation summary in --multi mode",
     )
 
     # models
@@ -353,41 +364,63 @@ def main():
                 provider = get_provider("chatgpt")
                 model_id = DEFAULT_MODEL
 
-            # Phase 5 will wire alternate providers; allow runtime providers that
-            # implement stream() to be executed. If the provider is missing
-            # stream() or raises at runtime, surface the error from run().
-            # This relaxes the legacy guard that prevented non-chatgpt providers
-            # from being runnable.
-            if provider.id != "chatgpt":
-                # If the provider advertises itself but lacks a working stream
-                # implementation, run() and the provider will raise a clear error.
-                pass
-
-            streamed: list[bool] = []
-            spinner = _Spinner()
-            spinner.start()
-
-            def _stream_print(chunk: str) -> None:
-                spinner.stop()
-                print(chunk, end="", flush=True)
-                streamed.append(True)
-
-            def _on_tool_start() -> None:
-                spinner.stop()
-
-            result = run(
-                model_id, args.prompt, args.system, workdir=wd, auto=args.auto,
-                provider=provider,
-                stream_callback=_stream_print,
-                on_tool_start=_on_tool_start,
-            )
-            spinner.stop()  # ensure stopped if no text/tools were seen
-            if not streamed:
-                # No streaming chunks received — print the full result at once
-                print(result)
+            if args.multi:
+                # Multi-agent DAG mode
+                aggregate = not args.no_aggregate
+                
+                result = run_multi_agent(
+                    task=args.prompt,
+                    workdir=wd,
+                    auto=args.auto,
+                    depth=0,  # CLI starts at depth 0
+                    max_depth=2,  # Default max_depth
+                    provider=provider,
+                    model=model_id,
+                    aggregate=aggregate,
+                )
+                
+                # Check if any workers completed
+                outputs = {k: v for k, v in result.items() if k != "summary"}
+                if not outputs:
+                    print("Error: No workers completed successfully.")
+                    sys.exit(1)
+                
+                # Print summary if available
+                if "summary" in result:
+                    print("\n--- Final Summary ---")
+                    print(result["summary"])
+                else:
+                    # Aggregation was skipped, print outputs
+                    print("\n--- Worker Outputs ---")
+                    for task_id, output in outputs.items():
+                        print(f"\n[{task_id}]:\n{output}")
             else:
-                # Streaming already printed the content; just end with a newline
-                print()
+                # Single-agent mode (original behavior)
+                streamed: list[bool] = []
+                spinner = _Spinner()
+                spinner.start()
+
+                def _stream_print(chunk: str) -> None:
+                    spinner.stop()
+                    print(chunk, end="", flush=True)
+                    streamed.append(True)
+
+                def _on_tool_start() -> None:
+                    spinner.stop()
+
+                result = run(
+                    model_id, args.prompt, args.system, workdir=wd, auto=args.auto,
+                    provider=provider,
+                    stream_callback=_stream_print,
+                    on_tool_start=_on_tool_start,
+                )
+                spinner.stop()  # ensure stopped if no text/tools were seen
+                if not streamed:
+                    # No streaming chunks received — print the full result at once
+                    print(result)
+                else:
+                    # Streaming already printed the content; just end with a newline
+                    print()
         except (RuntimeError, ValueError) as e:
             msg = str(e)
             if "not supported" in msg:
