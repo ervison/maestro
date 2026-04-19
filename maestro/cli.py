@@ -403,10 +403,13 @@ def main():
                     aggregate=aggregate,
                 )
 
-                # Check if any workers completed
-                outputs = {k: v for k, v in result.items() if k != "summary"}
+                # Extract outputs and failure metadata from structured result
+                outputs = result.get("outputs", {})
+                failed = result.get("failed", [])
+                errors = result.get("errors", [])
+
                 if not outputs:
-                    print("Error: No workers completed successfully.")
+                    print("Error: No workers completed successfully.", file=sys.stderr)
                     sys.exit(1)
 
                 # Print summary if available
@@ -418,6 +421,15 @@ def main():
                     print("\n--- Worker Outputs ---")
                     for task_id, output in outputs.items():
                         print(f"\n[{task_id}]:\n{output}")
+
+                # Always surface worker failures and errors
+                if errors:
+                    print("\n--- Worker Errors ---", file=sys.stderr)
+                    for err in errors:
+                        print(err, file=sys.stderr)
+
+                if failed:
+                    sys.exit(1)
             else:
                 # Single-agent mode (original behavior)
                 streamed: list[bool] = []

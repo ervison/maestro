@@ -475,7 +475,7 @@ def run_multi_agent(
     provider=None,
     model: str | None = None,
     aggregate: bool | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Run multi-agent DAG execution on a task.
 
     This is a thin synchronous wrapper around the compiled LangGraph.
@@ -492,8 +492,11 @@ def run_multi_agent(
         aggregate: Whether to run aggregator (default: check config, fallback True)
 
     Returns:
-        Dict mapping task_id -> output_text for completed tasks, or
-        includes "summary" key if aggregator ran
+        Dict with keys:
+        - "outputs": dict mapping task_id -> output_text for completed tasks
+        - "failed": list of task IDs that failed
+        - "errors": list of error messages
+        - "summary": optional aggregated summary (if aggregator ran)
 
     Raises:
         TypeError: If depth is not provided (it's required)
@@ -567,8 +570,12 @@ def run_multi_agent(
     # Run the graph
     final_state = cast(dict[str, Any], graph.invoke(cast(Any, initial_state)))
 
-    # Return outputs dict (with summary if aggregator ran)
-    result = dict(final_state.get("outputs", {}))
+    # Return structured result with outputs, failures, errors, and optional summary
+    result: dict[str, Any] = {
+        "outputs": dict(final_state.get("outputs", {})),
+        "failed": list(final_state.get("failed", [])),
+        "errors": list(final_state.get("errors", [])),
+    }
     if "summary" in final_state:
         result["summary"] = final_state["summary"]
 
