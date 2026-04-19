@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Phase 8 complete
-last_updated: "2026-04-19T13:52:53.317Z"
+stopped_at: Phase 11 complete
+last_updated: "2026-04-19T15:30:00.000Z"
 last_activity: 2026-04-19
 progress:
   total_phases: 11
-  completed_phases: 9
+  completed_phases: 11
   total_plans: 14
-  completed_plans: 13
-  percent: 93
+  completed_plans: 14
+  percent: 100
 ---
 
 # Maestro — Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-17)
 
 ## Current Position
 
-Phase: 10 of 11 (complete)
-Plan: 10-01-PLAN.md — **EXECUTED**
-Status: Phase 10 complete — scheduler & workers implemented
+Phase: 11 of 11 (COMPLETE)
+Plan: 11-01-PLAN.md — **EXECUTED**
+Status: Phase 11 complete — aggregator & multi-agent CLI implemented
 Last activity: 2026-04-19
 
-Progress: [█████████░] 93%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -253,3 +253,25 @@ Resume files:
 
 - `.planning/phases/10-scheduler-workers/10-01-SUMMARY.md`
 - `.planning/phases/10-scheduler-workers/10-01-PLAN.md`
+
+**Phase 11: Aggregator & Multi-Agent CLI**
+
+- ✅ Added `aggregator_node` function to generate LLM-based summary from worker outputs
+- ✅ Added lifecycle event printing (`[planner] done`, `[worker:X] started/done`, `[aggregator] done`)
+- ✅ Modified graph structure to route through aggregator before END
+- ✅ Added `--multi` flag to `maestro run` to activate DAG pipeline
+- ✅ Added `--no-aggregate` flag to skip final summary generation
+- ✅ Implemented CLI branching: single-agent path unchanged, multi-agent path calls `run_multi_agent()`
+- ✅ Added config fallback for `aggregator.enabled` setting
+- ✅ Created comprehensive test suites: 15 new tests (4 aggregator + 10 CLI + 1 updated)
+- ✅ All 341 tests passing (15 new + 326 existing, 7 pre-existing failures unrelated)
+- ✅ Zero regressions on single-agent mode
+
+**Commits:**
+
+- `9fcb2dc`: feat(11-01): add aggregator node, lifecycle events, and --multi CLI flag
+
+**Artifacts:**
+
+- `.planning/phases/11-aggregator-multi-agent-cli/11-01-SUMMARY.md`
+- `.planning/phases/11-aggregator-multi-agent-cli/11-01-PLAN.md`

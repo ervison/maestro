@@ -22,7 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8: DAG State, Types & Domains** - Multi-agent type system and domain prompt definitions ✅ COMPLETE (2026-04-18)
 - [x] **Phase 9: Planner** - LLM-driven DAG generation with structured output validation ✅ COMPLETE (2026-04-18)
 - [x] **Phase 10: Scheduler & Workers** - Parallel execution engine with dependency dispatch and recursion guards ✅ COMPLETE (2026-04-19)
-- [ ] **Phase 11: Aggregator & Multi-Agent CLI** - Final summary pass and `--multi` flag integration
+- [x] **Phase 11: Aggregator & Multi-Agent CLI** - Final summary pass and `--multi` flag integration ✅ COMPLETE (2026-04-19)
 
 ## Phase Details
 
@@ -196,20 +196,25 @@ Plans:
 Plans:
 - [x] 10-01-PLAN.md — Scheduler & Workers implementation with parallel DAG execution
 
-### Phase 11: Aggregator & Multi-Agent CLI
+### Phase 11: Aggregator & Multi-Agent CLI ✅ COMPLETE
 **Goal**: Users activate multi-agent mode via CLI and optionally receive a final aggregated summary
 **Depends on**: Phase 10
 **Requirements**: AGG-01, AGG-02, CLI-01, CLI-02, CLI-03, CLI-04
 **Success Criteria** (what must be TRUE):
-  1. `maestro run --multi "task"` activates the full DAG pipeline (planner → scheduler → workers → aggregator)
-  2. Without `--multi`, `maestro run` behaves identically to current single-agent behavior (zero regressions)
-  3. `--auto` and `--workdir` flags pass through from CLI to all workers
-  4. Lifecycle events (planner done, worker started, worker done) print to stdout during `--multi` execution
-  5. Aggregator runs after all workers complete and produces a final summary (optional, configurable)
-**Plans**: 1 plan
+  1. ✅ `maestro run --multi "task"` activates the full DAG pipeline (planner → scheduler → workers → aggregator)
+  2. ✅ Without `--multi`, `maestro run` behaves identically to current single-agent behavior (zero regressions)
+  3. ✅ `--auto` and `--workdir` flags pass through from CLI to all workers
+  4. ✅ Lifecycle events (planner done, worker started, worker done) print to stdout during `--multi` execution
+  5. ✅ Aggregator runs after all workers complete and produces a final summary (optional, configurable)
+**Plans**: 1 plan (COMPLETE)
+**Artifacts**:
+  - `.planning/phases/11-aggregator-multi-agent-cli/11-01-SUMMARY.md`
+  - `maestro/multi_agent.py` - aggregator_node + lifecycle events
+  - `maestro/cli.py` - --multi and --no-aggregate flags
+  - 15 new tests, 341 total passing
 
 Plans:
-- [ ] 11-01-PLAN.md — CLI --multi flag, aggregator node, lifecycle events, and comprehensive tests
+- [x] 11-01-PLAN.md — CLI --multi flag, aggregator node, lifecycle events, and comprehensive tests
 
 ## Progress
 
@@ -221,11 +226,11 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 1. Provider Plugin Protocol | 0/? | Not started | - |
 | 2. Multi-Slot Auth Store | 0/? | Not started | - |
 | 3. ChatGPT Provider Migration | 1/1 | Complete   | 2026-04-17 |
-| 4. Config & Provider Registry | 0/? | Not started | - |
+| 4. Config & Provider Registry | 1/1 | Complete | 2026-04-18 |
 | 5. Agent Loop Refactor | 1/1 | Complete | 2026-04-18 |
-| 6. Auth & Model CLI Commands | 0/? | Not started | - |
+| 6. Auth & Model CLI Commands | 1/1 | Complete | 2026-04-18 |
 | 7. GitHub Copilot Provider | 0/? | Not started | - |
-| 8. DAG State, Types & Domains | 0/? | Not started | - |
-| 9. Planner | 0/? | Not started | - |
-| 10. Scheduler & Workers | 0/? | Not started | - |
-| 11. Aggregator & Multi-Agent CLI | 0/? | Not started | - |
+| 8. DAG State, Types & Domains | 2/2 | Complete | 2026-04-18 |
+| 9. Planner | 1/1 | Complete | 2026-04-18 |
+| 10. Scheduler & Workers | 1/1 | Complete | 2026-04-19 |
+| 11. Aggregator & Multi-Agent CLI | 1/1 | Complete | 2026-04-19 |
