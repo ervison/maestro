@@ -11,6 +11,7 @@ Provides LangGraph StateGraph for parallel DAG execution:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 from pathlib import Path
 from typing import Any, cast
@@ -196,7 +197,9 @@ def scheduler_route(state: AgentState) -> str:
 
     # Safety: if we're here with no ready tasks but unfinished work,
     # there may be a problem - but scheduler_node would have added errors
-    # Still route to aggregator to produce a summary of what happened
+    # Check if aggregation is disabled before routing to aggregator
+    if not state.get("aggregate", True):
+        return END
     return "aggregator"
 
 
@@ -412,28 +415,39 @@ def aggregator_node(state: AgentState) -> dict:
     cfg = load_config()
     aggregator_model = cfg.get("agent.aggregator.model", model)
 
+    # Use asyncio to run the async provider stream
+    async def _aggregate():
+        from maestro.providers.base import Message
+
+        messages = [Message(role="user", content=user_message)]
+        chunks: list[str] = []
+        async for chunk in provider.stream(messages, model=aggregator_model):
+            if isinstance(chunk, str):
+                chunks.append(chunk)
+            elif isinstance(chunk, Message) and chunk.content:
+                chunks = [chunk.content]
+        return "".join(chunks)
+
     try:
-        # Use asyncio to run the async provider stream
-        async def _aggregate():
-            from maestro.providers.base import Message
-
-            messages = [Message(role="user", content=user_message)]
-            chunks: list[str] = []
-            async for chunk in provider.stream(messages, model=aggregator_model):
-                if isinstance(chunk, str):
-                    chunks.append(chunk)
-                elif isinstance(chunk, Message) and chunk.content:
-                    chunks = [chunk.content]
-            return "".join(chunks)
-
+        # Handle both sync and async contexts (running loop vs no loop)
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # Called from an already running event loop (e.g., async test)
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                summary = pool.submit(asyncio.run, _aggregate()).result()
+        else:
+            # Loop exists but isn't running
+            summary = loop.run_until_complete(_aggregate())
+    except RuntimeError:
+        # No running loop - safe to use asyncio.run()
         summary = asyncio.run(_aggregate())
-
-        if not summary.strip():
-            summary = "Aggregation completed but produced no output."
-
     except Exception as e:
         logger.exception("Aggregator failed: %s", e)
         summary = f"Failed to generate summary: {e}"
+    else:
+        # No exception - check if summary is empty
+        if not summary.strip():
+            summary = "Aggregation completed but produced no output."
 
     _print_lifecycle("aggregator", "done")
     return {"summary": summary}
