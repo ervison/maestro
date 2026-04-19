@@ -8,6 +8,7 @@ import warnings
 
 from maestro import auth
 from maestro.agent import run
+from maestro.multi_agent import run_multi_agent
 from maestro.providers.chatgpt import DEFAULT_MODEL
 from maestro.providers.registry import get_provider
 
@@ -73,9 +74,7 @@ def main():
 
     # auth logout
     auth_logout_p = auth_sub.add_parser("logout", help="Log out of a provider")
-    auth_logout_p.add_argument(
-        "provider", help="Provider to log out of"
-    )
+    auth_logout_p.add_argument("provider", help="Provider to log out of")
 
     # auth status
     auth_sub.add_parser("status", help="Show authentication status for all providers")
@@ -97,7 +96,8 @@ def main():
         "--model",
         default=None,
         help=(
-            "Model to use (format: provider_id/model_id). Run 'maestro models' for list. "
+            "Model to use (format: provider_id/model_id). "
+            "Run 'maestro models' for list. "
             "When omitted, resolution uses --model > environment/config > "
             f"chatgpt/{DEFAULT_MODEL}."
         ),
@@ -116,6 +116,16 @@ def main():
         metavar="PATH",
         help="Working directory for file tools (default: current directory)",
     )
+    run_p.add_argument(
+        "--multi",
+        action="store_true",
+        help="Run in multi-agent mode (DAG pipeline)",
+    )
+    run_p.add_argument(
+        "--no-aggregate",
+        action="store_true",
+        help="Skip final aggregation summary in --multi mode",
+    )
 
     # models
     models_p = sub.add_parser("models", help="List available models")
@@ -123,7 +133,9 @@ def main():
         "--check", action="store_true", help="Probe which models work for your account"
     )
     models_p.add_argument(
-        "--refresh", action="store_true", help="Force refresh models from models.dev catalog"
+        "--refresh",
+        action="store_true",
+        help="Force refresh models from models.dev catalog",
     )
     # Allow filtering models by provider (e.g. --provider github-copilot)
     models_p.add_argument(
@@ -162,7 +174,10 @@ def main():
 
             if args.provider not in known:
                 print(f"Unknown provider: '{args.provider}'")
-                print(f"Available providers: {', '.join(sorted(known)) or '(none installed)'}")
+                print(
+                    "Available providers: "
+                    f"{', '.join(sorted(known)) or '(none installed)'}"
+                )
                 sys.exit(1)
 
             if auth.remove(args.provider):
@@ -210,11 +225,17 @@ def main():
 
     elif args.command == "logout":
         print(
-            "'maestro logout' is deprecated. Use 'maestro auth logout chatgpt' instead.",
+            (
+                "'maestro logout' is deprecated. "
+                "Use 'maestro auth logout chatgpt' instead."
+            ),
             file=sys.stderr,
         )
         warnings.warn(
-            "'maestro logout' is deprecated. Use 'maestro auth logout chatgpt' instead.",
+            (
+                "'maestro logout' is deprecated. "
+                "Use 'maestro auth logout chatgpt' instead."
+            ),
             DeprecationWarning,
             stacklevel=2,
         )
@@ -260,7 +281,10 @@ def main():
             # use the ChatGPT/Responses API probe. (If provider-specific
             # probing is later added, this printed label should reflect that.)
             provider_label = getattr(args, "provider", None) or "chatgpt"
-            print(f"Probing models for provider: {provider_label} (this may take a moment)...")
+            print(
+                "Probing models for provider: "
+                f"{provider_label} (this may take a moment)..."
+            )
 
             ts = auth.load()
             if not ts:
@@ -288,10 +312,17 @@ def main():
                 discovered = list_providers()
                 if args.provider in discovered:
                     print(f"Provider '{args.provider}' has no available models.")
-                    print(f"(Provider may require authentication: maestro auth login {args.provider})")
+                    print(
+                        "(Provider may require authentication: "
+                        f"maestro auth login {args.provider})"
+                    )
                 else:
                     print(f"Unknown provider: '{args.provider}'")
-                    available = ", ".join(sorted(discovered)) if discovered else "(none installed)"
+                    available = (
+                        ", ".join(sorted(discovered))
+                        if discovered
+                        else "(none installed)"
+                    )
                     print(f"Available providers: {available}")
                 sys.exit(1)
             models_by_provider = {args.provider: provider_models}
@@ -317,13 +348,11 @@ def main():
             sys.exit(1)
         print(f"Email:      {ts.email or '(unknown)'}")
         print(f"Account ID: {ts.account_id}")
-        import time
-
         remaining = ts.expires - time.time()
         if remaining > 0:
             print(f"Token:      valid ({int(remaining)}s remaining)")
         else:
-            print(f"Token:      expired (will refresh on next use)")
+            print("Token:      expired (will refresh on next use)")
 
     elif args.command == "run":
         import os
@@ -335,7 +364,8 @@ def main():
         wd = Path(args.workdir).resolve() if args.workdir else Path.cwd()
 
         try:
-            # Resolve model using Phase 4 resolution chain (flag > env > config > default)
+            # Resolve model using Phase 4 resolution chain
+            # (flag > env > config > default)
             provider, model_id = resolve_model(model_flag=args.model)
 
             if args.model is not None:
@@ -346,48 +376,92 @@ def main():
                 cfg = load_config()
                 selected_explicitly = cfg.model is not None
 
-            # Phase 5 will wire alternate providers; for now, pin to ChatGPT unless explicitly requested
+            # Phase 5 will wire alternate providers; for now,
+            # pin to ChatGPT unless explicitly requested.
             if provider.id != "chatgpt" and not selected_explicitly:
-                # Default resolution picked a non-ChatGPT provider, but user didn't explicitly request it
-                # Fall back to ChatGPT to maintain backward compatibility until Phase 5
+                # Default resolution picked a non-ChatGPT provider,
+                # but user didn't explicitly request it.
+                # Fall back to ChatGPT to maintain backward compatibility
+                # until Phase 5.
                 provider = get_provider("chatgpt")
                 model_id = DEFAULT_MODEL
 
-            # Phase 5 will wire alternate providers; allow runtime providers that
-            # implement stream() to be executed. If the provider is missing
-            # stream() or raises at runtime, surface the error from run().
-            # This relaxes the legacy guard that prevented non-chatgpt providers
-            # from being runnable.
-            if provider.id != "chatgpt":
-                # If the provider advertises itself but lacks a working stream
-                # implementation, run() and the provider will raise a clear error.
-                pass
+            if args.multi:
+                # Multi-agent DAG mode
+                # Only pass False when --no-aggregate is present; otherwise pass None
+                # so runtime config can decide (config.aggregator.enabled)
+                aggregate = False if args.no_aggregate else None
 
-            streamed: list[bool] = []
-            spinner = _Spinner()
-            spinner.start()
+                result = run_multi_agent(
+                    task=args.prompt,
+                    workdir=wd,
+                    auto=args.auto,
+                    depth=0,  # CLI starts at depth 0
+                    max_depth=2,  # Default max_depth
+                    provider=provider,
+                    model=model_id,
+                    aggregate=aggregate,
+                )
 
-            def _stream_print(chunk: str) -> None:
-                spinner.stop()
-                print(chunk, end="", flush=True)
-                streamed.append(True)
+                # Extract outputs and failure metadata from structured result
+                outputs = result.get("outputs", {})
+                failed = result.get("failed", [])
+                errors = result.get("errors", [])
 
-            def _on_tool_start() -> None:
-                spinner.stop()
+                # Always surface worker errors first (even when all workers fail)
+                if errors:
+                    print("\n--- Worker Errors ---", file=sys.stderr)
+                    for err in errors:
+                        print(err, file=sys.stderr)
 
-            result = run(
-                model_id, args.prompt, args.system, workdir=wd, auto=args.auto,
-                provider=provider,
-                stream_callback=_stream_print,
-                on_tool_start=_on_tool_start,
-            )
-            spinner.stop()  # ensure stopped if no text/tools were seen
-            if not streamed:
-                # No streaming chunks received — print the full result at once
-                print(result)
+                if not outputs:
+                    print("Error: No workers completed successfully.", file=sys.stderr)
+                    sys.exit(1)
+
+                # Print summary if available
+                if "summary" in result:
+                    print("\n--- Final Summary ---")
+                    print(result["summary"])
+                else:
+                    # Aggregation was skipped, print outputs
+                    print("\n--- Worker Outputs ---")
+                    for task_id, output in outputs.items():
+                        print(f"\n[{task_id}]:\n{output}")
+
+                # Surface worker failures after outputs
+                if failed:
+                    sys.exit(1)
             else:
-                # Streaming already printed the content; just end with a newline
-                print()
+                # Single-agent mode (original behavior)
+                streamed: list[bool] = []
+                spinner = _Spinner()
+                spinner.start()
+
+                def _stream_print(chunk: str) -> None:
+                    spinner.stop()
+                    print(chunk, end="", flush=True)
+                    streamed.append(True)
+
+                def _on_tool_start() -> None:
+                    spinner.stop()
+
+                result = run(
+                    model_id,
+                    args.prompt,
+                    args.system,
+                    workdir=wd,
+                    auto=args.auto,
+                    provider=provider,
+                    stream_callback=_stream_print,
+                    on_tool_start=_on_tool_start,
+                )
+                spinner.stop()  # ensure stopped if no text/tools were seen
+                if not streamed:
+                    # No streaming chunks received — print the full result at once
+                    print(result)
+                else:
+                    # Streaming already printed the content; just end with a newline
+                    print()
         except (RuntimeError, ValueError) as e:
             msg = str(e)
             if "not supported" in msg:

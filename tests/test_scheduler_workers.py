@@ -228,8 +228,8 @@ def test_scheduler_route_returns_dispatch_when_ready():
     assert result == "dispatch"
 
 
-def test_scheduler_route_returns_end_when_all_done():
-    """scheduler_route returns END when all tasks are terminal."""
+def test_scheduler_route_returns_aggregator_when_all_done():
+    """scheduler_route returns 'aggregator' when all tasks are terminal."""
     plan = AgentPlan(tasks=[
         PlanTask(id="t1", domain="backend", prompt="Task 1", deps=[]),
     ])
@@ -249,11 +249,11 @@ def test_scheduler_route_returns_end_when_all_done():
 
     result = scheduler_route(state)
 
-    assert result == END
+    assert result == "aggregator"
 
 
-def test_scheduler_route_returns_end_when_no_ready_and_unfinished_blocked():
-    """scheduler_route returns END when no ready tasks and unfinished are blocked."""
+def test_scheduler_route_returns_aggregator_when_no_ready_and_unfinished_blocked():
+    """scheduler_route returns 'aggregator' when no ready tasks and unfinished are blocked."""
     plan = AgentPlan(tasks=[
         PlanTask(id="t1", domain="backend", prompt="Task 1", deps=[]),
         PlanTask(id="t2", domain="testing", prompt="Task 2", deps=["t1"]),
@@ -274,7 +274,7 @@ def test_scheduler_route_returns_end_when_no_ready_and_unfinished_blocked():
 
     result = scheduler_route(state)
 
-    assert result == END
+    assert result == "aggregator"
 
 
 # --- Dispatch Node and Route Tests ---
@@ -869,4 +869,4 @@ def test_run_multi_agent_threads_provider_model_to_planner_and_workers():
     assert worker_calls[0]["model"] == "custom-model-v2"
 
     # Verify task completed
-    assert result.get("t1") == "Completed"
+    assert result["outputs"].get("t1") == "Completed"

@@ -48,6 +48,8 @@ class AgentState(TypedDict):
     # Provider/model configuration (NotRequired - resolved at runtime)
     provider: NotRequired[ProviderPlugin]  # ProviderPlugin instance
     model: NotRequired[str]  # Model identifier
+    aggregate: NotRequired[bool]  # Whether to run aggregator (default: True)
+    summary: NotRequired[str]  # Final aggregated summary (written by aggregator_node)
 
 
 DomainName = Literal[
