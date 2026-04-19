@@ -26,10 +26,12 @@ class Config:
     Attributes:
         model: Default model to use (format: "provider_id/model_id")
         agent: Agent-specific configuration keyed by agent name
+        aggregator: Aggregator-specific configuration (e.g., enabled flag)
     """
 
     model: str | None = None
     agent: dict[str, dict[str, Any]] = field(default_factory=dict)
+    aggregator: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a config value using dot notation.
@@ -128,9 +130,16 @@ def load() -> Config:
             f"Invalid config file at {CONFIG_FILE}; expected 'agent' to be an object"
         )
 
+    aggregator = data.get("aggregator", {})
+    if not isinstance(aggregator, dict):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator' to be an object"
+        )
+
     return Config(
         model=model,
         agent=agent,
+        aggregator=aggregator,
     )
 
 
