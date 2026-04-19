@@ -1,5 +1,6 @@
 """Tests for scheduler, dispatch, worker, and graph execution."""
 
+import json
 import pytest
 import tempfile
 from pathlib import Path
@@ -490,56 +491,86 @@ def test_worker_handles_missing_fields():
 
 
 def test_worker_blocks_write_outside_workdir():
-    """Worker path guard prevents writes outside workdir during tool execution.
+    """Worker execution path blocks tool writes that escape worker workdir."""
+    from maestro.providers.base import Message, ToolCall
 
-    This test proves that the path guard in tools.py actively blocks file operations
-    outside the worker's workdir. It directly exercises the guard by calling
-    execute_tool with an escaping path, verifying that:
-    1. The operation is blocked (returns error, not ok)
-    2. The error message mentions the path escaping the workdir
-    3. The file is NOT created outside the workdir
+    observed_tool_results: list[dict] = []
 
-    This is a stronger test than mocking the provider because it guarantees
-    the path guard is actually reached and enforced.
-    """
-    from maestro.tools import execute_tool, PathOutsideWorkdirError
+    class EscapeAttemptProvider:
+        @property
+        def id(self) -> str:
+            return "escape-attempt"
 
-    # Create a temp directory as workdir and a path outside it
+        @property
+        def name(self) -> str:
+            return "Escape Attempt Provider"
+
+        def list_models(self) -> list[str]:
+            return ["fake-model"]
+
+        async def stream(self, messages, model, tools=None):
+            tool_messages = [msg for msg in messages if msg.role == "tool"]
+            if not tool_messages:
+                yield Message(
+                    role="assistant",
+                    content="",
+                    tool_calls=[
+                        ToolCall(
+                            id="call-1",
+                            name="write_file",
+                            arguments={
+                                "path": "../escape_attempt.txt",
+                                "content": "escaped",
+                            },
+                        )
+                    ],
+                )
+                return
+
+            observed_tool_results.append(json.loads(tool_messages[-1].content))
+            yield Message(role="assistant", content="write blocked", tool_calls=[])
+
+        def auth_required(self) -> bool:
+            return False
+
+        def login(self) -> None:
+            return None
+
+        def is_authenticated(self) -> bool:
+            return True
+
     with tempfile.TemporaryDirectory() as workdir:
-        # Path outside the workdir - simulating an escape attempt
         outside_path = Path(workdir).parent / "escape_attempt.txt"
 
-        # Directly call execute_tool with an escaping path
-        # This is the exact code path the worker uses when executing tools
-        result, _ = execute_tool(
-            "write_file",
-            {"path": "../escape_attempt.txt", "content": "escaped"},
-            workdir=Path(workdir),
-            auto=True,  # Auto-approve to bypass confirmation
+        state = {
+            "task": "test",
+            "dag": {"tasks": []},
+            "completed": [],
+            "failed": [],
+            "outputs": {},
+            "errors": [],
+            "depth": 0,
+            "max_depth": 2,
+            "workdir": workdir,
+            "auto": True,
+            "ready_tasks": [],
+            "current_task_id": "t1",
+            "current_task_domain": "backend",
+            "current_task_prompt": "Try writing outside the worker workdir.",
+            "provider": EscapeAttemptProvider(),
+            "model": "fake-model",
+        }
+
+        result = worker_node(state)
+
+        assert result["completed"] == ["t1"]
+        assert result["outputs"] == {"t1": "write blocked"}
+        assert observed_tool_results, "Expected provider to receive tool result from worker execution"
+        assert "error" in observed_tool_results[0]
+        assert "escapes workdir" in observed_tool_results[0]["error"].lower()
+        assert not outside_path.exists(), (
+            f"Security violation: file was created outside workdir at {outside_path}"
         )
-
-        # The path guard should block the write and return an error
-        assert "error" in result, f"Expected error from path guard, got: {result}"
-
-        # CRITICAL: The error must mention the workdir escape
-        # This proves the path guard was actually exercised
-        error_text = result["error"].lower()
-        assert "escapes workdir" in error_text or "pathoutsideworkdir" in error_text.replace(" ", ""), (
-            f"Expected path guard error mentioning workdir escape, got: {result['error']}"
-        )
-
-        # Verify the file was NOT created outside the workdir
-        assert not outside_path.exists(), f"Security violation: file was created outside workdir at {outside_path}"
-
-        # Also verify that a valid path inside workdir works
-        valid_result, _ = execute_tool(
-            "write_file",
-            {"path": "valid_file.txt", "content": "allowed"},
-            workdir=Path(workdir),
-            auto=True,
-        )
-        assert valid_result == {"ok": True}, f"Valid write should succeed, got: {valid_result}"
-        assert (Path(workdir) / "valid_file.txt").exists(), "Valid file should exist"
 
 
 # --- Runner Tests ---
