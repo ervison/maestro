@@ -267,8 +267,8 @@ class TestMultiAgentCLI:
             assert args[0] == "gpt-4o"  # model
             assert args[1] == "test prompt"  # prompt
 
-    def test_multi_exits_with_error_if_no_workers_complete(self, tmp_path):
-        """Multi-agent mode exits with error if no workers complete."""
+    def test_multi_exits_with_error_if_no_workers_complete(self, tmp_path, capsys):
+        """Multi-agent mode exits with error if no workers complete, and prints worker errors."""
         from maestro.cli import main
 
         with (
@@ -281,7 +281,7 @@ class TestMultiAgentCLI:
             mock_provider.id = "chatgpt"
             mock_get_provider.return_value = mock_provider
             mock_resolve.return_value = (mock_provider, "gpt-4o")
-            # Return empty outputs (no workers completed)
+            # Return empty outputs (no workers completed) with errors
             mock_multi.return_value = {
                 "outputs": {},
                 "failed": ["t1", "t2"],
@@ -297,6 +297,13 @@ class TestMultiAgentCLI:
                     main()
 
                 assert exc_info.value.code == 1
+
+            captured = capsys.readouterr()
+            # Verify worker errors are printed to stderr even when all fail
+            assert "Worker Errors" in captured.err
+            assert "t1: failed" in captured.err
+            assert "t2: failed" in captured.err
+            assert "No workers completed successfully" in captured.err
 
     def test_multi_shows_worker_outputs(self, tmp_path, capsys):
         """Multi-agent mode prints worker outputs when aggregation skipped."""

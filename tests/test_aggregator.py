@@ -1,8 +1,10 @@
 """Tests for aggregator node."""
 
 import asyncio
+from pathlib import Path
 from unittest.mock import MagicMock, patch
-from maestro.multi_agent import aggregator_node
+
+from maestro.multi_agent import aggregator_node, run_multi_agent
 from maestro.planner.schemas import AgentPlan, PlanTask
 
 
@@ -203,3 +205,142 @@ class TestAggregatorNode:
         assert "summary" in result
         assert "Failed to generate summary" in result["summary"]
         assert "provider boom" in result["summary"]
+
+    def test_run_multi_agent_executes_full_pipeline_and_emits_lifecycle_events(
+        self, tmp_path, capsys
+    ):
+        """run_multi_agent executes planner, workers, and aggregator end-to-end."""
+
+        planner_calls = []
+        worker_calls = []
+        aggregator_messages = []
+
+        class StubProvider:
+            id = "chatgpt"
+
+            async def stream(self, messages, *, model):
+                aggregator_messages.append({"messages": messages, "model": model})
+                from maestro.providers.base import Message
+
+                yield Message(role="assistant", content="Final integrated summary")
+
+        def mock_planner_node(state):
+            planner_calls.append(state)
+            return {
+                "dag": {
+                    "tasks": [
+                        {"id": "t1", "domain": "backend", "prompt": "Build API", "deps": []},
+                        {
+                            "id": "t2",
+                            "domain": "testing",
+                            "prompt": "Test API",
+                            "deps": ["t1"],
+                        },
+                    ]
+                }
+            }
+
+        def mock_run_loop(messages, model, instructions, provider, workdir, auto):
+            worker_calls.append(
+                {
+                    "prompt": messages[0].content,
+                    "model": model,
+                    "provider": provider,
+                    "workdir": workdir,
+                    "auto": auto,
+                }
+            )
+            return f"completed {messages[0].content}"
+
+        provider = StubProvider()
+
+        with (
+            patch("maestro.planner.node.planner_node", side_effect=mock_planner_node),
+            patch("maestro.multi_agent._run_agentic_loop", side_effect=mock_run_loop),
+        ):
+            result = run_multi_agent(
+                task="Ship the feature",
+                workdir=tmp_path,
+                auto=True,
+                depth=0,
+                provider=provider,
+                model="gpt-4o-mini",
+            )
+
+        assert len(planner_calls) == 1
+        assert result["outputs"] == {
+            "t1": "completed Build API",
+            "t2": "completed Test API",
+        }
+        assert result["summary"] == "Final integrated summary"
+
+        assert [call["prompt"] for call in worker_calls] == ["Build API", "Test API"]
+        assert all(call["workdir"] == Path(tmp_path).resolve() for call in worker_calls)
+        assert all(call["auto"] is True for call in worker_calls)
+        assert all(call["provider"] is provider for call in worker_calls)
+
+        assert len(aggregator_messages) == 1
+        aggregator_prompt = aggregator_messages[0]["messages"][0].content
+        assert "completed Build API" in aggregator_prompt
+        assert "completed Test API" in aggregator_prompt
+
+        captured = capsys.readouterr()
+        lines = [line.strip() for line in captured.out.splitlines() if line.strip()]
+        assert "[planner] done" in lines
+        assert "[worker:t1] started" in lines
+        assert "[worker:t1] done" in lines
+        assert "[worker:t2] started" in lines
+        assert "[worker:t2] done" in lines
+        assert "[aggregator] done" in lines
+        assert lines.index("[aggregator] done") > lines.index("[worker:t2] done")
+
+    def test_run_multi_agent_can_disable_aggregation_via_config(self, tmp_path):
+        """run_multi_agent skips aggregator when config disables it."""
+
+        class ConfigStub:
+            def get(self, key, default=None):
+                if key == "aggregator.enabled":
+                    return False
+                return default
+
+        class StubProvider:
+            id = "chatgpt"
+
+            def __init__(self):
+                self.stream_called = False
+
+            async def stream(self, messages, *, model):
+                self.stream_called = True
+                from maestro.providers.base import Message
+
+                yield Message(role="assistant", content="unused")
+
+        provider = StubProvider()
+
+        with (
+            patch(
+                "maestro.planner.node.planner_node",
+                return_value={
+                    "dag": {
+                        "tasks": [
+                            {"id": "t1", "domain": "backend", "prompt": "Build API", "deps": []}
+                        ]
+                    }
+                },
+            ),
+            patch("maestro.multi_agent._run_agentic_loop", return_value="completed Build API"),
+            patch("maestro.multi_agent.load_config", return_value=ConfigStub()),
+        ):
+            result = run_multi_agent(
+                task="Ship the feature",
+                workdir=tmp_path,
+                auto=False,
+                depth=0,
+                provider=provider,
+                model="gpt-4o-mini",
+                aggregate=None,
+            )
+
+        assert result["outputs"] == {"t1": "completed Build API"}
+        assert "summary" not in result
+        assert provider.stream_called is False

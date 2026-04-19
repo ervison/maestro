@@ -408,6 +408,12 @@ def main():
                 failed = result.get("failed", [])
                 errors = result.get("errors", [])
 
+                # Always surface worker errors first (even when all workers fail)
+                if errors:
+                    print("\n--- Worker Errors ---", file=sys.stderr)
+                    for err in errors:
+                        print(err, file=sys.stderr)
+
                 if not outputs:
                     print("Error: No workers completed successfully.", file=sys.stderr)
                     sys.exit(1)
@@ -422,12 +428,7 @@ def main():
                     for task_id, output in outputs.items():
                         print(f"\n[{task_id}]:\n{output}")
 
-                # Always surface worker failures and errors
-                if errors:
-                    print("\n--- Worker Errors ---", file=sys.stderr)
-                    for err in errors:
-                        print(err, file=sys.stderr)
-
+                # Surface worker failures after outputs
                 if failed:
                     sys.exit(1)
             else:
