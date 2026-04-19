@@ -154,7 +154,7 @@ def planner_node(state: AgentState) -> dict:
     if runtime_provider is not None:
         # Use caller-supplied provider override
         provider = runtime_provider
-        # Use caller-supplied model if provided, else fall through to config/default
+        # Use caller-supplied model if provided, else resolve to first available model for this provider
         model_id = runtime_model
     else:
         # Resolve model: config.agent.planner.model -> default provider model

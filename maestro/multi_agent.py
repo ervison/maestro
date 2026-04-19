@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, cast
-from graphlib import TopologicalSorter, CycleError
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
@@ -43,7 +42,8 @@ def scheduler_node(state: AgentState) -> dict:
     """Compute ready tasks from DAG dependencies.
 
     Uses direct dependency checking to find tasks whose dependencies
-    are all satisfied (completed or failed) on every invocation.
+    are all completed (subset of completed set) on every invocation.
+    A task is blocked, not ready, if any dependency failed.
     Returns ready batch and termination metadata.
 
     Args:
@@ -69,24 +69,7 @@ def scheduler_node(state: AgentState) -> dict:
     deps_map = {t.id: set(t.deps) for t in plan.tasks}
     all_task_ids = set(deps_map.keys())
 
-    # Validate: all deps must exist in the plan
-    for task_id, deps in deps_map.items():
-        for dep in deps:
-            if dep not in all_task_ids:
-                error_msg = f"Task '{task_id}' has unknown dependency '{dep}'. Valid tasks: {sorted(all_task_ids)}"
-                logger.error(error_msg)
-                return {"ready_tasks": [], "errors": [error_msg]}
-
-    # Validate for cycles using TopologicalSorter
-    try:
-        ts = TopologicalSorter(deps_map)
-        ts.prepare()
-    except CycleError as e:
-        error_msg = f"DAG contains cycle: {e.args[1]}"
-        logger.error(error_msg)
-        return {"ready_tasks": [], "errors": [error_msg]}
-
-    # Find ready tasks: not terminal AND all deps are completed (not failed)
+    # Find ready tasks: not terminal AND all deps are completed
     # A task is blocked (not ready) if any of its dependencies failed
     ready_ids = set()
     for tid, deps in deps_map.items():
@@ -170,8 +153,8 @@ def scheduler_route(state: AgentState) -> str:
     all_task_ids = {t.id for t in plan.tasks}
     unfinished = all_task_ids - terminal
 
-    # End if all tasks are terminal or no unfinished tasks remain
-    if not unfinished or unfinished.issubset(failed):
+    # End if all tasks are terminal
+    if not unfinished:
         return END
 
     # Safety: if we're here with no ready tasks but unfinished work,
@@ -304,9 +287,7 @@ def worker_node(state: AgentState) -> dict:
         if provider is None:
             provider = get_default_provider()
 
-        # Execute using _run_agentic_loop
-        # Note: We pass an empty list for messages since the task prompt is in system
-        # Actually, we should pass the task as a HumanMessage
+        # Execute using _run_agentic_loop with task as HumanMessage
         messages: list[BaseMessage] = [HumanMessage(content=prompt)]
         result = _run_agentic_loop(
             messages=messages,

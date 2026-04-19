@@ -5,10 +5,11 @@ Defines the type foundation for the multi-agent DAG engine:
 - PlanTask/AgentPlan: Pydantic models for planner output validation
 """
 
-from typing import TypedDict, Annotated, Literal, NotRequired, Any
+from typing import TypedDict, Annotated, Literal, NotRequired
 import operator
 
 from pydantic import BaseModel, Field, ConfigDict
+from maestro.providers.base import ProviderPlugin
 
 
 def _merge_dicts(a: dict, b: dict) -> dict:
@@ -45,7 +46,7 @@ class AgentState(TypedDict):
     current_task_domain: NotRequired[str]  # Domain of task being executed
     current_task_prompt: NotRequired[str]  # Prompt for task being executed
     # Provider/model configuration (NotRequired - resolved at runtime)
-    provider: NotRequired[Any]  # ProviderPlugin instance
+    provider: NotRequired[ProviderPlugin]  # ProviderPlugin instance
     model: NotRequired[str]  # Model identifier
 
 
