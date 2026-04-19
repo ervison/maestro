@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 def _print_lifecycle(component: str, event: str) -> None:
     """Print lifecycle event to stdout.
-    
+
     Format: [{component}] {event}
     """
     print(f"[{component}] {event}")
@@ -96,11 +96,13 @@ def scheduler_node(state: AgentState) -> dict:
     for tid in ready_ids:
         task = task_map.get(tid)
         if task:
-            ready_tasks.append({
-                "id": task.id,
-                "domain": task.domain,
-                "prompt": task.prompt,
-            })
+            ready_tasks.append(
+                {
+                    "id": task.id,
+                    "domain": task.domain,
+                    "prompt": task.prompt,
+                }
+            )
 
     # Detect end states
     unfinished = all_task_ids - terminal
@@ -124,18 +126,29 @@ def scheduler_node(state: AgentState) -> dict:
     if not ready_tasks and unfinished:
         if blocked_tasks:
             # All remaining tasks are blocked by failures - report and end
-            error_msg = f"Scheduler ending: {len(blocked_tasks)} task(s) blocked by failed dependencies: {blocked_tasks}"
+            error_msg = (
+                "Scheduler ending: "
+                f"{len(blocked_tasks)} task(s) blocked by failed dependencies: "
+                f"{blocked_tasks}"
+            )
             logger.warning(error_msg)
             errors.append(error_msg)
-        # If there are unfinished tasks that aren't blocked, that's an unexpected state
-        # but we'll let the graph continue and eventually time out or be handled elsewhere
+        # If there are unfinished tasks that aren't blocked,
+        # that's an unexpected state
+        # but we'll let the graph continue and eventually time out,
+        # or be handled elsewhere.
 
     result: dict[str, Any] = {"ready_tasks": list(ready_tasks)}
     if errors:
         result["errors"] = errors
 
-    logger.debug("Scheduler: %d ready, %d completed, %d failed, %d unfinished",
-                 len(ready_tasks), len(completed), len(failed), len(unfinished))
+    logger.debug(
+        "Scheduler: %d ready, %d completed, %d failed, %d unfinished",
+        len(ready_tasks),
+        len(completed),
+        len(failed),
+        len(unfinished),
+    )
 
     return result
 
@@ -143,6 +156,7 @@ def scheduler_node(state: AgentState) -> dict:
 def planner_node_with_lifecycle(state: AgentState) -> dict:
     """Wrapper around planner_node that adds lifecycle event."""
     from maestro.planner.node import planner_node
+
     result = planner_node(state)
     _print_lifecycle("planner", "done")
     return result
@@ -274,17 +288,14 @@ def worker_node(state: AgentState) -> dict:
         logger.error(error_msg)
         return {
             "failed": [task_id or "unknown"],
-            "errors": [f"{task_id or 'unknown'}: {error_msg}"]
+            "errors": [f"{task_id or 'unknown'}: {error_msg}"],
         }
 
     # Depth guard
     if depth > max_depth:
         error_msg = f"Depth {depth} exceeds max_depth {max_depth}"
         logger.warning("Task %s: %s", task_id, error_msg)
-        return {
-            "failed": [task_id],
-            "errors": [f"{task_id}: {error_msg}"]
-        }
+        return {"failed": [task_id], "errors": [f"{task_id}: {error_msg}"]}
 
     # Resolve workdir
     try:
@@ -294,10 +305,7 @@ def worker_node(state: AgentState) -> dict:
     except (OSError, ValueError) as e:
         error_msg = f"Invalid workdir '{workdir_str}': {e}"
         logger.error("Task %s: %s", task_id, error_msg)
-        return {
-            "failed": [task_id],
-            "errors": [f"{task_id}: {error_msg}"]
-        }
+        return {"failed": [task_id], "errors": [f"{task_id}: {error_msg}"]}
 
     # Compose system prompt
     domain_prompt = get_domain_prompt(domain)
@@ -321,47 +329,46 @@ def worker_node(state: AgentState) -> dict:
 
         logger.debug("Task %s completed successfully", task_id)
         _print_lifecycle(f"worker:{task_id}", "done")
-        return {
-            "completed": [task_id],
-            "outputs": {task_id: result}
-        }
+        return {"completed": [task_id], "outputs": {task_id: result}}
 
     except Exception as e:
         error_msg = str(e)
         logger.exception("Task %s failed: %s", task_id, error_msg)
         _print_lifecycle(f"worker:{task_id}", "failed")
-        return {
-            "failed": [task_id],
-            "errors": [f"{task_id}: {error_msg}"]
-        }
+        return {"failed": [task_id], "errors": [f"{task_id}: {error_msg}"]}
 
 
 # Aggregator system prompt
-AGGREGATOR_SYSTEM_PROMPT = """You are a synthesis specialist. Your task is to combine outputs from multiple specialist agents into a coherent final report.
+AGGREGATOR_SYSTEM_PROMPT = """
+You are a synthesis specialist. Your task is to combine outputs from multiple
+specialist agents into a coherent final report.
 
 The user requested: {task}
 
-You will receive outputs from various domain specialists (backend, testing, docs, devops, etc.).
+You will receive outputs from various domain specialists (backend, testing,
+docs, devops, etc.).
 Your job is to:
 1. Understand what each specialist accomplished
 2. Identify how their work fits together
 3. Present a clear, organized summary of the complete solution
 4. Highlight any issues or gaps that need attention
 
-If some tasks failed, acknowledge what succeeded and what needs to be addressed.
+If some tasks failed, acknowledge what succeeded and what needs to be
+addressed.
 
-Be concise but thorough."""
+Be concise but thorough.
+"""
 
 
 def aggregator_node(state: AgentState) -> dict:
     """Produce final summary from all worker outputs.
-    
+
     Calls the LLM to generate a coherent summary of all worker outputs.
     Runs as the final node after all workers complete.
-    
+
     Args:
         state: AgentState with outputs dict containing all worker results
-        
+
     Returns:
         Dict with "summary" key containing the aggregated summary
     """
@@ -369,59 +376,61 @@ def aggregator_node(state: AgentState) -> dict:
     outputs = state.get("outputs", {})
     failed = state.get("failed", [])
     errors = state.get("errors", [])
-    
+
     # Handle empty outputs gracefully
     if not outputs and not failed:
         _print_lifecycle("aggregator", "done")
         return {"summary": "No worker outputs to summarize."}
-    
+
     # Build the prompt for the aggregator
     outputs_text = "\n\n".join(
-        f"=== {task_id} ===\n{output}"
-        for task_id, output in outputs.items()
+        f"=== {task_id} ===\n{output}" for task_id, output in outputs.items()
     )
-    
+
     if failed:
         failed_text = "\n".join(f"- {tid}" for tid in failed)
         outputs_text += f"\n\n=== Failed Tasks ===\n{failed_text}"
-    
+
     if errors:
         errors_text = "\n".join(f"- {err}" for err in errors)
         outputs_text += f"\n\n=== Errors ===\n{errors_text}"
-    
+
     user_message = f"Original task: {task}\n\nWorker outputs:\n\n{outputs_text}"
-    
+
     # Resolve provider and model
     provider = state.get("provider")
     if provider is None:
         provider = get_default_provider()
-    
+
     model = state.get("model", "gpt-4o")
-    
+
     # Check config for aggregator model override
     cfg = load_config()
     aggregator_model = cfg.get("agent.aggregator.model", model)
-    
+
     try:
         # Use asyncio to run the async provider stream
         async def _aggregate():
             from maestro.providers.base import Message
+
             messages = [Message(role="user", content=user_message)]
-            chunks = []
+            chunks: list[str] = []
             async for chunk in provider.stream(messages, model=aggregator_model):
-                if chunk.content:
-                    chunks.append(chunk.content)
+                if isinstance(chunk, str):
+                    chunks.append(chunk)
+                elif isinstance(chunk, Message) and chunk.content:
+                    chunks = [chunk.content]
             return "".join(chunks)
-        
+
         summary = asyncio.run(_aggregate())
-        
+
         if not summary.strip():
             summary = "Aggregation completed but produced no output."
-            
+
     except Exception as e:
         logger.exception("Aggregator failed: %s", e)
         summary = f"Failed to generate summary: {e}"
-    
+
     _print_lifecycle("aggregator", "done")
     return {"summary": summary}
 
