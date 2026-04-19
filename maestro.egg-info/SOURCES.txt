@@ -6,6 +6,7 @@ maestro/cli.py
 maestro/config.py
 maestro/domains.py
 maestro/models.py
+maestro/multi_agent.py
 maestro/tools.py
 maestro.egg-info/PKG-INFO
 maestro.egg-info/SOURCES.txt
@@ -37,4 +38,5 @@ tests/test_planner_node.py
 tests/test_planner_schemas.py
 tests/test_provider_protocol.py
 tests/test_provider_registry.py
+tests/test_scheduler_workers.py
 tests/test_tools.py

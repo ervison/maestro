@@ -4,6 +4,7 @@ This package provides:
 - AgentState: TypedDict with LangGraph-compatible reducers for parallel writes
 - PlanTask/AgentPlan: Pydantic models for planner output validation
 - validate_dag: DAG validator using graphlib.TopologicalSorter
+- planner_node: LangGraph node for LLM-driven DAG generation
 """
 
 from .schemas import AgentState, PlanTask, AgentPlan, _merge_dicts
