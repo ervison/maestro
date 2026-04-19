@@ -457,7 +457,7 @@ _builder.add_node("worker", worker_node)
 _builder.add_node("aggregator", aggregator_node)
 
 _builder.add_edge(START, "scheduler")
-_builder.add_conditional_edges("scheduler", scheduler_route, ["dispatch", "aggregator"])
+_builder.add_conditional_edges("scheduler", scheduler_route, ["dispatch", "aggregator", END])
 _builder.add_conditional_edges("dispatch", dispatch_route, ["worker"])
 _builder.add_edge("worker", "scheduler")
 _builder.add_edge("aggregator", END)

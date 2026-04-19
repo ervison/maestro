@@ -323,5 +323,8 @@ def test_agentstate_has_required_fields():
         # Provider/model configuration for multi-agent execution
         "provider",
         "model",
+        # Aggregator configuration
+        "aggregate",
+        "summary",
     }
     assert set(hints.keys()) == required_fields

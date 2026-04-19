@@ -869,4 +869,4 @@ def test_run_multi_agent_threads_provider_model_to_planner_and_workers():
     assert worker_calls[0]["model"] == "custom-model-v2"
 
     # Verify task completed
-    assert result.get("t1") == "Completed"
+    assert result["outputs"].get("t1") == "Completed"
