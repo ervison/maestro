@@ -172,6 +172,7 @@ def scheduler_route(state: AgentState) -> str:
 
     Returns:
         "dispatch" if there are ready tasks, "aggregator" when all tasks complete
+        END if aggregation is disabled
     """
     ready_tasks = state.get("ready_tasks", [])
 
@@ -188,6 +189,9 @@ def scheduler_route(state: AgentState) -> str:
 
     # Route to aggregator if all tasks are terminal (completed or failed)
     if not unfinished:
+        # Check if aggregation is disabled
+        if not state.get("aggregate", True):
+            return END
         return "aggregator"
 
     # Safety: if we're here with no ready tasks but unfinished work,
@@ -547,14 +551,11 @@ def run_multi_agent(
         "ready_tasks": [],
         "provider": provider,
         "model": model,
+        "aggregate": aggregate,
     }
 
     # Run the graph
     final_state = cast(dict[str, Any], graph.invoke(cast(Any, initial_state)))
-
-    # If aggregation is disabled, remove the summary
-    if not aggregate and "summary" in final_state:
-        del final_state["summary"]
 
     # Return outputs dict (with summary if aggregator ran)
     result = dict(final_state.get("outputs", {}))
