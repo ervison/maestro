@@ -1,9 +1,9 @@
 ---
 phase: 04-provider-registry
-validated_at: 2026-04-17T00:00:00Z
+validated_at: 2026-04-20T00:00:00Z
 validator: gsd-validate-phase
 status: passed
-score: 98
+score: 100
 findings:
   blocking: 0
   non_blocking: 0
@@ -43,10 +43,18 @@ python -m pytest tests -q
 - Phase 4 targeted suite: `105 passed`
 - Full regression suite: `188 passed`
 
-## Findings
+## Validation Audit 2026-04-20
+| Metric | Count |
+|--------|-------|
+| Gaps found | 2 |
+| Resolved | 2 |
+| Escalated | 0 |
 
-- No blocking validation gaps found.
-- No additional coverage gaps found in the current Phase 4 worktree beyond the existing review baseline.
+**Gaps resolved:**
+- `test_models_filter_by_provider` (PARTIAL → COVERED): Removed duplicate early-exit `if args.provider:` block in `maestro/cli.py` that was calling `provider.list_models()` directly and exiting before `get_available_models()` + `format_model_list()` path.
+- `test_models_provider_not_authenticated` (PARTIAL → COVERED): Same fix — unauthenticated-provider guidance path now reachable.
+
+**Post-fix results:** 384 passed, 1 skipped (2 pre-existing flaky `test_auth_browser_oauth.py` network tests unrelated to Phase 4).
 
 ## Evidence
 
