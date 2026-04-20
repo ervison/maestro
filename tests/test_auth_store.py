@@ -13,6 +13,21 @@ from maestro import agent, auth, cli
 from maestro.auth import TokenSet, _save, all_providers, get, remove, set
 
 
+def _wait_for_port(host: str, port: int, timeout: float = 5) -> None:
+    deadline = time.monotonic() + timeout
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            httpx.get(f"http://{host}:{port}/__ready__", timeout=0.2)
+            return
+        except httpx.ConnectError as exc:
+            last_error = exc
+            time.sleep(0.05)
+    if last_error is not None:
+        raise last_error
+    raise AssertionError(f"port {host}:{port} did not become ready in time")
+
+
 @pytest.fixture
 def auth_file(tmp_path, monkeypatch):
     target = tmp_path / "auth.json"
@@ -497,7 +512,7 @@ def test_callback_server_survives_stray_request_before_real_callback(monkeypatch
     monkeypatch.setattr(auth, "_exchange_code", fake_exchange)
 
     def do_requests():
-        time.sleep(0.3)
+        _wait_for_port("127.0.0.1", 1455)
         # Stray request first (favicon, preflight, etc.)
         try:
             httpx.get("http://127.0.0.1:1455/favicon.ico", timeout=2)
@@ -537,7 +552,7 @@ def test_callback_server_rejects_wrong_path_with_404(monkeypatch):
     responses = {}
 
     def do_requests():
-        time.sleep(0.3)
+        _wait_for_port("127.0.0.1", 1455)
         try:
             r = httpx.get("http://127.0.0.1:1455/wrong-path", timeout=2)
             responses["wrong"] = r.status_code

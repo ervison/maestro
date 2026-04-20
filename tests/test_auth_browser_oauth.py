@@ -9,6 +9,21 @@ from maestro import auth
 from maestro.auth import TokenSet
 
 
+def _wait_for_port(host: str, port: int, timeout: float = 5) -> None:
+    deadline = time.monotonic() + timeout
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            httpx.get(f"http://{host}:{port}/__ready__", timeout=0.2)
+            return
+        except httpx.ConnectError as exc:
+            last_error = exc
+            time.sleep(0.05)
+    if last_error is not None:
+        raise last_error
+    raise AssertionError(f"port {host}:{port} did not become ready in time")
+
+
 def _capture_browser_url(monkeypatch):
     opened = {}
 
@@ -44,12 +59,11 @@ def _capture_browser_url(monkeypatch):
     return opened["url"]
 
 
-def test_authorize_url_uses_localhost_redirect(monkeypatch):
+def test_authorize_url_uses_configured_redirect_uri(monkeypatch):
     url = _capture_browser_url(monkeypatch)
     params = parse_qs(urlparse(url).query)
 
     assert params["redirect_uri"] == [auth.REDIRECT_URI]
-    assert "127.0.0.1" not in params["redirect_uri"][0]
 
 
 def test_authorize_url_includes_connector_scopes(monkeypatch):
@@ -98,22 +112,12 @@ def test_callback_exchanges_code_on_valid_state(monkeypatch):
     monkeypatch.setattr(auth, "_exchange_code", fake_exchange)
 
     def do_request():
-        deadline = time.monotonic() + 5
-        last_error = None
-        while time.monotonic() < deadline:
-            try:
-                httpx.get(
-                    "http://127.0.0.1:1455/auth/callback",
-                    params={"code": "auth-code", "state": "state123"},
-                    timeout=0.5,
-                )
-                return
-            except httpx.HTTPError as exc:
-                last_error = exc
-                time.sleep(0.05)
-        if last_error is not None:
-            raise last_error
-        raise AssertionError("callback server did not become ready in time")
+        _wait_for_port("127.0.0.1", 1455)
+        httpx.get(
+            "http://127.0.0.1:1455/auth/callback",
+            params={"code": "auth-code", "state": "state123"},
+            timeout=0.5,
+        )
 
     t = threading.Thread(target=do_request, daemon=True)
     t.start()
@@ -129,57 +133,36 @@ def test_callback_exchanges_code_on_valid_state(monkeypatch):
     assert result.email == "test@example.com"
 
 
-def test_callback_state_mismatch_allows_later_valid_callback(monkeypatch):
+def test_callback_state_mismatch_surfaces_oauth_error(monkeypatch):
     monkeypatch.setattr(auth, "_generate_pkce", lambda: ("verifier", "challenge"))
     monkeypatch.setattr(auth, "_generate_state", lambda: "state123")
     monkeypatch.setattr(auth.webbrowser, "open", lambda url: None)
 
-    captured = {}
+    exchange_called = False
 
-    def fake_exchange(code, verifier, redirect_uri):
-        captured["code"] = code
-        return TokenSet(
-            access="tok",
-            refresh="ref",
-            expires=9999999.0,
-            account_id="acc",
-            email="test@example.com",
-        )
+    def fake_exchange(*args, **kwargs):
+        nonlocal exchange_called
+        exchange_called = True
+        raise AssertionError("_exchange_code should not be called on state mismatch")
 
     monkeypatch.setattr(auth, "_exchange_code", fake_exchange)
 
     def do_requests():
-        deadline = time.monotonic() + 5
-        last_error = None
-        while time.monotonic() < deadline:
-            try:
-                httpx.get(
-                    "http://127.0.0.1:1455/auth/callback",
-                    params={"code": "wrong-code", "state": "wrong-state"},
-                    timeout=0.5,
-                )
-                break
-            except httpx.HTTPError as exc:
-                last_error = exc
-                time.sleep(0.05)
-        else:
-            if last_error is not None:
-                raise last_error
-            raise AssertionError("callback server did not become ready in time")
+        _wait_for_port("127.0.0.1", 1455)
         httpx.get(
             "http://127.0.0.1:1455/auth/callback",
-            params={"code": "auth-code", "state": "state123"},
-            timeout=2,
+            params={"code": "wrong-code", "state": "wrong-state"},
+            timeout=0.5,
         )
 
     t = threading.Thread(target=do_requests, daemon=True)
     t.start()
 
-    result = auth.login_browser()
+    with pytest.raises(RuntimeError, match="OAuth error: State mismatch"):
+        auth.login_browser()
     t.join(timeout=5)
 
-    assert captured["code"] == "auth-code"
-    assert result.email == "test@example.com"
+    assert exchange_called is False
 
 
 def test_callback_surfaces_provider_error(monkeypatch):
@@ -188,7 +171,7 @@ def test_callback_surfaces_provider_error(monkeypatch):
     monkeypatch.setattr(auth.webbrowser, "open", lambda url: None)
 
     def do_request():
-        time.sleep(0.3)
+        _wait_for_port("127.0.0.1", 1455)
         httpx.get(
             "http://127.0.0.1:1455/auth/callback",
             params={"state": "state123", "error": "unknown_error"},
