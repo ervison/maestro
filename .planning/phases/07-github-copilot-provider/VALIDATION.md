@@ -1,13 +1,13 @@
 ---
 phase: 07-github-copilot-provider
-validated_at: 2026-04-18T00:00:00Z
+validated_at: 2026-04-20T00:00:00Z
 validator: gsd-validate-phase
 status: approved
-score: 99
+score: 100
 findings:
   blocking: 0
-  non_blocking: 1
-  total: 1
+  non_blocking: 0
+  total: 0
 approved_for_verification: true
 tests_run:
   - python -m pytest tests/test_copilot_provider.py -q
@@ -85,10 +85,27 @@ python -c "from maestro.providers.registry import get_provider; p = get_provider
 
 ## Findings
 
-- Non-blocking: pytest still emits `PytestUnknownMarkWarning` for `@pytest.mark.integration` in `tests/test_copilot_provider.py` because the marker is not registered in pytest config.
+None. Previously noted non-blocking finding (unregistered `integration` marker) is resolved — marker is now registered in `pyproject.toml`.
 
 ## Gate Decision
 
 - **Status:** approved
-- **Score:** 99/100
+- **Score:** 100/100
 - **Approved for verification:** yes
+
+## Validation Audit 2026-04-20
+
+| Metric | Count |
+|--------|-------|
+| Requirements audited | 7 |
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Prior findings resolved | 1 |
+
+**Suite results (re-verified):**
+- Copilot provider suite: `30 passed, 1 skipped`
+- Focused validation suite: `90 passed, 1 skipped`
+- Full regression suite: `386 passed, 1 skipped`
+
+**Nyquist compliance: FULL** — all 7 requirements have automated test coverage.
