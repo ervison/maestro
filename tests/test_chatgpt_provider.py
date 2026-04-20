@@ -372,3 +372,29 @@ class TestRegressionGuard:
         To run: python -m pytest tests/ -v
         """
         pass
+
+
+class TestEntryPointRegistration:
+    """Verify package exports and runtime entry-point registration."""
+
+    def test_entry_point_discoverable(self):
+        """chatgpt entry point is discoverable via importlib.metadata."""
+        from importlib.metadata import entry_points
+
+        matching = [
+            ep for ep in entry_points(group="maestro.providers") if ep.name == "chatgpt"
+        ]
+        if not matching:
+            pytest.skip("chatgpt entry point requires `pip install -e .` in this environment")
+
+        entry_point = matching[0]
+
+        assert entry_point.value == "maestro.providers.chatgpt:ChatGPTProvider"
+        assert entry_point.load().__name__ == "ChatGPTProvider"
+
+    def test_chatgpt_provider_importable_from_package(self):
+        """maestro.providers re-exports ChatGPTProvider."""
+        from maestro.providers import ChatGPTProvider
+        from maestro.providers.chatgpt import ChatGPTProvider as ModuleChatGPTProvider
+
+        assert ChatGPTProvider is ModuleChatGPTProvider
