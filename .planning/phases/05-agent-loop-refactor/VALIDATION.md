@@ -90,3 +90,28 @@ None.
 - **Status:** approved
 - **Score:** 100/100
 - **Approved for verification:** yes
+
+## Validation Audit 2026-04-20
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 5 |
+| Resolved | 5 |
+| Escalated | 0 |
+
+### Gaps Resolved
+
+| Test | Gap Type | Fix |
+|------|----------|-----|
+| `test_auth_store.py::test_callback_server_survives_stray_request_before_real_callback` | PARTIAL — fragile `time.sleep(0.3)` caused `httpx.ConnectError` | Replaced with `_wait_for_port()` active poll |
+| `test_auth_store.py::test_callback_server_rejects_wrong_path_with_404` | PARTIAL — fragile `time.sleep(0.3)` caused `httpx.ConnectError` | Replaced with `_wait_for_port()` active poll |
+| `test_auth_browser_oauth.py::test_authorize_url_uses_localhost_redirect` | PARTIAL — stale assertion on redirect_uri | Corrected to `redirect_uri == auth.REDIRECT_URI` |
+| `test_auth_browser_oauth.py::test_callback_state_mismatch_allows_later_valid_callback` | PARTIAL — incorrect behavior expectation | Corrected: state mismatch aborts flow, no `_exchange_code` call |
+| `test_auth_browser_oauth.py::test_callback_surfaces_provider_error` | PARTIAL — fragile `time.sleep(0.3)` caused `httpx.ConnectError` | Replaced with `_wait_for_port()` active poll |
+
+### Post-Audit Verification
+
+```bash
+python -m pytest -q
+# 386 passed, 1 skipped
+```
