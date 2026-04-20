@@ -253,28 +253,9 @@ def main():
             print("Refreshing models from models.dev...")
             fetch_models(force=True)
 
-        # If a provider filter is requested, try to use its list_models()
-        if args.provider:
-            if args.check:
-                print("Error: --check cannot be combined with --provider.")
-                sys.exit(1)
-
-            try:
-                provider = get_provider(args.provider)
-            except ValueError as e:
-                print(str(e))
-                sys.exit(1)
-
-            try:
-                models = provider.list_models()
-            except Exception as e:
-                print(f"Error listing models for provider '{args.provider}': {e}")
-                sys.exit(1)
-
-            print(f"Models for provider '{args.provider}':")
-            for m in models:
-                print(f"  {m}")
-            sys.exit(0)
+        if args.provider and args.check:
+            print("Error: --check cannot be combined with --provider.")
+            sys.exit(1)
 
         if args.check:
             # Announce which provider's probe is being used. By default we
