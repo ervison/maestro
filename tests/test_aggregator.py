@@ -33,10 +33,8 @@ class TestAggregatorNode:
             "ready_tasks": [],
         }
 
-        with patch("maestro.multi_agent.get_default_provider") as mock_get:
-            mock_provider = MagicMock()
-            mock_get.return_value = mock_provider
-            mock_provider.list_models.return_value = ["gpt-4o"]
+        mock_provider = MagicMock()
+        with patch("maestro.multi_agent.resolve_model", return_value=(mock_provider, "gpt-4o")):
 
             # Mock the async stream
             async def mock_stream(*args, **kwargs):
@@ -105,10 +103,8 @@ class TestAggregatorNode:
 
         captured_messages = []
 
-        with patch("maestro.multi_agent.get_default_provider") as mock_get:
-            mock_provider = MagicMock()
-            mock_get.return_value = mock_provider
-            mock_provider.list_models.return_value = ["gpt-4o"]
+        mock_provider = MagicMock()
+        with patch("maestro.multi_agent.resolve_model", return_value=(mock_provider, "gpt-4o")):
 
             async def capture_stream(messages, **kwargs):
                 captured_messages.extend(messages)
@@ -147,10 +143,8 @@ class TestAggregatorNode:
             "ready_tasks": [],
         }
 
-        with patch("maestro.multi_agent.get_default_provider") as mock_get:
-            mock_provider = MagicMock()
-            mock_get.return_value = mock_provider
-            mock_provider.list_models.return_value = ["gpt-4o"]
+        mock_provider = MagicMock()
+        with patch("maestro.multi_agent.resolve_model", return_value=(mock_provider, "gpt-4o")):
 
             async def mock_stream(*args, **kwargs):
                 from maestro.providers.base import Message
@@ -190,12 +184,9 @@ class TestAggregatorNode:
 
         async def run_in_async_context():
             """Run aggregator_node from inside a running event loop."""
-            with patch("maestro.multi_agent.get_default_provider") as mock_get:
-                mock_provider = MagicMock()
-                mock_get.return_value = mock_provider
-                mock_provider.list_models.return_value = ["gpt-4o"]
-                mock_provider.stream = mock_stream_that_raises
-
+            mock_provider = MagicMock()
+            mock_provider.stream = mock_stream_that_raises
+            with patch("maestro.multi_agent.resolve_model", return_value=(mock_provider, "gpt-4o")):
                 return aggregator_node(state)
 
         # Run from an already running event loop - this should not crash
@@ -280,7 +271,7 @@ class TestAggregatorNode:
         assert all(call["provider"] is provider for call in worker_calls)
 
         assert len(aggregator_messages) == 1
-        aggregator_prompt = aggregator_messages[0]["messages"][0].content
+        aggregator_prompt = aggregator_messages[0]["messages"][1].content
         assert "completed Build API" in aggregator_prompt
         assert "completed Test API" in aggregator_prompt
 

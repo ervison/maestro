@@ -453,13 +453,16 @@ class ChatGPTProvider:
         """Return True if this provider requires authentication."""
         return True
 
-    def login(self) -> None:
+    def login(self, method: str = "browser") -> None:
         """Perform interactive authentication.
 
         Delegates to existing auth.login() for ChatGPT OAuth.
         Blocks until complete or raises.
+
+        Args:
+            method: Authentication method — "browser" (default) or "device".
         """
-        auth.login()
+        auth.login(method)
 
     def is_authenticated(self) -> bool:
         """Return True if valid credentials are currently available."""

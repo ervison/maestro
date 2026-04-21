@@ -25,6 +25,7 @@ from maestro.domains import get_domain_prompt
 from maestro.agent import _run_agentic_loop
 from maestro.providers.registry import get_default_provider
 from maestro.config import load as load_config
+from maestro.models import resolve_model
 from langchain_core.messages import BaseMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
@@ -395,22 +396,26 @@ def aggregator_node(state: AgentState) -> dict:
 
     user_message = f"Original task: {task}\n\nWorker outputs:\n\n{outputs_text}"
 
-    # Resolve provider and model
-    provider = state.get("provider")
-    if provider is None:
-        provider = get_default_provider()
+    # Resolve provider and model via shared priority chain.
+    # Always use resolve_model(agent_name="aggregator") so config.agent.aggregator.model
+    # is honoured. If a provider was injected by the caller, use it for auth context
+    # but still let resolve_model determine the model string.
+    runtime_provider = state.get("provider")
 
-    model = state.get("model", "gpt-4o")
-
-    # Check config for aggregator model override
-    cfg = load_config()
-    aggregator_model = cfg.get("agent.aggregator.model", model)
+    resolved_provider, aggregator_model = resolve_model(agent_name="aggregator")
+    # Prefer the caller-supplied provider (has live auth credentials) over the
+    # freshly-resolved one, but keep the model from resolve_model.
+    provider = runtime_provider if runtime_provider is not None else resolved_provider
 
     # Use asyncio to run the async provider stream
     async def _aggregate():
         from maestro.providers.base import Message
 
-        messages = [Message(role="user", content=user_message)]
+        system_prompt = AGGREGATOR_SYSTEM_PROMPT.format(task=task)
+        messages = [
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=user_message),
+        ]
         chunks: list[str] = []
         async for chunk in provider.stream(messages, model=aggregator_model):
             if isinstance(chunk, str):
@@ -514,9 +519,6 @@ def run_multi_agent(
     if provider is None:
         provider = get_default_provider()
 
-    # Resolve model
-    model = model or "gpt-4o"
-
     # Determine if we should aggregate
     if aggregate is None:
         cfg = load_config()
@@ -525,6 +527,9 @@ def run_multi_agent(
     # Call planner to generate the DAG
     from maestro.planner.node import planner_node
 
+    # Only inject provider into planner state (for auth context).
+    # Do NOT inject model — planner resolves its own via resolve_model(agent_name="planner"),
+    # honouring config.agent.planner.model. The --model CLI flag only overrides workers.
     planner_state: AgentState = {
         "task": task,
         "dag": {"tasks": []},  # Will be populated by planner
@@ -537,9 +542,8 @@ def run_multi_agent(
         "workdir": str(workdir),
         "auto": auto,
         "ready_tasks": [],
-        # Pass caller's provider/model override so planner uses same settings as workers
         "provider": provider,
-        "model": model,
+        # model intentionally omitted — planner uses resolve_model(agent_name="planner")
     }
 
     planner_result = planner_node(planner_state)
@@ -549,7 +553,9 @@ def run_multi_agent(
     if dag is None:
         raise RuntimeError("Planner failed to produce a DAG")
 
-    # Build initial state for graph execution
+    # Build initial state for graph execution.
+    # model is passed through so dispatch_route can give workers the --model override.
+    # The aggregator node ignores state["model"] and uses resolve_model(agent_name="aggregator").
     initial_state: AgentState = {
         "task": task,
         "dag": dag,
@@ -563,7 +569,7 @@ def run_multi_agent(
         "auto": auto,
         "ready_tasks": [],
         "provider": provider,
-        "model": model,
+        "model": model,  # workers only — aggregator resolves its own model
         "aggregate": aggregate,
     }
 

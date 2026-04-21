@@ -134,8 +134,8 @@ def test_valid_dag():
     """Mock provider stream returns valid JSON → returns {'dag': {...}}."""
     mock_provider = MockProvider(stream_generator=_mock_stream_valid)
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},
@@ -160,8 +160,8 @@ def test_schema_rejection():
     """Mock returns invalid JSON → ValueError raised after 3 retries."""
     mock_provider = MockProvider(stream_generator=_mock_stream_invalid_json)
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},
@@ -185,8 +185,8 @@ def test_cycle_rejection():
     """Mock returns valid JSON with cycle → ValueError from validate_dag."""
     mock_provider = MockProvider(stream_generator=_mock_stream_cycle)
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},
@@ -207,8 +207,8 @@ def test_schema_validation_rejection():
     """Valid JSON with wrong schema should be rejected after 3 retries."""
     mock_provider = MockProvider(stream_generator=_mock_stream_invalid_schema)
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},
@@ -228,33 +228,24 @@ def test_schema_validation_rejection():
 
 
 def test_config_model_resolution():
-    """Mock config with agent.planner.model set → correct provider/model used."""
-    mock_provider = MockProvider(stream_generator=_mock_stream_valid)
+    """resolve_model returns custom model → planner passes it to provider.stream."""
     custom_model = "custom-model-123"
+    mock_provider = MockProvider(stream_generator=_mock_stream_valid)
 
-    # Create a config mock that returns the custom model
-    def mock_get(key, default=None):
-        if key == "agent.planner.model":
-            return custom_model
-        return default
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, custom_model)):
+        state: AgentState = {
+            "task": "Create a simple API",
+            "dag": {},
+            "completed": [],
+            "outputs": {},
+            "errors": [],
+            "depth": 0,
+            "max_depth": 10,
+            "workdir": "/tmp",
+            "auto": False,
+        }
 
-    mock_config = MagicMock(get=mock_get)
-
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=mock_config):
-            state: AgentState = {
-                "task": "Create a simple API",
-                "dag": {},
-                "completed": [],
-                "outputs": {},
-                "errors": [],
-                "depth": 0,
-                "max_depth": 10,
-                "workdir": "/tmp",
-                "auto": False,
-            }
-
-            planner_node(state)
+        planner_node(state)
 
     # Verify the model was passed correctly
     assert len(mock_provider.stream_calls) >= 1
@@ -262,44 +253,34 @@ def test_config_model_resolution():
 
 
 def test_config_provider_resolution():
-    """Mock config with provider/model format → correct provider resolved."""
+    """resolve_model returns specific provider/model → planner uses them."""
     mock_provider = MockProvider(stream_generator=_mock_stream_valid)
 
-    # Create a config mock that returns provider/model format
-    def mock_get(key, default=None):
-        if key == "agent.planner.model":
-            return "custom-provider/gpt-5"
-        return default
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-5")):
+        state: AgentState = {
+            "task": "Create a simple API",
+            "dag": {},
+            "completed": [],
+            "outputs": {},
+            "errors": [],
+            "depth": 0,
+            "max_depth": 10,
+            "workdir": "/tmp",
+            "auto": False,
+        }
 
-    mock_config = MagicMock(get=mock_get)
+        planner_node(state)
 
-    with patch("maestro.planner.node.get_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.get_default_provider", return_value=MagicMock(id="default")):
-            with patch("maestro.planner.node.load_config", return_value=mock_config):
-                state: AgentState = {
-                    "task": "Create a simple API",
-                    "dag": {},
-                    "completed": [],
-                    "outputs": {},
-                    "errors": [],
-                    "depth": 0,
-                    "max_depth": 10,
-                    "workdir": "/tmp",
-                    "auto": False,
-                }
-
-                planner_node(state)
-
-    # Verify the provider was resolved via get_provider
-    # (the test passes if get_provider was called, which we verified via the patch)
+    # Verify the provider was used
+    assert len(mock_provider.stream_calls) >= 1
 
 
 def test_default_provider_first_model_used_when_config_absent():
-    """When planner model is unset, first default-provider model should be used."""
+    """When planner model is unset, resolve_model picks the default model."""
     mock_provider = MockProvider(stream_generator=_mock_stream_valid, models=["planner-default", "backup-model"])
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "planner-default")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},
@@ -331,8 +312,8 @@ def test_retry_success():
 
     mock_provider = MockProvider(stream_generator=_mock_stream_with_retries)
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},
@@ -355,8 +336,8 @@ def test_markdown_fences_stripped():
     """JSON wrapped in markdown fences should be properly parsed."""
     mock_provider = MockProvider(stream_generator=_mock_stream_with_markdown)
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},
@@ -379,8 +360,8 @@ def test_stream_with_text_chunks():
     """Provider yielding str chunks before Message should be handled (CR-01 fix)."""
     mock_provider = MockProvider(stream_generator=_mock_stream_with_text_chunks)
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},
@@ -419,8 +400,8 @@ def test_provider_receives_schema_enforced_system_prompt_and_user_task():
     mock_provider = MockProvider(stream_generator=_mock_stream_valid)
     task = "Build a REST API with tests and docs"
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": task,
                 "dag": {},
@@ -444,35 +425,26 @@ def test_provider_receives_schema_enforced_system_prompt_and_user_task():
 
 
 def test_config_fallback_to_default_provider():
-    """When configured provider not found, fall back to default."""
+    """resolve_model returns fallback provider → planner uses it."""
     mock_default = MockProvider(stream_generator=_mock_stream_valid)
 
-    def mock_get(key, default=None):
-        if key == "agent.planner.model":
-            return "nonexistent-provider/gpt-4"
-        return default
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_default, "gpt-4")):
+        state: AgentState = {
+            "task": "Create a simple API",
+            "dag": {},
+            "completed": [],
+            "outputs": {},
+            "errors": [],
+            "depth": 0,
+            "max_depth": 10,
+            "workdir": "/tmp",
+            "auto": False,
+        }
 
-    mock_config = MagicMock(get=mock_get)
-
-    with patch("maestro.planner.node.get_provider", side_effect=ValueError("Provider not found")):
-        with patch("maestro.planner.node.get_default_provider", return_value=mock_default):
-            with patch("maestro.planner.node.load_config", return_value=mock_config):
-                state: AgentState = {
-                    "task": "Create a simple API",
-                    "dag": {},
-                    "completed": [],
-                    "outputs": {},
-                    "errors": [],
-                    "depth": 0,
-                    "max_depth": 10,
-                    "workdir": "/tmp",
-                    "auto": False,
-                }
-
-                result = planner_node(state)
+        result = planner_node(state)
 
     assert "dag" in result
-    # Should fall back to default provider
+    # Should use the resolved provider
     assert len(mock_default.stream_calls) >= 1
 
 
@@ -480,8 +452,8 @@ def test_stream_mixed_chunks_then_message_uses_message_as_canonical():
     """When stream yields str deltas followed by final Message, Message.content wins."""
     mock_provider = MockProvider(stream_generator=_mock_stream_mixed_chunks_then_message)
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},
@@ -515,8 +487,8 @@ def test_non_parse_errors_propagate_without_retry():
 
     mock_provider = MockProvider(stream_generator=_mock_stream_raises_runtime)
 
-    with patch("maestro.planner.node.get_default_provider", return_value=mock_provider):
-        with patch("maestro.planner.node.load_config", return_value=MagicMock(get=lambda x, default=None: None)):
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        if True:  # scope preserved
             state: AgentState = {
                 "task": "Create a simple API",
                 "dag": {},

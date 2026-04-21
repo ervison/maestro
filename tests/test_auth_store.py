@@ -217,7 +217,13 @@ def test_auth_login_defaults_to_chatgpt(monkeypatch, capsys):
             email="test@example.com",
         )
 
+    def fake_get(provider_id):
+        if provider_id == "chatgpt":
+            return {"email": "test@example.com", "account_id": "acc"}
+        return None
+
     monkeypatch.setattr(auth, "login", fake_login)
+    monkeypatch.setattr(auth, "get", fake_get)
     monkeypatch.setattr(sys, "argv", ["maestro", "auth", "login"])
 
     cli.main()

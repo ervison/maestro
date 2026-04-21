@@ -210,3 +210,4 @@ __marimo__/
 **.workspace/
 **/.venv/
 .codex
+sonar-project.properties

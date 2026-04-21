@@ -93,12 +93,14 @@ class TestAuthStatus:
     def test_auth_status_no_providers(self, monkeypatch, capsys):
         """auth status with no providers shows message."""
         with patch("maestro.providers.registry.list_providers", return_value=[]):
-            monkeypatch.setattr("sys.argv", ["maestro", "auth", "status"])
-            
-            with pytest.raises(SystemExit) as exc:
-                main()
-            assert exc.value.code == 0
-        
+            with patch("maestro.cli.auth") as mock_auth:
+                mock_auth.all_providers.return_value = []
+                monkeypatch.setattr("sys.argv", ["maestro", "auth", "status"])
+
+                with pytest.raises(SystemExit) as exc:
+                    main()
+                assert exc.value.code == 0
+
         captured = capsys.readouterr()
         assert "No providers" in captured.out
 

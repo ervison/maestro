@@ -15,11 +15,11 @@ import json
 import logging
 from typing import Any
 
-from maestro.config import load as load_config
-from maestro.providers.registry import get_default_provider, get_provider
 from maestro.providers.base import Message
 from maestro.planner.schemas import AgentState, AgentPlan
 from maestro.planner.validator import validate_dag
+from maestro.domains import DOMAINS
+from maestro.models import resolve_model
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ Your job: decompose a user task into a minimal list of atomic subtasks that can 
 ## Rules
 
 1. Each task must be atomic and independently executable by a domain specialist.
-2. Assign each task to exactly ONE domain from: backend, testing, docs, devops, general, security, data.
+2. Assign each task to exactly ONE domain from: {domain_names}.
 3. Set `deps` to a list of task IDs that must complete before this task starts (can be empty).
 4. Prefer FEWER larger tasks over many tiny ones — avoid over-decomposition.
 5. Task IDs must be short strings like "t1", "t2", etc.
@@ -42,18 +42,23 @@ Your job: decompose a user task into a minimal list of atomic subtasks that can 
 
 ## Output Format (JSON only, no markdown)
 
-{schema}
+{{schema}}
 
 ## Domains
 
-- backend: API design, database, business logic, server-side code
-- testing: unit tests, integration tests, fixtures, mocking
-- docs: README, API docs, user guides, code comments
-- devops: CI/CD, Docker, deployment scripts, environment config
-- security: authentication, authorization, input validation, encryption
-- data: data pipelines, ETL, analytics, data models
-- general: tasks that don't fit other domains
+{domain_list}
 """
+
+# Build domain section from maestro/domains.py — single source of truth
+_DOMAIN_NAMES = ", ".join(DOMAINS.keys())
+_DOMAIN_LIST = "\n".join(
+    f"- {name}: {prompt.split(chr(10))[1].strip()}"
+    for name, prompt in DOMAINS.items()
+)
+PLANNER_SYSTEM_PROMPT = PLANNER_SYSTEM_PROMPT.format(
+    domain_names=_DOMAIN_NAMES,
+    domain_list=_DOMAIN_LIST,
+)
 
 
 def _build_system_prompt() -> str:
@@ -145,46 +150,17 @@ def planner_node(state: AgentState) -> dict:
     # Guard: bound task length to prevent excessive prompt injection surface
     if len(task) > 8000:
         raise ValueError(f"Task too long: {len(task)} chars (max 8000)")
-    config = load_config()
 
-    # Check for runtime overrides from state (caller-supplied provider/model)
+    # Resolve provider and model via shared priority chain.
+    # Always call resolve_model(agent_name="planner") so config.agent.planner.model
+    # is honoured. If a provider was injected by the caller, use it for auth context
+    # but keep the model from resolve_model.
     runtime_provider = state.get("provider")
-    runtime_model = state.get("model")
 
-    if runtime_provider is not None:
-        # Use caller-supplied provider override
-        provider = runtime_provider
-        # Use caller-supplied model if provided, else resolve to first available model for this provider
-        model_id = runtime_model
-    else:
-        # Resolve model: config.agent.planner.model -> default provider model
-        planner_model_raw = config.get("agent.planner.model")
-
-        if planner_model_raw:
-            # Format: "provider_id/model_id" or just "model_id"
-            if "/" in planner_model_raw:
-                provider_id, model_id = planner_model_raw.split("/", 1)
-                try:
-                    provider = get_provider(provider_id)
-                except (ValueError, KeyError):
-                    logger.warning("Configured planner provider '%s' not found, using default", provider_id)
-                    provider = get_default_provider()
-                    model_id = None
-            else:
-                provider = get_default_provider()
-                model_id = planner_model_raw
-        else:
-            provider = get_default_provider()
-            model_id = None
-
-    # Override model with runtime model if provided (even when provider was config-resolved)
-    if runtime_model is not None:
-        model_id = runtime_model
-
-    # Resolve model_id to first available if not set
-    if model_id is None:
-        models = provider.list_models()
-        model_id = models[0] if models else "gpt-4o"
+    resolved_provider, model_id = resolve_model(agent_name="planner")
+    # Prefer caller-supplied provider (has live auth credentials) over resolved one,
+    # but always use the model from the resolution chain.
+    provider = runtime_provider if runtime_provider is not None else resolved_provider
 
     system_prompt = _build_system_prompt()
     messages = [

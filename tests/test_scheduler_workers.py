@@ -815,7 +815,13 @@ def test_dispatch_route_forwards_provider_model_to_workers():
 
 
 def test_run_multi_agent_threads_provider_model_to_planner_and_workers():
-    """run_multi_agent passes provider/model overrides to both planner and workers."""
+    """run_multi_agent passes provider override to planner (for auth) but NOT model.
+
+    The --model CLI flag is forwarded to workers only.
+    Planner resolves its own model via resolve_model(agent_name="planner"),
+    honouring config.agent.planner.model. Injecting --model into the planner
+    would bypass this resolution chain.
+    """
     mock_provider = MagicMock()
     mock_provider.list_models.return_value = ["custom-model"]
 
@@ -858,12 +864,13 @@ def test_run_multi_agent_threads_provider_model_to_planner_and_workers():
                     model="custom-model-v2",
                 )
 
-    # Verify planner received the provider/model overrides
+    # Planner receives the provider (for auth context) but NOT the --model override.
+    # Planner resolves its own model via resolve_model(agent_name="planner").
     assert len(planner_calls) == 1
     assert planner_calls[0]["provider"] is mock_provider
-    assert planner_calls[0]["model"] == "custom-model-v2"
+    assert planner_calls[0]["model"] is None  # model intentionally not injected
 
-    # Verify worker received the provider/model overrides
+    # Worker receives both provider and --model override
     assert len(worker_calls) == 1
     assert worker_calls[0]["provider"] is mock_provider
     assert worker_calls[0]["model"] == "custom-model-v2"

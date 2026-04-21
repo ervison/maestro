@@ -75,6 +75,7 @@ class ProviderPlugin(Protocol):
         messages: list[Message],
         model: str,
         tools: list[Tool] | None = None,
+        **kwargs: object,
     ) -> AsyncIterator[str | Message]:
         """
         Stream a completion from the provider.

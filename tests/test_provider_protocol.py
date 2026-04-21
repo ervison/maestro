@@ -164,6 +164,7 @@ class MockProvider:
         messages: list,
         model: str,
         tools: list | None = None,
+        **kwargs: object,
     ) -> AsyncIterator[str | Message]:
         from maestro.providers.base import Message
 
@@ -267,6 +268,21 @@ class TestProviderPlugin:
         assert chunks[0] == "Hello "
         assert chunks[1] == "world!"
         assert chunks[-1] == Message(role="assistant", content="Hello world!")
+
+    @pytest.mark.asyncio
+    async def test_mock_provider_stream_accepts_extra_kwargs(self):
+        """stream() must accept **kwargs so planner can pass extra= for structured output."""
+        from maestro.providers.base import Message
+
+        provider = MockProvider()
+        messages = [Message(role="user", content="Hi")]
+
+        chunks = []
+        # Planner calls provider.stream(..., extra={"response_format": ...})
+        async for chunk in provider.stream(messages, "mock-model-1", extra={"response_format": {"type": "json_object"}}):
+            chunks.append(chunk)
+
+        assert len(chunks) > 0
 
 
 # ============== Import Tests ==============
