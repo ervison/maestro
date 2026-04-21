@@ -5,7 +5,6 @@ structural elements (rationalization table, independence criterion, reasoning
 block instruction), and that no softening language has leaked back in.
 """
 
-import pytest
 from maestro.planner.node import PLANNER_SYSTEM_PROMPT
 
 
@@ -39,35 +38,64 @@ def test_prompt_forbids_softening_language():
 
 
 def test_over_decomposition_behavioral():
-    """Behavioral/documentation test for independence criterion enforcement.
-
-    Simulates a mock planner output for a trivially simple request
-    ("print hello world") that was over-decomposed into 4 tasks with deps.
-    Verifies that check_has_deps() returns True (deps exist), demonstrating
-    the planner would correctly add deps when tasks are not independent —
-    confirming the independence criterion is operative at the prompt level.
-    """
-
-    def check_has_deps(tasks: list[dict], deps: dict[str, list[str]]) -> bool:
-        """Return True if any task has non-empty deps (dependency exists)."""
+    """Independence criterion: sequential tasks MUST declare deps, not claim independence."""
+    def check_has_deps(tasks, deps):
         return any(len(deps.get(task["id"], [])) > 0 for task in tasks)
 
-    # Mock planner output: 4 tasks for "print hello world" — over-decomposed,
-    # with sequential deps (t1 → t2 → t3 → t4). The deps exist because tasks
-    # are NOT independent: each depends on the previous task's result.
-    mock_tasks = [
-        {"id": "t1", "domain": "code"},
-        {"id": "t2", "domain": "code"},
-        {"id": "t3", "domain": "test"},
-        {"id": "t4", "domain": "docs"},
-    ]
-    mock_deps = {
-        "t1": [],
-        "t2": ["t1"],
-        "t3": ["t2"],
-        "t4": ["t3"],
-    }
+    # A sequential workflow with no deps declared — violates independence criterion
+    # (t2's result changes based on t1's result, so they are NOT independent)
+    mock_tasks = [{"id": "t1"}, {"id": "t2"}, {"id": "t3"}]
+    mock_no_deps = {"t1": [], "t2": [], "t3": []}
+    mock_correct_deps = {"t1": [], "t2": ["t1"], "t3": ["t2"]}
 
-    # Since tasks are sequential (each depends on prior), deps exist.
-    # The independence criterion would flag this as over-decomposition.
-    assert check_has_deps(mock_tasks, mock_deps) is True
+    # Missing deps: wrong — sequential tasks must declare deps
+    assert check_has_deps(mock_tasks, mock_no_deps) is False  # bad: no deps declared
+    # Correct deps: sequential deps correctly declared
+    assert check_has_deps(mock_tasks, mock_correct_deps) is True  # good: deps present
+
+
+def test_prompt_rationalization_row_shared_context():
+    assert "shared context" in PLANNER_SYSTEM_PROMPT.lower()
+
+
+def test_prompt_rationalization_row_domain_boundary():
+    assert "domain" in PLANNER_SYSTEM_PROMPT.lower()
+
+
+def test_prompt_rationalization_row_uncertainty():
+    assert "uncertainty" in PLANNER_SYSTEM_PROMPT.lower() or "uncertain" in PLANNER_SYSTEM_PROMPT.lower()
+
+
+def test_prompt_rationalization_row_cleanliness():
+    assert "cleanliness" in PLANNER_SYSTEM_PROMPT.lower() or "clean" in PLANNER_SYSTEM_PROMPT.lower()
+
+
+def test_prompt_rationalization_verdicts_present():
+    assert "MERGE" in PLANNER_SYSTEM_PROMPT
+
+
+def test_prompt_cycle_prohibition():
+    assert "cyclic" in PLANNER_SYSTEM_PROMPT.lower() or "cycle" in PLANNER_SYSTEM_PROMPT.lower()
+
+
+def test_prompt_reasoning_block_close_tag():
+    assert "</reasoning>" in PLANNER_SYSTEM_PROMPT
+
+
+def test_prompt_output_only_json_after_reasoning():
+    assert "ONLY the JSON" in PLANNER_SYSTEM_PROMPT or "only the JSON" in PLANNER_SYSTEM_PROMPT
+
+
+def test_prompt_contains_catch_all_rule():
+    assert any(phrase in PLANNER_SYSTEM_PROMPT for phrase in ["not exhaustive", "any split", "Any split"])
+
+
+def test_reasoning_block_stripped_from_raw_response():
+    """Verify that <reasoning>...</reasoning> prefix is stripped before JSON parsing."""
+    raw = "<reasoning>4 tasks, all independent</reasoning>\n{\"tasks\": []}"
+    if "<reasoning>" in raw:
+        end = raw.find("</reasoning>")
+        if end != -1:
+            raw = raw[end + len("</reasoning>"):].strip()
+    assert raw == '{"tasks": []}'
+

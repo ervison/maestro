@@ -56,6 +56,10 @@ Before splitting tasks, check your reasoning against this table. If your reasoni
 | "They belong to different domains" | Domain boundaries do NOT equal task boundaries. | MERGE |
 | "They might need separate handling" | Uncertainty is NOT a valid split reason. | MERGE |
 
+These examples are not exhaustive. Any split justified by cleanliness, file boundaries,
+domain boundaries, implementation steps, hypothetical parallelism, or vague future risk
+is invalid unless the outputs are truly independent under the Independence Test above.
+
 ## COMMITMENT DEVICE
 
 Before outputting JSON, you MUST output a reasoning block delimited by `<reasoning>` and `</reasoning>` tags. This block MUST contain:
@@ -200,8 +204,14 @@ def planner_node(state: AgentState) -> dict:
         try:
             raw = _call_provider_with_schema(provider, messages, model_id)
 
-            # Strip markdown code fences if present
+            # Strip <reasoning>...</reasoning> block if present (commitment device output)
             raw = raw.strip()
+            if "<reasoning>" in raw:
+                end = raw.find("</reasoning>")
+                if end != -1:
+                    raw = raw[end + len("</reasoning>"):].strip()
+
+            # Strip markdown code fences if present (after reasoning block removal)
             if raw.startswith("```"):
                 lines = raw.split("\n")
                 raw = "\n".join(lines[1:-1]) if len(lines) > 2 else raw
@@ -219,7 +229,7 @@ def planner_node(state: AgentState) -> dict:
                 messages.append(Message(role="assistant", content=raw if 'raw' in locals() else ""))
                 messages.append(Message(
                     role="user",
-                    content=f"Your previous response was invalid: {str(exc)[:200]}\n\nPlease respond with valid JSON only, matching the schema exactly."
+                    content=f"Your previous response was invalid: {str(exc)[:200]}\n\nOutput the <reasoning> block first, then ONLY the JSON matching the schema exactly."
                 ))
 
     raise ValueError(
