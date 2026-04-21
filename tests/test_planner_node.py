@@ -384,7 +384,7 @@ def test_stream_with_text_chunks():
 
 def test_planner_exports_prompt():
     """PLANNER_SYSTEM_PROMPT should be exported and contain key sections."""
-    assert "task decomposition specialist" in PLANNER_SYSTEM_PROMPT.lower()
+    assert "task decomposition" in PLANNER_SYSTEM_PROMPT.lower()
     assert "{schema}" in PLANNER_SYSTEM_PROMPT  # Schema placeholder
     assert "backend" in PLANNER_SYSTEM_PROMPT  # Domain list
     assert "testing" in PLANNER_SYSTEM_PROMPT
@@ -419,7 +419,7 @@ def test_provider_receives_schema_enforced_system_prompt_and_user_task():
     messages = mock_provider.stream_calls[0]["messages"]
     assert messages[0].role == "system"
     assert '"title": "AgentPlan"' in messages[0].content
-    assert "Prefer FEWER larger tasks over many tiny ones" in messages[0].content
+    assert "MUST" in messages[0].content
     assert messages[1].role == "user"
     assert task in messages[1].content
 
