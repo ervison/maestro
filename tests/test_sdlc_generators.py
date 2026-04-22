@@ -85,7 +85,7 @@ async def test_harness_with_provider_calls_generators(tmp_path) -> None:
     from maestro.sdlc.harness import DiscoveryHarness
 
     provider = MockProvider()
-    harness = DiscoveryHarness(provider=provider, workdir=str(tmp_path))
+    harness = DiscoveryHarness(provider=provider, workdir=str(tmp_path), reflect=False)
     result = await harness.arun(SDLCRequest("Build a CRM", workdir=str(tmp_path)))
     # 13 artifacts = 13 stream calls
     assert len(provider.calls) == 13

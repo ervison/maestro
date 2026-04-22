@@ -26,12 +26,16 @@ class DiscoveryHarness:
         workdir: str = ".",
         gaps_port: int = 4041,
         open_browser: bool = True,
+        reflect: bool = True,
+        reflect_max_cycles: int = 5,
     ) -> None:
         self._provider = provider
         self._model = model
         self._workdir = workdir
         self._gaps_port = gaps_port
         self._open_browser = open_browser
+        self.reflect = reflect
+        self.reflect_max_cycles = reflect_max_cycles
 
     def run(self, request: SDLCRequest) -> DiscoveryResult:
         """Synchronous entry point — wraps async run."""
@@ -103,6 +107,25 @@ class DiscoveryHarness:
             artifacts=artifacts,
             spec_dir=str(spec_dir),
         )
+
+        # Reflect loop — iterative quality evaluation and correction
+        if self._provider is not None and self.reflect and hasattr(self._provider, "stream"):
+            from maestro.sdlc.reflect import ReflectLoop
+
+            loop = ReflectLoop()
+            reflect_report = await loop.run(
+                provider=self._provider,
+                model=self._model,
+                spec_dir=spec_dir,
+                max_cycles=self.reflect_max_cycles,
+            )
+            result = DiscoveryResult(
+                request=request,
+                artifacts=artifacts,
+                spec_dir=str(spec_dir),
+                reflect_report=reflect_report,
+            )
+
         return result
 
     async def _generate_artifact(

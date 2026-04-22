@@ -179,6 +179,19 @@ def main():
         default=False,
         help="Do not auto-open browser for gap questionnaire.",
     )
+    discover_p.add_argument(
+        "--no-reflect",
+        action="store_true",
+        default=False,
+        help="Skip iterative quality evaluation after artifact generation.",
+    )
+    discover_p.add_argument(
+        "--reflect-max-cycles",
+        type=int,
+        default=5,
+        metavar="INT",
+        help="Maximum reflect loop iterations (default: 5).",
+    )
 
     args = parser.parse_args()
 
@@ -555,6 +568,8 @@ def _handle_discover(args) -> None:
         workdir=request.workdir,
         gaps_port=getattr(args, "gaps_port", 4041),
         open_browser=not getattr(args, "no_browser", False),
+        reflect=not getattr(args, "no_reflect", False),
+        reflect_max_cycles=getattr(args, "reflect_max_cycles", 5),
     )
     result = harness.run(request)
     print(f"\n✓ {result.artifact_count} artifacts written to {result.spec_dir}")
