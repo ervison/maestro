@@ -23,8 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 9: Planner** - LLM-driven DAG generation with structured output validation ✅ COMPLETE (2026-04-18)
 - [x] **Phase 10: Scheduler & Workers** - Parallel execution engine with dependency dispatch and recursion guards ✅ COMPLETE (2026-04-19)
 - [x] **Phase 11: Aggregator & Multi-Agent CLI** - Final summary pass and `--multi` flag integration ✅ COMPLETE (2026-04-19)
-- [x] **Phase 12: DAG Planner Hardening** *(v1.1)* - Strengthen PLANNER_SYSTEM_PROMPT with authority language, rationalization table, independence test, and commitment device ✅ COMPLETE (2026-04-22)
-- [x] **Phase 13: SDLC Discovery Planner** *(v1.1)* - New planner agent that transforms vague product requests into a full specification package (PRD, API contracts, data model, etc.) ✅ COMPLETE (2026-04-22)
+- [x] **Phase 13: SDLC Discovery Planner** - `maestro discover` generates 13-artifact specification packages ✅ COMPLETE (2026-04-22)
 
 ## Phase Details
 
@@ -218,47 +217,32 @@ Plans:
 Plans:
 - [x] 11-01-PLAN.md — CLI --multi flag, aggregator node, lifecycle events, and comprehensive tests
 
-### Phase 12: DAG Planner Hardening *(v1.1)* ✅ COMPLETE
-**Goal**: The planner prompt is engineered to resist rationalization, enforce independence discipline, and produce tighter DAGs with non-negotiable authority framing
-**Depends on**: Phase 9 (Planner)
-**Requirements**: PLAN-05, PLAN-06, PLAN-07, PLAN-08
+### Phase 13: SDLC Discovery Planner ✅ COMPLETE
+**Goal**: `maestro discover "<prompt>"` generates a complete 13-artifact specification package
+**Depends on**: Phase 11
+**Requirements**: SDLC-01 through SDLC-09
 **Success Criteria** (what must be TRUE):
-  1. ✅ `PLANNER_SYSTEM_PROMPT` uses MUST/non-negotiable framing throughout — no suggestion-style language ("prefer", "try")
-  2. ✅ A rationalization table (excuse → rebuttal) is embedded in the prompt for the top 5 over-decomposition patterns
-  3. ✅ An explicit independence test is stated: a subtask is independent only if its result does not change based on another subtask's result
-  4. ✅ A commitment device is present: planner must declare its reasoning before producing the JSON output
-  5. ✅ Unit tests verify prompt contains required elements and planner output respects independence criterion
-  6. ✅ All existing 341+ tests continue to pass (405 total, 0 failures)
-**Plans**: 1 plan (COMPLETE)
+  1. ✅ `maestro discover "Crie um cadastro de imóveis"` produces 13 artifact files in `./spec/`
+  2. ✅ All 13 artifact types generated: briefing, hypotheses, gaps, PRD, functional spec, business rules, acceptance criteria, UX spec, API contracts, data model, auth matrix, ADRs, test plan
+  3. ✅ Hypotheses marked [HYPOTHESIS], gaps marked [GAP] — planner never invents facts
+  4. ✅ Brownfield mode enabled via `--brownfield` flag (opt-in only, not automatic)
+  5. ✅ `maestro run` and `maestro run --multi` completely unaffected (zero regressions)
+**Plans**: 4 plans (COMPLETE)
 **Artifacts**:
-  - `.planning/phases/12-dag-planner-hardening/12-01-PLAN.md`
-  - `.planning/phases/12-dag-planner-hardening/12-01-SUMMARY.md`
-  - `maestro/planner/node.py` — hardened PLANNER_SYSTEM_PROMPT + reasoning stripping
-  - `tests/test_planner_prompt.py` — 17 prompt content tests
-  - `tests/test_planner_node.py` — 2 integration tests for reasoning stripping
+  - `maestro/sdlc/__init__.py` — package exports
+  - `maestro/sdlc/schemas.py` — ArtifactType enum, SDLCRequest, SDLCArtifact, DiscoveryResult
+  - `maestro/sdlc/harness.py` — DiscoveryHarness orchestrator
+  - `maestro/sdlc/generators.py` — LLM artifact generation dispatch
+  - `maestro/sdlc/prompts.py` — 13 system prompts
+  - `maestro/sdlc/writer.py` — spec/ filesystem writer
+  - `maestro/cli.py` — `discover` subcommand
+  - 41 new tests (444 total, zero regressions)
 
 Plans:
-- [x] 12-01-PLAN.md — Rewrite PLANNER_SYSTEM_PROMPT with authority language, rationalization table, independence test, commitment device, and tests
-
-### Phase 13: SDLC Discovery Planner *(v1.1)* ✅ COMPLETE
-**Goal**: A new agent transforms vague product requests into a complete specification package before any code execution
-**Depends on**: Phase 12
-**Requirements**: SDLC-01 through SDLC-12
-**Success Criteria** (what must be TRUE):
-  1. `maestro discover "Crie um cadastro de imóveis"` triggers the SDLC planner pipeline
-  2. SDLC planner produces all 13 artifacts: briefing, hipóteses, lacunas, PRD, especificação funcional, regras de negócio, critérios de aceitação, UX/UI, contratos de API, modelo de dados, matriz de autorização, ADRs, plano de testes, definition of done, execution pack
-  3. Planner never invents — facts, hypotheses, and gaps are explicitly separated in every artifact
-  4. Brownfield mode detects existing code structures via codebase scan before spec generation
-  5. Subagents are specialized per artifact domain (discovery-analyst, product-requirements-writer, api-contract-designer, etc.)
-  6. Output is written to `<workdir>/spec/` directory with numbered filenames
-  7. Existing `maestro run` and `maestro run --multi` behaviors are completely unaffected
-**Plans**: TBD
-
-Plans:
-- [x] 13-01-PLAN.md — SDLC Planner architecture, schemas, and harness
-- [x] 13-02-PLAN.md — Artifact generation subagents (discovery, PRD, functional spec, business rules)
-- [x] 13-03-PLAN.md — Artifact generation subagents (API contracts, data model, authorization, UX spec)
-- [x] 13-04-PLAN.md — CLI integration, brownfield mode, and end-to-end tests
+- [x] 13-01-PLAN.md — Schemas, ArtifactType enum, DiscoveryHarness skeleton
+- [x] 13-02-PLAN.md — 13 artifact generators and system prompts
+- [x] 13-03-PLAN.md — Writer module and brownfield detection
+- [x] 13-04-PLAN.md — `maestro discover` CLI subcommand
 
 ## Progress
 
@@ -278,5 +262,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Planner | 1/1 | Complete | 2026-04-18 |
 | 10. Scheduler & Workers | 1/1 | Complete | 2026-04-19 |
 | 11. Aggregator & Multi-Agent CLI | 1/1 | Complete | 2026-04-19 |
-| 12. DAG Planner Hardening *(v1.1)* | 1/1 | Complete | 2026-04-22 |
-| 13. SDLC Discovery Planner *(v1.1)* | 4/4 | Complete | 2026-04-22 |
+| 13. SDLC Discovery Planner | 4/4 | Complete | 2026-04-22 |

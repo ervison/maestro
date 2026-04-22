@@ -216,3 +216,4 @@ sonar-project.properties
 **/.playwright-mcp/
 **/.superpowers/
 skills
+.scannerwork/
