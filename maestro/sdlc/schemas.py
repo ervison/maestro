@@ -81,12 +81,51 @@ class SDLCArtifact:
 
 
 @dataclass
+class ReflectDimensionScore:
+    """Score for a single evaluation dimension."""
+
+    dimension: str
+    score: float
+    justification: str
+
+
+@dataclass
+class ReflectCorrection:
+    """A single correction applied during a reflect cycle."""
+
+    cycle: int
+    file: str
+    dimension: str
+    description: str
+
+
+@dataclass
+class ReflectCycle:
+    """Results of a single reflect cycle (evaluation + corrections)."""
+
+    cycle: int
+    scores: list[ReflectDimensionScore] = field(default_factory=list)
+    mean: float = 0.0
+    corrections: list[ReflectCorrection] = field(default_factory=list)
+
+
+@dataclass
+class ReflectReport:
+    """Full report from the reflect loop."""
+
+    cycles: list[ReflectCycle] = field(default_factory=list)
+    final_mean: float = 0.0
+    passed: bool = False
+
+
+@dataclass
 class DiscoveryResult:
     """The completed result of a discovery run."""
 
     request: SDLCRequest
     artifacts: list[SDLCArtifact] = field(default_factory=list)
     spec_dir: str = ""
+    reflect_report: ReflectReport | None = None
 
     @property
     def artifact_count(self) -> int:
