@@ -211,3 +211,8 @@ __marimo__/
 **/.venv/
 .codex
 sonar-project.properties
+
+**/cache/
+**/.playwright-mcp/
+**/.superpowers/
+skills

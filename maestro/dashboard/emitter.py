@@ -26,12 +26,22 @@ class DashboardEmitter:
 
     def __init__(self) -> None:
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
+        self._history: list[dict[str, Any]] = []
         self._lock = threading.Lock()
 
     def subscribe(self, handler: Callable[[dict[str, Any]], None]) -> None:
-        """Register a handler to receive all future events."""
+        """Register a handler and immediately replay all past events to it."""
         with self._lock:
+            past = list(self._history)
             self._subscribers.append(handler)
+        # Replay history outside the lock to avoid deadlock
+        for event in past:
+            try:
+                handler(event)
+            except Exception as exc:
+                logger.warning(
+                    "DashboardEmitter: replay subscriber raised: %s", exc, exc_info=True
+                )
 
     def unsubscribe(self, handler: Callable[[dict[str, Any]], None]) -> None:
         """Remove a previously registered handler."""
@@ -50,6 +60,7 @@ class DashboardEmitter:
         """
         with self._lock:
             handlers = list(self._subscribers)
+            self._history.append(event)
 
         for handler in handlers:
             try:

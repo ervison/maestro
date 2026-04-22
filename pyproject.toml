@@ -24,6 +24,9 @@ maestro = "maestro.cli:main"
 chatgpt = "maestro.providers.chatgpt:ChatGPTProvider"
 github-copilot = "maestro.providers.copilot:CopilotProvider"
 
+[tool.setuptools.packages.find]
+include = ["maestro*"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

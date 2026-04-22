@@ -5,19 +5,95 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Maestro Dashboard</title>
 <style>
+  /* ── CSS custom properties — dark theme (default) ── */
+  :root {
+    --bg:          #1a1d23;
+    --surface:     #252932;
+    --border:      #3d4452;
+    --text:        #e2e8f0;
+    --text-title:  #f1f5f9;
+    --text-muted:  #94a3b8;
+    --text-log:    #cbd5e1;
+    --accent:      #60a5fa;
+    --accent-bg:   #1e2d4a;
+    --green:       #4ade80;
+    --green-bg:    #14532d;
+    --red:         #f87171;
+    --red-bg:      #2d1515;
+    --red-badge:   #450a0a;
+    --yellow:      #fbbf24;
+    --badge-wait-bg: #3d4452;
+    --badge-act-bg:  #1e3a6e;
+    --badge-act-fg:  #93c5fd;
+    --shimmer: linear-gradient(90deg, transparent, #60a5fa, transparent);
+  }
+
+  /* ── Light theme ── */
+  :root.light {
+    --bg:          #f1f5f9;
+    --surface:     #ffffff;
+    --border:      #cbd5e1;
+    --text:        #1e293b;
+    --text-title:  #0f172a;
+    --text-muted:  #64748b;
+    --text-log:    #334155;
+    --accent:      #2563eb;
+    --accent-bg:   #dbeafe;
+    --green:       #16a34a;
+    --green-bg:    #dcfce7;
+    --red:         #dc2626;
+    --red-bg:      #fee2e2;
+    --red-badge:   #fecaca;
+    --yellow:      #b45309;
+    --badge-wait-bg: #e2e8f0;
+    --badge-act-bg:  #bfdbfe;
+    --badge-act-fg:  #1d4ed8;
+    --shimmer: linear-gradient(90deg, transparent, #2563eb, transparent);
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: #0d1117; color: #c9d1d9; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; display: flex; height: 100vh; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    transition: background 0.25s, color 0.25s;
+  }
+
+  /* ── Theme toggle button ── */
+  #theme-btn {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 100;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 12px;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.25s, border-color 0.25s, color 0.2s;
+  }
+  #theme-btn:hover { color: var(--text-title); border-color: var(--accent); }
 
   /* Pipeline canvas */
   #pipeline { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px; overflow: auto; }
   .pipeline-row { display: flex; align-items: center; gap: 24px; }
   .pipeline-column { display: flex; flex-direction: column; gap: 12px; }
-  .arrow { color: #484f58; font-size: 20px; flex-shrink: 0; }
+  .arrow { color: var(--text-muted); font-size: 20px; flex-shrink: 0; }
 
   /* Pipeline cards */
   .card {
-    background: #161b22;
-    border: 1.5px solid #30363d;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
     border-radius: 8px;
     padding: 12px 16px;
     min-width: 160px;
@@ -25,26 +101,26 @@
     transition: border-color 0.2s, background 0.2s;
     user-select: none;
   }
-  .card:hover { border-color: #58a6ff; }
-  .card.waiting { opacity: 0.5; }
-  .card.active { border-color: #388bfd; background: #0d1f3c; }
-  .card.done { opacity: 0.6; border-color: #30363d; }
-  .card.failed { border-color: #f85149; background: #200d0d; }
+  .card:hover { border-color: var(--accent); }
+  .card.waiting { opacity: 0.7; }
+  .card.active { border-color: var(--accent); background: var(--accent-bg); }
+  .card.done { opacity: 0.75; border-color: var(--border); }
+  .card.failed { border-color: var(--red); background: var(--red-bg); }
 
-  .card-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
-  .card-title { font-size: 13px; font-weight: 600; color: #e6edf3; }
+  .card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .card-title { font-size: 13px; font-weight: 600; color: var(--text-title); }
   .card-status { font-size: 11px; margin-top: 4px; }
-  .card.waiting .card-status { color: #484f58; }
-  .card.active .card-status { color: #388bfd; }
-  .card.done .card-status { color: #3fb950; }
-  .card.failed .card-status { color: #f85149; }
+  .card.waiting .card-status { color: var(--text-muted); }
+  .card.active .card-status { color: var(--accent); }
+  .card.done .card-status { color: var(--green); }
+  .card.failed .card-status { color: var(--red); }
 
   /* Animated progress bar (shimmer) */
-  .progress-bar { height: 2px; background: #21262d; border-radius: 1px; margin-top: 8px; overflow: hidden; }
+  .progress-bar { height: 2px; background: var(--border); border-radius: 1px; margin-top: 8px; overflow: hidden; }
   .progress-fill {
     height: 100%;
     width: 40%;
-    background: linear-gradient(90deg, transparent, #388bfd, transparent);
+    background: var(--shimmer);
     animation: shimmer 1.4s infinite;
     display: none;
   }
@@ -57,29 +133,30 @@
   /* Side panel */
   #panel {
     width: 380px;
-    background: #161b22;
-    border-left: 1px solid #30363d;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
     display: none;
     flex-direction: column;
     overflow: hidden;
+    transition: background 0.25s, border-color 0.25s;
   }
   #panel.open { display: flex; }
 
   #panel-header {
     padding: 16px;
-    border-bottom: 1px solid #30363d;
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
-  #panel-title { font-size: 14px; font-weight: 600; color: #e6edf3; }
-  #panel-close { background: none; border: none; color: #8b949e; cursor: pointer; font-size: 18px; line-height: 1; }
-  #panel-close:hover { color: #e6edf3; }
+  #panel-title { font-size: 14px; font-weight: 600; color: var(--text-title); }
+  #panel-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; line-height: 1; }
+  #panel-close:hover { color: var(--text-title); }
 
-  #panel-meta { padding: 12px 16px; border-bottom: 1px solid #30363d; display: flex; flex-direction: column; gap: 6px; }
+  #panel-meta { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
   .meta-row { display: flex; justify-content: space-between; }
-  .meta-key { color: #8b949e; }
-  .meta-val { color: #c9d1d9; }
+  .meta-key { color: var(--text-muted); }
+  .meta-val { color: var(--text); }
 
   #panel-log {
     flex: 1;
@@ -88,13 +165,13 @@
     font-size: 12px;
     line-height: 1.6;
   }
-  .log-tool { color: #d29922; }
-  .log-text { color: #6e7681; }
+  .log-tool { color: var(--yellow); }
+  .log-text { color: var(--text-log); }
   .cursor {
     display: inline-block;
     width: 7px;
     height: 13px;
-    background: #388bfd;
+    background: var(--accent);
     vertical-align: text-bottom;
     animation: blink 1s step-end infinite;
     margin-left: 2px;
@@ -102,7 +179,7 @@
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
   /* Empty state */
-  #empty { color: #484f58; font-size: 14px; text-align: center; }
+  #empty { color: var(--text-muted); font-size: 14px; text-align: center; }
 
   /* Status badge */
   .badge {
@@ -112,13 +189,18 @@
     font-size: 11px;
     font-weight: 600;
   }
-  .badge-waiting { background: #21262d; color: #8b949e; }
-  .badge-active { background: #0d2e5f; color: #58a6ff; }
-  .badge-done { background: #0d2c1e; color: #3fb950; }
-  .badge-failed { background: #2c0d0d; color: #f85149; }
+  .badge-waiting { background: var(--badge-wait-bg); color: var(--text-muted); }
+  .badge-active  { background: var(--badge-act-bg);  color: var(--badge-act-fg); }
+  .badge-done    { background: var(--green-bg);  color: var(--green); }
+  .badge-failed  { background: var(--red-badge); color: var(--red); }
 </style>
 </head>
 <body>
+
+<button id="theme-btn" onclick="toggleTheme()">
+  <span id="theme-icon">☀️</span>
+  <span id="theme-label">Light</span>
+</button>
 
 <div id="pipeline">
   <div id="empty">Waiting for agent run...</div>
@@ -148,6 +230,12 @@ const nodes = {};          // id → {id, domain, status, model, elapsed, toolCo
 let selectedId = null;
 let elapsedTimers = {};    // id → setInterval handle
 
+// Pre-initialize synthetic pipeline nodes so renderPipeline() never crashes
+// on a node_update that arrives before dag_ready
+['planner', 'scheduler', 'aggregator'].forEach(id => {
+  nodes[id] = makeNode(id, id, id, []);
+});
+
 // ── SSE connection ─────────────────────────────────────────────────────────
 const sse = new EventSource('/events');
 sse.onmessage = e => {
@@ -170,9 +258,10 @@ function handleEvent(event) {
 }
 
 function initDag(tasks) {
-  document.getElementById('empty').style.display = 'none';
+  const emptyEl = document.getElementById('empty');
+  if (emptyEl) emptyEl.style.display = 'none';
 
-  // Initialize synthetic pipeline nodes
+  // Ensure synthetic nodes exist (they may already be pre-initialized)
   ['planner', 'scheduler', 'aggregator'].forEach(id => {
     if (!nodes[id]) nodes[id] = makeNode(id, id, id, []);
   });
@@ -239,7 +328,10 @@ function appendLog(event) {
 // ── Rendering ──────────────────────────────────────────────────────────────
 function renderPipeline() {
   const pipeline = document.getElementById('pipeline');
-  pipeline.innerHTML = '';
+  // Remove all child elements except #empty
+  Array.from(pipeline.children).forEach(el => {
+    if (el.id !== 'empty') el.remove();
+  });
 
   const workerIds = Object.keys(nodes).filter(id => !['planner','scheduler','aggregator'].includes(id));
 
@@ -367,6 +459,29 @@ function appendLogLine(kind, text) {
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
 }
+
+// ── Theme ──────────────────────────────────────────────────────────────────
+function applyTheme(theme) {
+  if (theme === 'light') {
+    document.documentElement.classList.add('light');
+    document.getElementById('theme-icon').textContent = '🌙';
+    document.getElementById('theme-label').textContent = 'Dark';
+  } else {
+    document.documentElement.classList.remove('light');
+    document.getElementById('theme-icon').textContent = '☀️';
+    document.getElementById('theme-label').textContent = 'Light';
+  }
+}
+
+function toggleTheme() {
+  const isLight = document.documentElement.classList.contains('light');
+  const next = isLight ? 'dark' : 'light';
+  localStorage.setItem('maestro-theme', next);
+  applyTheme(next);
+}
+
+// Restore persisted theme on load
+applyTheme(localStorage.getItem('maestro-theme') || 'dark');
 </script>
 </body>
 </html>

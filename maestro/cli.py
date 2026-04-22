@@ -432,6 +432,11 @@ def main():
                     for task_id, output in outputs.items():
                         print(f"\n[{task_id}]:\n{output}")
 
+                # Give the SSE server time to flush final events to the browser
+                # before the daemon thread is killed by process exit
+                import time as _time
+                _time.sleep(2)
+
                 # Surface worker failures after outputs
                 if failed:
                     sys.exit(1)

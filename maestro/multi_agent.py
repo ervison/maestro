@@ -68,6 +68,10 @@ def scheduler_node(state: AgentState) -> dict:
         Dict with ready_tasks and optional scheduler errors.
         Keys: ready_tasks (list[dict]), errors (list[str] - optional)
     """
+    emitter = state.get("emitter")
+    if emitter is not None:
+        emitter.emit({"type": "node_update", "id": "scheduler", "status": "active"})
+
     plan = _materialize_plan(state["dag"])
     # Validate the DAG to catch duplicate IDs, invalid refs, etc.
     try:
@@ -153,6 +157,10 @@ def scheduler_node(state: AgentState) -> dict:
         len(failed),
         len(unfinished),
     )
+
+    # Emit scheduler done when no more ready tasks (all workers dispatched or finished)
+    if emitter is not None and not ready_tasks:
+        emitter.emit({"type": "node_update", "id": "scheduler", "status": "done"})
 
     return result
 
@@ -514,6 +522,7 @@ def aggregator_node(state: AgentState) -> dict:
             summary = "Aggregation completed but produced no output."
 
     _agg_emit({"type": "node_update", "id": "aggregator", "status": "done"})
+    _agg_emit({"type": "node_log", "id": "aggregator", "kind": "text", "text": summary})
     _print_lifecycle("aggregator", "done")
     return {"summary": summary}
 
