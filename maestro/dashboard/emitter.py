@@ -7,8 +7,12 @@ to push real-time updates to the dashboard SSE server.
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any, Callable
+
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardEmitter:
@@ -50,5 +54,7 @@ class DashboardEmitter:
         for handler in handlers:
             try:
                 handler(event)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "DashboardEmitter: subscriber raised: %s", exc, exc_info=True
+                )
