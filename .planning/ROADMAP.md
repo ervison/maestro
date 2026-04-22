@@ -23,8 +23,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 9: Planner** - LLM-driven DAG generation with structured output validation ✅ COMPLETE (2026-04-18)
 - [x] **Phase 10: Scheduler & Workers** - Parallel execution engine with dependency dispatch and recursion guards ✅ COMPLETE (2026-04-19)
 - [x] **Phase 11: Aggregator & Multi-Agent CLI** - Final summary pass and `--multi` flag integration ✅ COMPLETE (2026-04-19)
-- [ ] **Phase 12: DAG Planner Hardening** *(v1.1)* - Strengthen PLANNER_SYSTEM_PROMPT with authority language, rationalization table, independence test, and commitment device
-- [ ] **Phase 13: SDLC Discovery Planner** *(v1.1)* - New planner agent that transforms vague product requests into a full specification package (PRD, API contracts, data model, etc.)
+- [x] **Phase 12: DAG Planner Hardening** *(v1.1)* - Strengthen PLANNER_SYSTEM_PROMPT with authority language, rationalization table, independence test, and commitment device ✅ COMPLETE (2026-04-22)
+- [x] **Phase 13: SDLC Discovery Planner** *(v1.1)* - New planner agent that transforms vague product requests into a full specification package (PRD, API contracts, data model, etc.) ✅ COMPLETE (2026-04-22)
 
 ## Phase Details
 
@@ -218,23 +218,29 @@ Plans:
 Plans:
 - [x] 11-01-PLAN.md — CLI --multi flag, aggregator node, lifecycle events, and comprehensive tests
 
-### Phase 12: DAG Planner Hardening *(v1.1)*
+### Phase 12: DAG Planner Hardening *(v1.1)* ✅ COMPLETE
 **Goal**: The planner prompt is engineered to resist rationalization, enforce independence discipline, and produce tighter DAGs with non-negotiable authority framing
 **Depends on**: Phase 9 (Planner)
 **Requirements**: PLAN-05, PLAN-06, PLAN-07, PLAN-08
 **Success Criteria** (what must be TRUE):
-  1. `PLANNER_SYSTEM_PROMPT` uses MUST/non-negotiable framing throughout — no suggestion-style language ("prefer", "try")
-  2. A rationalization table (excuse → rebuttal) is embedded in the prompt for the top 5 over-decomposition patterns
-  3. An explicit independence test is stated: a subtask is independent only if its result does not change based on another subtask's result
-  4. A commitment device is present: planner must declare its reasoning before producing the JSON output
-  5. Unit tests verify prompt contains required elements and planner output respects independence criterion
-  6. All existing 341+ tests continue to pass (zero regressions)
-**Plans**: 1 plan
+  1. ✅ `PLANNER_SYSTEM_PROMPT` uses MUST/non-negotiable framing throughout — no suggestion-style language ("prefer", "try")
+  2. ✅ A rationalization table (excuse → rebuttal) is embedded in the prompt for the top 5 over-decomposition patterns
+  3. ✅ An explicit independence test is stated: a subtask is independent only if its result does not change based on another subtask's result
+  4. ✅ A commitment device is present: planner must declare its reasoning before producing the JSON output
+  5. ✅ Unit tests verify prompt contains required elements and planner output respects independence criterion
+  6. ✅ All existing 341+ tests continue to pass (405 total, 0 failures)
+**Plans**: 1 plan (COMPLETE)
+**Artifacts**:
+  - `.planning/phases/12-dag-planner-hardening/12-01-PLAN.md`
+  - `.planning/phases/12-dag-planner-hardening/12-01-SUMMARY.md`
+  - `maestro/planner/node.py` — hardened PLANNER_SYSTEM_PROMPT + reasoning stripping
+  - `tests/test_planner_prompt.py` — 17 prompt content tests
+  - `tests/test_planner_node.py` — 2 integration tests for reasoning stripping
 
 Plans:
-- [ ] 12-01-PLAN.md — Rewrite PLANNER_SYSTEM_PROMPT with authority language, rationalization table, independence test, commitment device, and tests
+- [x] 12-01-PLAN.md — Rewrite PLANNER_SYSTEM_PROMPT with authority language, rationalization table, independence test, commitment device, and tests
 
-### Phase 13: SDLC Discovery Planner *(v1.1)*
+### Phase 13: SDLC Discovery Planner *(v1.1)* ✅ COMPLETE
 **Goal**: A new agent transforms vague product requests into a complete specification package before any code execution
 **Depends on**: Phase 12
 **Requirements**: SDLC-01 through SDLC-12
@@ -249,10 +255,10 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 13-01-PLAN.md — SDLC Planner architecture, schemas, and harness
-- [ ] 13-02-PLAN.md — Artifact generation subagents (discovery, PRD, functional spec, business rules)
-- [ ] 13-03-PLAN.md — Artifact generation subagents (API contracts, data model, authorization, UX spec)
-- [ ] 13-04-PLAN.md — CLI integration, brownfield mode, and end-to-end tests
+- [x] 13-01-PLAN.md — SDLC Planner architecture, schemas, and harness
+- [x] 13-02-PLAN.md — Artifact generation subagents (discovery, PRD, functional spec, business rules)
+- [x] 13-03-PLAN.md — Artifact generation subagents (API contracts, data model, authorization, UX spec)
+- [x] 13-04-PLAN.md — CLI integration, brownfield mode, and end-to-end tests
 
 ## Progress
 
@@ -272,5 +278,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Planner | 1/1 | Complete | 2026-04-18 |
 | 10. Scheduler & Workers | 1/1 | Complete | 2026-04-19 |
 | 11. Aggregator & Multi-Agent CLI | 1/1 | Complete | 2026-04-19 |
-| 12. DAG Planner Hardening *(v1.1)* | 0/1 | Not started | - |
-| 13. SDLC Discovery Planner *(v1.1)* | 0/4 | Not started | - |
+| 12. DAG Planner Hardening *(v1.1)* | 1/1 | Complete | 2026-04-22 |
+| 13. SDLC Discovery Planner *(v1.1)* | 4/4 | Complete | 2026-04-22 |

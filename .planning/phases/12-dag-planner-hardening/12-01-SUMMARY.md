@@ -44,7 +44,7 @@ The prompt was rewritten with:
 5. **Commitment device** — Before JSON, LLM MUST output `<reasoning>...</reasoning>` block with: (a) task count justification, (b) domain assignments, (c) independence rationale per split
 6. **Cycle prohibition** — Upgraded to MUST NOT language
 
-No function signatures, imports, or logic changed (prompt text and <reasoning> stripping logic updated).
+No function signatures or imports changed. Prompt text rewritten and `<reasoning>` stripping logic added/hardened (safe `startswith` + `end < first_json` guard).
 
 ### T-02: Unit tests (`tests/test_planner_prompt.py`)
 
@@ -73,7 +73,7 @@ No function signatures, imports, or logic changed (prompt text and <reasoning> s
 
 ### T-03: Regression check
 
-403 tests pass, 1 skipped, 0 failures.
+405 tests pass, 1 skipped, 0 failures.
 
 ## Deviations from Plan
 
@@ -96,6 +96,8 @@ No function signatures, imports, or logic changed (prompt text and <reasoning> s
 ## Self-Check: PASSED
 
 - `maestro/planner/node.py` exists and contains `PLANNER_SYSTEM_PROMPT` with all required elements ✓
-- `tests/test_planner_prompt.py` exists with 7 tests ✓
-- Commit `86ec01d` exists ✓
-- 393 tests pass, 0 failures ✓
+- `tests/test_planner_prompt.py` exists with 17 tests ✓
+- `tests/test_planner_node.py` includes 2 integration tests for reasoning block stripping ✓
+- `<reasoning>` stripping uses safe `startswith` + `end < first_json` guard ✓
+- Commit `2f8c497` exists ✓
+- 405 tests pass, 0 failures ✓

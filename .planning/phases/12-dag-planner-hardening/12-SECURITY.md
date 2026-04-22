@@ -18,10 +18,10 @@ No new attack surface was introduced. No new code execution paths, file I/O, or 
 
 | Threat ID | Category | Disposition | Evidence |
 |-----------|----------|-------------|----------|
-| T-REASONING-PARSE | Prompt/Parsing | mitigate | `model_validate_json(raw)` raises `json.JSONDecodeError` on non-JSON prefix, caught at line 214 in `node.py`; retried up to 3× with corrective feedback. `<reasoning>` block content is never executed or unsafely parsed — it is discarded on `JSONDecodeError`. CLOSED. |
+| T-REASONING-PARSE | Prompt/Parsing | mitigate | `raw.strip()` + `startswith("<reasoning>")` guard strips the leading block only when `</reasoning>` appears before the first `{`, preventing accidental truncation of JSON with embedded tags. `model_validate_json(raw)` then validates the clean JSON. CLOSED. |
 | T-LLM-IGNORE | Prompt Injection / LLM Behavior | mitigate | `PLANNER_SYSTEM_PROMPT` uses "MUST output reasoning block" authority language (line 61, `node.py`). `test_prompt_contains_reasoning_block_instruction` in `tests/test_planner_prompt.py` line 31 asserts `<reasoning>` is present. CLOSED. |
 | T-SOFTENING-LANGUAGE | Prompt Quality / Regression | mitigate | `test_prompt_forbids_softening_language` (line 35, `tests/test_planner_prompt.py`) asserts `['prefer', 'Prefer', 'try to', 'Try to', 'consider', 'Consider', 'generally', 'Generally']` are absent. Verified: none present in prompt. CLOSED. |
-| T-EXISTING-TESTS | Regression | mitigate | SUMMARY.md confirms 403 tests pass, 0 failures after phase. Two existing prompt-assertion tests updated to match hardened content. CLOSED. |
+| T-EXISTING-TESTS | Regression | mitigate | 405 tests pass, 0 failures after phase. Two existing prompt-assertion tests updated to match hardened content. CLOSED. |
 | T-RATIONALIZATION-AMBIGUOUS | Prompt Quality | mitigate | Rationalization table has explicit `Verdict` column (MERGE / MERGE or ADD DEP) in `node.py` lines 52–57. CLOSED. |
 
 ---
