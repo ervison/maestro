@@ -23,6 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 9: Planner** - LLM-driven DAG generation with structured output validation ✅ COMPLETE (2026-04-18)
 - [x] **Phase 10: Scheduler & Workers** - Parallel execution engine with dependency dispatch and recursion guards ✅ COMPLETE (2026-04-19)
 - [x] **Phase 11: Aggregator & Multi-Agent CLI** - Final summary pass and `--multi` flag integration ✅ COMPLETE (2026-04-19)
+- [x] **Phase 13: SDLC Discovery Planner** - `maestro discover` generates 13-artifact specification packages ✅ COMPLETE (2026-04-22)
 
 ## Phase Details
 
@@ -216,6 +217,33 @@ Plans:
 Plans:
 - [x] 11-01-PLAN.md — CLI --multi flag, aggregator node, lifecycle events, and comprehensive tests
 
+### Phase 13: SDLC Discovery Planner ✅ COMPLETE
+**Goal**: `maestro discover "<prompt>"` generates a complete 13-artifact specification package
+**Depends on**: Phase 11
+**Requirements**: SDLC-01 through SDLC-09
+**Success Criteria** (what must be TRUE):
+  1. ✅ `maestro discover "Crie um cadastro de imóveis"` produces 13 artifact files in `./spec/`
+  2. ✅ All 13 artifact types generated: briefing, hypotheses, gaps, PRD, functional spec, business rules, acceptance criteria, UX spec, API contracts, data model, auth matrix, ADRs, test plan
+  3. ✅ Hypotheses marked [HYPOTHESIS], gaps marked [GAP] — planner never invents facts
+  4. ✅ Brownfield mode enabled via `--brownfield` flag (opt-in only, not automatic)
+  5. ✅ `maestro run` and `maestro run --multi` completely unaffected (zero regressions)
+**Plans**: 4 plans (COMPLETE)
+**Artifacts**:
+  - `maestro/sdlc/__init__.py` — package exports
+  - `maestro/sdlc/schemas.py` — ArtifactType enum, SDLCRequest, SDLCArtifact, DiscoveryResult
+  - `maestro/sdlc/harness.py` — DiscoveryHarness orchestrator
+  - `maestro/sdlc/generators.py` — LLM artifact generation dispatch
+  - `maestro/sdlc/prompts.py` — 13 system prompts
+  - `maestro/sdlc/writer.py` — spec/ filesystem writer
+  - `maestro/cli.py` — `discover` subcommand
+  - 41 new tests (444 total, zero regressions)
+
+Plans:
+- [x] 13-01-PLAN.md — Schemas, ArtifactType enum, DiscoveryHarness skeleton
+- [x] 13-02-PLAN.md — 13 artifact generators and system prompts
+- [x] 13-03-PLAN.md — Writer module and brownfield detection
+- [x] 13-04-PLAN.md — `maestro discover` CLI subcommand
+
 ## Progress
 
 **Execution Order:**
@@ -234,3 +262,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Planner | 1/1 | Complete | 2026-04-18 |
 | 10. Scheduler & Workers | 1/1 | Complete | 2026-04-19 |
 | 11. Aggregator & Multi-Agent CLI | 1/1 | Complete | 2026-04-19 |
+| 13. SDLC Discovery Planner | 4/4 | Complete | 2026-04-22 |
