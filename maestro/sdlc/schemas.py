@@ -91,3 +91,20 @@ class DiscoveryResult:
     @property
     def artifact_count(self) -> int:
         return len(self.artifacts)
+
+
+@dataclass
+class GapItem:
+    """A single gap question with answer options."""
+
+    question: str
+    options: list[str]
+    recommended_index: int = 0
+
+
+@dataclass
+class GapAnswer:
+    """User's answer to a single gap question."""
+
+    question: str
+    chosen_option: str
