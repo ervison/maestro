@@ -1,9 +1,12 @@
-"""Gaps questionnaire server - parser support for [GAP] items."""
+"""Gaps questionnaire server — blocks pipeline until user answers all [GAP] items."""
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from maestro.sdlc.schemas import GapItem
+
+_STATIC_DIR = Path(__file__).parent / "static"
 
 _DEFAULT_OPTIONS: list[str] = [
     "Yes",
