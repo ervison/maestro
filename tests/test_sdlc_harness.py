@@ -150,3 +150,10 @@ def test_harness_resolves_gaps_and_enriches_prompt(tmp_path: Path, monkeypatch) 
     mock_resolve.assert_called_once()
     assert any("Is SSO required? → Yes" in entry for entry in call_log)
     assert result.artifact_count == len(ARTIFACT_ORDER)
+
+
+def test_harness_reflect_disabled_produces_no_report(tmp_path: Path) -> None:
+    """Stub mode (no provider) always produces reflect_report=None."""
+    harness = DiscoveryHarness(workdir=str(tmp_path))  # no provider → stub mode
+    result = harness.run(SDLCRequest("Build X", workdir=str(tmp_path)))
+    assert result.reflect_report is None
