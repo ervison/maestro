@@ -5,7 +5,7 @@ Defines the type foundation for the multi-agent DAG engine:
 - PlanTask/AgentPlan: Pydantic models for planner output validation
 """
 
-from typing import TypedDict, Annotated, Literal, NotRequired
+from typing import TypedDict, Annotated, Literal, NotRequired, Any
 import operator
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -50,6 +50,7 @@ class AgentState(TypedDict):
     model: NotRequired[str]  # Model identifier
     aggregate: NotRequired[bool]  # Whether to run aggregator (default: True)
     summary: NotRequired[str]  # Final aggregated summary (written by aggregator_node)
+    emitter: NotRequired[Any]  # DashboardEmitter instance or None (not serialized)
 
 
 DomainName = Literal[

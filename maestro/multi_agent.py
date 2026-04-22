@@ -13,16 +13,18 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
+import time as _time
 from pathlib import Path
 from typing import Any, cast
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 
+from maestro import agent as agent_module
 from maestro.planner.schemas import AgentState, AgentPlan
+from maestro.planner.node import planner_node
 from maestro.planner.validator import validate_dag
 from maestro.domains import get_domain_prompt
-from maestro.agent import _run_agentic_loop
 from maestro.providers.registry import get_default_provider
 from maestro.config import load as load_config
 from maestro.models import resolve_model
@@ -228,10 +230,21 @@ def dispatch_route(state: AgentState) -> list[Send]:
     auto = state["auto"]
     provider = state.get("provider")
     model = state.get("model")
+    emitter = state.get("emitter")
 
     sends = []
     for task in ready_tasks:
         _print_lifecycle(f"worker:{task['id']}", "started")
+        if emitter is not None:
+            emitter.emit(
+                {
+                    "type": "node_update",
+                    "id": task["id"],
+                    "domain": task.get("domain", ""),
+                    "status": "active",
+                    "model": model or "gpt-4o",
+                }
+            )
         payload: dict[str, Any] = {
             "current_task_id": task["id"],
             "current_task_domain": task["domain"],
@@ -240,6 +253,7 @@ def dispatch_route(state: AgentState) -> list[Send]:
             "max_depth": max_depth,
             "workdir": workdir,
             "auto": auto,
+            "emitter": emitter,
         }
         # Pass provider/model through to worker
         if provider is not None:
@@ -280,6 +294,12 @@ def worker_node(state: AgentState) -> dict:
     # Provider/model may be passed through state or resolved here
     provider = state.get("provider")
     model = state.get("model", "gpt-4o")
+    start_time = _time.monotonic()
+    emitter = state.get("emitter")
+
+    def _worker_emit(event: dict) -> None:
+        if emitter is not None:
+            emitter.emit(event)
 
     # Validate required fields
     if not task_id or not domain or not prompt:
@@ -317,23 +337,58 @@ def worker_node(state: AgentState) -> dict:
 
         # Execute using _run_agentic_loop with task as HumanMessage
         messages: list[BaseMessage] = [HumanMessage(content=prompt)]
-        result = _run_agentic_loop(
+        tool_count = [0]
+
+        def _on_tool_start() -> None:
+            tool_count[0] += 1
+            _worker_emit(
+                {
+                    "type": "node_log",
+                    "id": task_id,
+                    "kind": "tool",
+                    "text": f"tool call #{tool_count[0]}",
+                }
+            )
+
+        result = agent_module._run_agentic_loop(
             messages=messages,
             model=model,
             instructions=system_prompt,
             provider=provider,
             workdir=workdir,
             auto=auto,
+            on_text=lambda chunk: _worker_emit(
+                {"type": "node_log", "id": task_id, "kind": "text", "text": chunk}
+            ),
+            on_tool_start=_on_tool_start,
         )
 
+        elapsed = _time.monotonic() - start_time
         logger.debug("Task %s completed successfully", task_id)
         _print_lifecycle(f"worker:{task_id}", "done")
+        _worker_emit(
+            {
+                "type": "node_update",
+                "id": task_id,
+                "status": "done",
+                "elapsed": round(elapsed, 1),
+            }
+        )
         return {"completed": [task_id], "outputs": {task_id: result}}
 
     except Exception as e:
         error_msg = str(e)
+        elapsed = _time.monotonic() - start_time
         logger.exception("Task %s failed: %s", task_id, error_msg)
         _print_lifecycle(f"worker:{task_id}", "failed")
+        _worker_emit(
+            {
+                "type": "node_update",
+                "id": task_id,
+                "status": "failed",
+                "elapsed": round(elapsed, 1),
+            }
+        )
         return {"failed": [task_id], "errors": [f"{task_id}: {error_msg}"]}
 
 
@@ -375,9 +430,17 @@ def aggregator_node(state: AgentState) -> dict:
     outputs = state.get("outputs", {})
     failed = state.get("failed", [])
     errors = state.get("errors", [])
+    emitter = state.get("emitter")
+
+    def _agg_emit(event: dict) -> None:
+        if emitter is not None:
+            emitter.emit(event)
+
+    _agg_emit({"type": "node_update", "id": "aggregator", "status": "active"})
 
     # Handle empty outputs gracefully
     if not outputs and not failed:
+        _agg_emit({"type": "node_update", "id": "aggregator", "status": "done"})
         _print_lifecycle("aggregator", "done")
         return {"summary": "No worker outputs to summarize."}
 
@@ -450,6 +513,7 @@ def aggregator_node(state: AgentState) -> dict:
         if not summary.strip():
             summary = "Aggregation completed but produced no output."
 
+    _agg_emit({"type": "node_update", "id": "aggregator", "status": "done"})
     _print_lifecycle("aggregator", "done")
     return {"summary": summary}
 
@@ -480,6 +544,7 @@ def run_multi_agent(
     provider=None,
     model: str | None = None,
     aggregate: bool | None = None,
+    emitter=None,
 ) -> dict[str, Any]:
     """Run multi-agent DAG execution on a task.
 
@@ -519,14 +584,16 @@ def run_multi_agent(
     if provider is None:
         provider = get_default_provider()
 
+    def _emit(event: dict) -> None:
+        if emitter is not None:
+            emitter.emit(event)
+
     # Determine if we should aggregate
     if aggregate is None:
         cfg = load_config()
         aggregate = cfg.get("aggregator.enabled", True)
 
     # Call planner to generate the DAG
-    from maestro.planner.node import planner_node
-
     # Only inject provider into planner state (for auth context).
     # Do NOT inject model — planner resolves its own via resolve_model(agent_name="planner"),
     # honouring config.agent.planner.model. The --model CLI flag only overrides workers.
@@ -543,15 +610,46 @@ def run_multi_agent(
         "auto": auto,
         "ready_tasks": [],
         "provider": provider,
+        "emitter": emitter,
         # model intentionally omitted — planner uses resolve_model(agent_name="planner")
     }
 
+    _emit({"type": "node_update", "id": "planner", "status": "active"})
     planner_result = planner_node(planner_state)
     _print_lifecycle("planner", "done")
+    _emit({"type": "node_update", "id": "planner", "status": "done"})
     dag = planner_result.get("dag")
 
     if dag is None:
         raise RuntimeError("Planner failed to produce a DAG")
+
+    dag_tasks_raw = dag.get("tasks", []) if isinstance(dag, dict) else []
+    _emit(
+        {
+            "type": "dag_ready",
+            "tasks": [
+                {
+                    "id": t.get("id", "") if isinstance(t, dict) else getattr(t, "id", ""),
+                    "domain": (
+                        t.get("domain", "")
+                        if isinstance(t, dict)
+                        else getattr(t, "domain", "")
+                    ),
+                    "description": (
+                        t.get("prompt", "")[:100]
+                        if isinstance(t, dict)
+                        else getattr(t, "prompt", "")[:100]
+                    ),
+                    "deps": (
+                        t.get("deps", [])
+                        if isinstance(t, dict)
+                        else getattr(t, "deps", [])
+                    ),
+                }
+                for t in dag_tasks_raw
+            ],
+        }
+    )
 
     # Build initial state for graph execution.
     # model is passed through so dispatch_route can give workers the --model override.
@@ -571,6 +669,7 @@ def run_multi_agent(
         "provider": provider,
         "model": model,  # workers only — aggregator resolves its own model
         "aggregate": aggregate,
+        "emitter": emitter,
     }
 
     # Run the graph
