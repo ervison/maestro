@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 
 from maestro.sdlc.schemas import (
@@ -55,21 +56,31 @@ class DiscoveryHarness:
                 f"Failed to create spec directory: {exc.strerror}"
             ) from exc
 
+        from maestro.sdlc.writer import write_artifact
+
+        total = len(ARTIFACT_ORDER)
         artifacts: list[SDLCArtifact] = []
-        for artifact_type in ARTIFACT_ORDER:
+        for i, artifact_type in enumerate(ARTIFACT_ORDER, start=1):
+            print(
+                f"[{i}/{total}] Generating {artifact_type.value}...",
+                file=sys.stderr,
+                flush=True,
+            )
             artifact = await self._generate_artifact(effective_request, artifact_type)
             artifacts.append(artifact)
+            # Write immediately so progress is visible on disk
+            write_artifact(spec_dir, artifact)
+            print(
+                f"[{i}/{total}] ✓ {artifact.filename}",
+                file=sys.stderr,
+                flush=True,
+            )
 
         result = DiscoveryResult(
             request=request,
             artifacts=artifacts,
             spec_dir=str(spec_dir),
         )
-
-        # Delegate I/O to writer
-        from maestro.sdlc.writer import write_artifacts
-
-        write_artifacts(result)
         return result
 
     async def _generate_artifact(

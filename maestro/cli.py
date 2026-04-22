@@ -509,7 +509,7 @@ def main():
 
 def _handle_discover(args) -> None:
     """Handle the `maestro discover` subcommand."""
-    from maestro.sdlc import ArtifactType, DiscoveryHarness, SDLCRequest
+    from maestro.sdlc import DiscoveryHarness, SDLCRequest
     from maestro.models import resolve_model
 
     try:
@@ -528,20 +528,16 @@ def _handle_discover(args) -> None:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    print(
+        f"Starting SDLC discovery using model: {model_id or 'default'}\n"
+        "Generating 13 artifacts — gaps found are recorded in 03-gaps.md and do not stop the pipeline.\n",
+        file=sys.stderr,
+        flush=True,
+    )
+
     harness = DiscoveryHarness(provider=provider, model=model_id, workdir=request.workdir)
-
-    total = len(list(ArtifactType))
-    counter = [0]
-    original_generate = harness._generate_artifact
-
-    async def _tracked_generate(req, artifact_type):
-        counter[0] += 1
-        print(f"Generating artifact {counter[0]}/{total}: {artifact_type.value}...")
-        return await original_generate(req, artifact_type)
-
-    harness._generate_artifact = _tracked_generate
     result = harness.run(request)
-    print(f"✓ {result.artifact_count} artifacts written to {result.spec_dir}")
+    print(f"\n✓ {result.artifact_count} artifacts written to {result.spec_dir}")
 
 
 if __name__ == "__main__":

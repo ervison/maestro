@@ -83,3 +83,37 @@ def test_harness_brownfield_true_appends_codebase_context(tmp_path: Path) -> Non
 
     assert captured_prompts, "No artifacts generated"
     assert "## Existing Codebase" in captured_prompts[0]
+
+
+def test_harness_writes_each_artifact_incrementally(tmp_path: Path) -> None:
+    """Each artifact must be written to disk as soon as it is generated, not all at the end."""
+    harness = DiscoveryHarness(workdir=str(tmp_path))
+    spec_dir = tmp_path / "spec"
+    written_counts: list[int] = []
+
+    original_gen = harness._generate_artifact
+
+    async def counting_gen(req, artifact_type):
+        artifact = await original_gen(req, artifact_type)
+        # Count how many files exist on disk right after this artifact is generated
+        # (the write happens inside arun, right after _generate_artifact returns)
+        return artifact
+
+    harness._generate_artifact = counting_gen
+
+    # Patch write_artifact to record counts per call
+    from maestro.sdlc import writer as writer_mod
+    original_write = writer_mod.write_artifact
+
+    def recording_write(sd, artifact):
+        original_write(sd, artifact)
+        written_counts.append(len(list(spec_dir.glob("*.md"))))
+
+    with patch.object(writer_mod, "write_artifact", side_effect=recording_write):
+        harness.run(SDLCRequest("Build X", workdir=str(tmp_path)))
+
+    # Should have 13 write calls, one per artifact
+    assert len(written_counts) == 13
+    # Each write call should have produced exactly one more file than the previous
+    for i, count in enumerate(written_counts, start=1):
+        assert count == i, f"Expected {i} files after artifact {i}, got {count}"
