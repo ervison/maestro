@@ -386,6 +386,15 @@ def main():
                 # so runtime config can decide (config.aggregator.enabled)
                 aggregate = False if args.no_aggregate else None
 
+                import os
+                from maestro.dashboard.emitter import DashboardEmitter
+                from maestro.dashboard.server import start_dashboard_server
+
+                dashboard_emitter = DashboardEmitter()
+                dashboard_port = int(os.environ.get("MAESTRO_DASHBOARD_PORT", "4040"))
+                start_dashboard_server(dashboard_emitter, port=dashboard_port)
+                print(f"[maestro] dashboard → http://localhost:{dashboard_port}")
+
                 result = run_multi_agent(
                     task=args.prompt,
                     workdir=wd,
@@ -395,6 +404,7 @@ def main():
                     provider=provider,
                     model=model_id,
                     aggregate=aggregate,
+                    emitter=dashboard_emitter,
                 )
 
                 # Extract outputs and failure metadata from structured result
