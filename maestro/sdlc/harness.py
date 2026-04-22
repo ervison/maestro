@@ -5,6 +5,7 @@ import asyncio
 import sys
 from pathlib import Path
 
+from maestro.sdlc.gaps_server import resolve_gaps
 from maestro.sdlc.schemas import (
     ArtifactType,
     ARTIFACT_FILENAMES,
@@ -23,10 +24,14 @@ class DiscoveryHarness:
         provider=None,
         model: str | None = None,
         workdir: str = ".",
+        gaps_port: int = 4041,
+        open_browser: bool = True,
     ) -> None:
         self._provider = provider
         self._model = model
         self._workdir = workdir
+        self._gaps_port = gaps_port
+        self._open_browser = open_browser
 
     def run(self, request: SDLCRequest) -> DiscoveryResult:
         """Synchronous entry point — wraps async run."""
@@ -70,6 +75,23 @@ class DiscoveryHarness:
             artifacts.append(artifact)
             # Write immediately so progress is visible on disk
             write_artifact(spec_dir, artifact)
+            if artifact_type == ArtifactType.GAPS and self._provider is not None:
+                answers = resolve_gaps(
+                    artifact.content,
+                    port=self._gaps_port,
+                    open_browser=self._open_browser,
+                )
+                if answers:
+                    answers_text = "\n".join(
+                        f"- {answer.question} → {answer.chosen_option}"
+                        for answer in answers
+                    )
+                    effective_request = SDLCRequest(
+                        prompt=f"{effective_request.prompt}\n\n## Gap Answers\n{answers_text}",
+                        language=effective_request.language,
+                        brownfield=effective_request.brownfield,
+                        workdir=effective_request.workdir,
+                    )
             print(
                 f"[{i}/{total}] ✓ {artifact.filename}",
                 file=sys.stderr,

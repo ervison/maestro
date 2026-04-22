@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -209,3 +210,26 @@ def serve_gaps(items: list[GapItem], port: int = 4041) -> GapsServer:
     server = GapsServer(items, port=port)
     server.start()
     return server
+
+
+def resolve_gaps(
+    gaps_content: str,
+    port: int = 4041,
+    open_browser: bool = True,
+) -> list[GapAnswer]:
+    """Parse gaps from markdown, serve questionnaire, block until answered."""
+    items = parse_gaps(gaps_content)
+    if not items:
+        return []
+
+    server = serve_gaps(items, port=port)
+    url = f"http://localhost:{server.port}"
+    if open_browser:
+        webbrowser.open(url)
+
+    try:
+        answers = server.get_answers(timeout=None)
+    finally:
+        server.stop()
+
+    return answers or []

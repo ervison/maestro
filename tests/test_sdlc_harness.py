@@ -117,3 +117,36 @@ def test_harness_writes_each_artifact_incrementally(tmp_path: Path) -> None:
     # Each write call should have produced exactly one more file than the previous
     for i, count in enumerate(written_counts, start=1):
         assert count == i, f"Expected {i} files after artifact {i}, got {count}"
+
+
+def test_harness_resolves_gaps_and_enriches_prompt(tmp_path: Path, monkeypatch) -> None:
+    """Harness pauses at GAPS, resolves via mock server, enriches prompt."""
+    import asyncio
+
+    from maestro.sdlc.schemas import GapAnswer, SDLCArtifact
+
+    del monkeypatch
+
+    call_log: list[str] = []
+
+    async def fake_generate(self_ref, request, artifact_type):
+        del self_ref
+        call_log.append(f"{artifact_type.value}:{request.prompt[-30:]}")
+        content = "[GAP] Is SSO required?" if artifact_type == ArtifactType.GAPS else "# content"
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content=content,
+        )
+
+    mock_answers = [GapAnswer(question="Is SSO required?", chosen_option="Yes")]
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch("maestro.sdlc.harness.resolve_gaps", return_value=mock_answers) as mock_resolve:
+            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+            result = asyncio.run(harness.arun(request))
+
+    mock_resolve.assert_called_once()
+    assert any("Is SSO required?" in entry for entry in call_log)
+    assert result.artifact_count == len(ARTIFACT_ORDER)
