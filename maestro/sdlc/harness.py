@@ -46,7 +46,8 @@ class DiscoveryHarness:
             workdir=request.workdir,
         )
 
-        spec_dir = Path(request.workdir).resolve() / "spec"
+        workdir = request.workdir if request.workdir != "." else self._workdir
+        spec_dir = Path(workdir).resolve() / "spec"
         try:
             spec_dir.mkdir(parents=True, exist_ok=True)
         except (OSError, PermissionError) as exc:

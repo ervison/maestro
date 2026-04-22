@@ -204,12 +204,16 @@ def planner_node(state: AgentState) -> dict:
         try:
             raw = _call_provider_with_schema(provider, messages, model_id)
 
-            # Strip <reasoning>...</reasoning> block if present (commitment device output)
+            # Strip a leading <reasoning>...</reasoning> block if present
+            # (commitment device output). Only strip when the response starts
+            # with the block — avoids removing content if <reasoning> appears
+            # inside a JSON string value later in the response.
             raw = raw.strip()
-            if "<reasoning>" in raw:
-                end = raw.find("</reasoning>")
+            leading_raw = raw.lstrip()
+            if leading_raw.startswith("<reasoning>"):
+                end = leading_raw.find("</reasoning>")
                 if end != -1:
-                    raw = raw[end + len("</reasoning>"):].strip()
+                    raw = leading_raw[end + len("</reasoning>"):].strip()
 
             # Strip markdown code fences if present (after reasoning block removal)
             if raw.startswith("```"):

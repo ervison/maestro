@@ -495,7 +495,6 @@ def main():
 def _handle_discover(args) -> None:
     """Handle the `maestro discover` subcommand."""
     from maestro.sdlc import ArtifactType, DiscoveryHarness, SDLCRequest
-    from maestro.providers.registry import get_default_provider
     from maestro.models import resolve_model
 
     try:
@@ -508,9 +507,13 @@ def _handle_discover(args) -> None:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    provider = get_default_provider()
-    model = resolve_model(getattr(args, "model", None))
-    harness = DiscoveryHarness(provider=provider, model=model, workdir=request.workdir)
+    try:
+        provider, model_id = resolve_model(model_flag=getattr(args, "model", None))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    harness = DiscoveryHarness(provider=provider, model=model_id, workdir=request.workdir)
 
     total = len(list(ArtifactType))
     counter = [0]

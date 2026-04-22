@@ -77,8 +77,7 @@ def test_discover_runs_harness(tmp_path: Path) -> None:
     mock_harness._generate_artifact = fake_gen
 
     with patch("maestro.sdlc.DiscoveryHarness", return_value=mock_harness):
-        with patch("maestro.providers.registry.get_default_provider", return_value=MagicMock()):
-            with patch("maestro.models.resolve_model", return_value="chatgpt/gpt-4o"):
+        with patch("maestro.models.resolve_model", return_value=(MagicMock(), "gpt-4o")):
                 from maestro.cli import _handle_discover
                 _handle_discover(_make_args(workdir=str(tmp_path)))
 
@@ -99,9 +98,8 @@ def test_discover_prints_progress(tmp_path: Path) -> None:
     mock_harness._generate_artifact = fake_gen
 
     stdout_buf = io.StringIO()
-    with patch("maestro.sdlc.harness.DiscoveryHarness", return_value=mock_harness):
-        with patch("maestro.providers.registry.get_default_provider", return_value=MagicMock()):
-            with patch("maestro.models.resolve_model", return_value="chatgpt/gpt-4o"):
+    with patch("maestro.sdlc.DiscoveryHarness", return_value=mock_harness):
+        with patch("maestro.models.resolve_model", return_value=(MagicMock(), "gpt-4o")):
                 with patch("sys.stdout", stdout_buf):
                     from maestro.cli import _handle_discover
                     _handle_discover(_make_args(workdir=str(tmp_path)))
@@ -122,9 +120,8 @@ def test_discover_prints_completion(tmp_path: Path) -> None:
     mock_harness._generate_artifact = fake_gen
 
     stdout_buf = io.StringIO()
-    with patch("maestro.sdlc.harness.DiscoveryHarness", return_value=mock_harness):
-        with patch("maestro.providers.registry.get_default_provider", return_value=MagicMock()):
-            with patch("maestro.models.resolve_model", return_value="chatgpt/gpt-4o"):
+    with patch("maestro.sdlc.DiscoveryHarness", return_value=mock_harness):
+        with patch("maestro.models.resolve_model", return_value=(MagicMock(), "gpt-4o")):
                 with patch("sys.stdout", stdout_buf):
                     from maestro.cli import _handle_discover
                     _handle_discover(_make_args(workdir=str(tmp_path)))
@@ -152,8 +149,7 @@ def test_discover_brownfield_flag(tmp_path: Path) -> None:
     mock_harness.run.side_effect = capturing_run
 
     with patch("maestro.sdlc.DiscoveryHarness", return_value=mock_harness):
-        with patch("maestro.providers.registry.get_default_provider", return_value=MagicMock()):
-            with patch("maestro.models.resolve_model", return_value="chatgpt/gpt-4o"):
+        with patch("maestro.models.resolve_model", return_value=(MagicMock(), "gpt-4o")):
                 from maestro.cli import _handle_discover
                 _handle_discover(_make_args(brownfield=True, workdir=str(tmp_path)))
 
@@ -173,8 +169,7 @@ def test_discover_workdir_flag(tmp_path: Path) -> None:
     mock_harness._generate_artifact = fake_gen
 
     with patch("maestro.sdlc.DiscoveryHarness", return_value=mock_harness) as MockCls:
-        with patch("maestro.providers.registry.get_default_provider", return_value=MagicMock()):
-            with patch("maestro.models.resolve_model", return_value="chatgpt/gpt-4o"):
+        with patch("maestro.models.resolve_model", return_value=(MagicMock(), "gpt-4o")):
                 from maestro.cli import _handle_discover
                 _handle_discover(_make_args(workdir=str(tmp_path)))
 

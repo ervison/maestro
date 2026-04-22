@@ -26,7 +26,9 @@ async def generate_artifact(
     ]
     content_parts: list[str] = []
     async for msg in provider.stream(messages, tools=None, model=model):
-        if msg.role == "assistant" and msg.content:
+        if isinstance(msg, str):
+            content_parts.append(msg)
+        elif hasattr(msg, "role") and msg.role == "assistant" and msg.content:
             content_parts.append(msg.content)
 
     content = "".join(content_parts).strip()
