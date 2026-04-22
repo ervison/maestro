@@ -148,5 +148,5 @@ def test_harness_resolves_gaps_and_enriches_prompt(tmp_path: Path, monkeypatch) 
             result = asyncio.run(harness.arun(request))
 
     mock_resolve.assert_called_once()
-    assert any("Is SSO required?" in entry for entry in call_log)
+    assert any("Is SSO required? → Yes" in entry for entry in call_log)
     assert result.artifact_count == len(ARTIFACT_ORDER)
