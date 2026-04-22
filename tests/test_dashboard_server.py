@@ -1,5 +1,6 @@
 import threading
 import time
+import socket
 import urllib.error
 import urllib.request
 
@@ -31,15 +32,27 @@ def test_events_endpoint_headers() -> None:
     emitter = DashboardEmitter()
     port = _find_free_port()
     start_dashboard_server(emitter, port=port)
-    time.sleep(0.2)
+    time.sleep(0.3)
 
-    req = urllib.request.Request(f"http://localhost:{port}/events")
+    s = socket.create_connection(("localhost", port), timeout=2)
+    s.sendall(b"GET /events HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+    response = b""
+    s.settimeout(2)
     try:
-        with urllib.request.urlopen(req, timeout=1) as resp:
-            content_type = resp.headers.get("Content-Type", "")
-            assert "text/event-stream" in content_type
-    except Exception:
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+            if b"\r\n\r\n" in response:
+                break
+    except socket.timeout:
         pass
+    finally:
+        s.close()
+
+    decoded = response.decode("utf-8", errors="replace")
+    assert "text/event-stream" in decoded, f"Expected text/event-stream in headers, got: {decoded[:500]}"
 
 
 def test_events_delivers_emitted_events() -> None:
@@ -69,6 +82,40 @@ def test_events_delivers_emitted_events() -> None:
     reader.start()
     time.sleep(0.1)
 
+    emitter.emit({"type": "dag_ready", "tasks": []})
+    done.wait(timeout=3)
+
+    assert any("dag_ready" in line for line in received_lines), f"Got: {received_lines}"
+
+
+def test_events_skip_unserializable_payloads() -> None:
+    emitter = DashboardEmitter()
+    port = _find_free_port()
+    start_dashboard_server(emitter, port=port)
+    time.sleep(0.2)
+
+    received_lines: list[str] = []
+    done = threading.Event()
+
+    def _read_sse() -> None:
+        try:
+            req = urllib.request.Request(f"http://localhost:{port}/events")
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                for line in resp:
+                    decoded = line.decode("utf-8").strip()
+                    if decoded:
+                        received_lines.append(decoded)
+                    if any("dag_ready" in entry for entry in received_lines):
+                        done.set()
+                        return
+        except Exception:
+            done.set()
+
+    reader = threading.Thread(target=_read_sse, daemon=True)
+    reader.start()
+    time.sleep(0.1)
+
+    emitter.emit({"type": "bad", "payload": object()})
     emitter.emit({"type": "dag_ready", "tasks": []})
     done.wait(timeout=3)
 

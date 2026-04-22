@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from maestro.dashboard.emitter import DashboardEmitter
 
 
 _STATIC_DIR = Path(__file__).parent / "static"
+logger = logging.getLogger(__name__)
 
 
 def _make_handler(emitter: DashboardEmitter) -> type[BaseHTTPRequestHandler]:
@@ -69,7 +71,12 @@ def _make_handler(emitter: DashboardEmitter) -> type[BaseHTTPRequestHandler]:
                         self.wfile.flush()
                         continue
 
-                    data = json.dumps(event)
+                    try:
+                        data = json.dumps(event)
+                    except (TypeError, ValueError) as exc:
+                        logger.warning("DashboardEmitter: could not serialize event: %s", exc)
+                        continue
+
                     self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
                     self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
@@ -80,10 +87,10 @@ def _make_handler(emitter: DashboardEmitter) -> type[BaseHTTPRequestHandler]:
     return DashboardHandler
 
 
-def start_dashboard_server(emitter: DashboardEmitter, port: int = 4040) -> HTTPServer:
+def start_dashboard_server(emitter: DashboardEmitter, port: int = 4040) -> ThreadingHTTPServer:
     """Start the dashboard server in a daemon thread."""
 
-    server = HTTPServer(("0.0.0.0", port), _make_handler(emitter))
+    server = ThreadingHTTPServer(("0.0.0.0", port), _make_handler(emitter))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server
