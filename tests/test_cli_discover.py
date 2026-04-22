@@ -32,9 +32,16 @@ def _make_args(
     brownfield: bool = False,
     workdir: str = ".",
     model=None,
+    gaps_port: int = 4041,
+    no_browser: bool = False,
 ) -> argparse.Namespace:
     return argparse.Namespace(
-        prompt=prompt, brownfield=brownfield, workdir=workdir, model=model
+        prompt=prompt,
+        brownfield=brownfield,
+        workdir=workdir,
+        model=model,
+        gaps_port=gaps_port,
+        no_browser=no_browser,
     )
 
 
@@ -45,6 +52,24 @@ def test_discover_subcommand_exists() -> None:
             from maestro.cli import main
             main()
     assert exc_info.value.code == 0
+
+
+def test_discover_help_includes_gap_flags() -> None:
+    """The discover help output must expose gap questionnaire flags."""
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+
+    with patch("sys.argv", ["maestro", "discover", "--help"]):
+        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+            with pytest.raises(SystemExit) as exc_info:
+                from maestro.cli import main
+
+                main()
+
+    output = stdout_buf.getvalue() + stderr_buf.getvalue()
+    assert exc_info.value.code == 0
+    assert "--gaps-port" in output
+    assert "--no-browser" in output
 
 
 def test_discover_requires_prompt() -> None:
@@ -176,6 +201,37 @@ def test_discover_workdir_flag(tmp_path: Path) -> None:
     assert MockCls.called, "DiscoveryHarness was not instantiated"
     _, kwargs = MockCls.call_args
     assert kwargs.get("workdir") == str(tmp_path)
+
+
+def test_discover_forwards_gap_questionnaire_options(tmp_path: Path) -> None:
+    """Gap questionnaire CLI options must be forwarded to DiscoveryHarness."""
+    fake_result = _make_fake_result(tmp_path)
+    mock_harness = MagicMock()
+    mock_harness.run.return_value = fake_result
+
+    async def fake_gen(req, at):
+        return SDLCArtifact(at, ARTIFACT_FILENAMES[at], "content")
+
+    mock_harness._generate_artifact = fake_gen
+
+    stderr_buf = io.StringIO()
+    with patch("maestro.sdlc.DiscoveryHarness", return_value=mock_harness) as MockCls:
+        with patch("maestro.models.resolve_model", return_value=(MagicMock(), "gpt-4o")):
+            with patch("sys.stderr", stderr_buf):
+                from maestro.cli import _handle_discover
+
+                _handle_discover(
+                    _make_args(
+                        workdir=str(tmp_path),
+                        gaps_port=5050,
+                        no_browser=True,
+                    )
+                )
+
+    _, kwargs = MockCls.call_args
+    assert kwargs.get("gaps_port") == 5050
+    assert kwargs.get("open_browser") is False
+    assert "http://localhost:5050" in stderr_buf.getvalue()
 
 
 def test_discover_does_not_break_run() -> None:

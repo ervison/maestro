@@ -167,6 +167,18 @@ def main():
         default=False,
         help="Enable brownfield codebase scan (opt-in)",
     )
+    discover_p.add_argument(
+        "--gaps-port",
+        default=4041,
+        type=int,
+        help="Port for the gap questionnaire web UI. (default: 4041)",
+    )
+    discover_p.add_argument(
+        "--no-browser",
+        action="store_true",
+        default=False,
+        help="Do not auto-open browser for gap questionnaire.",
+    )
 
     args = parser.parse_args()
 
@@ -530,12 +542,20 @@ def _handle_discover(args) -> None:
 
     print(
         f"Starting SDLC discovery using model: {model_id or 'default'}\n"
-        "Generating 13 artifacts — gaps found are recorded in 03-gaps.md and do not stop the pipeline.\n",
+        "Generating 13 artifacts.\n"
+        f"  If gaps are found, a questionnaire will open at http://localhost:{getattr(args, 'gaps_port', 4041)}\n"
+        "  Answer all questions and click Submit to continue.\n",
         file=sys.stderr,
         flush=True,
     )
 
-    harness = DiscoveryHarness(provider=provider, model=model_id, workdir=request.workdir)
+    harness = DiscoveryHarness(
+        provider=provider,
+        model=model_id,
+        workdir=request.workdir,
+        gaps_port=getattr(args, "gaps_port", 4041),
+        open_browser=not getattr(args, "no_browser", False),
+    )
     result = harness.run(request)
     print(f"\n✓ {result.artifact_count} artifacts written to {result.spec_dir}")
 
