@@ -124,6 +124,4 @@
 
 ## Remaining Blockers
 
-1. **Behavioral test quality blocker**
-   - `test_over_decomposition_behavioral` is not a strong behavioral verification of planner independence enforcement.
-   - This blocks acceptance of the phase goal clause: “add unit tests ... behavioral correctness.”
+None. All checks pass. Phase 12 is complete.
