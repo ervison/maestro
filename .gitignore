@@ -211,3 +211,4 @@ __marimo__/
 **/.venv/
 .codex
 sonar-project.properties
+.scannerwork/

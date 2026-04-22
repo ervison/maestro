@@ -206,15 +206,14 @@ def planner_node(state: AgentState) -> dict:
 
             # Strip a leading <reasoning>...</reasoning> block if present
             # (commitment device output). Only strip when the response starts
-            # with the block AND the closing tag appears before the first JSON
-            # object opener — this prevents accidental truncation when a task
-            # prompt legitimately contains these XML tags inside a string value.
+            # with the block — avoids removing content if <reasoning> appears
+            # inside a JSON string value later in the response.
             raw = raw.strip()
-            if raw.startswith("<reasoning>"):
-                end = raw.find("</reasoning>")
-                first_json = raw.find("{")
-                if end != -1 and (first_json == -1 or end < first_json):
-                    raw = raw[end + len("</reasoning>"):].strip()
+            leading_raw = raw.lstrip()
+            if leading_raw.startswith("<reasoning>"):
+                end = leading_raw.find("</reasoning>")
+                if end != -1:
+                    raw = leading_raw[end + len("</reasoning>"):].strip()
 
             # Strip markdown code fences if present (after reasoning block removal)
             if raw.startswith("```"):

@@ -148,6 +148,26 @@ def main():
     # status
     sub.add_parser("status", help="Show auth status")
 
+    # discover
+    discover_p = sub.add_parser("discover", help="Run SDLC discovery planner")
+    discover_p.add_argument("prompt", help="Project description or request")
+    discover_p.add_argument(
+        "--workdir",
+        default=".",
+        help="Working directory for spec/ output (default: current directory)",
+    )
+    discover_p.add_argument(
+        "--model",
+        default=None,
+        help="Model to use in provider/model format (e.g. chatgpt/gpt-4o)",
+    )
+    discover_p.add_argument(
+        "--brownfield",
+        action="store_true",
+        default=False,
+        help="Enable brownfield codebase scan (opt-in)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "auth":
@@ -465,8 +485,48 @@ def main():
                 print(f"Error: {msg}")
             sys.exit(1)
 
+    elif args.command == "discover":
+        _handle_discover(args)
+
     else:
         parser.print_help()
+
+
+def _handle_discover(args) -> None:
+    """Handle the `maestro discover` subcommand."""
+    from maestro.sdlc import ArtifactType, DiscoveryHarness, SDLCRequest
+    from maestro.models import resolve_model
+
+    try:
+        request = SDLCRequest(
+            prompt=args.prompt,
+            brownfield=getattr(args, "brownfield", False),
+            workdir=getattr(args, "workdir", "."),
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        provider, model_id = resolve_model(model_flag=getattr(args, "model", None))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    harness = DiscoveryHarness(provider=provider, model=model_id, workdir=request.workdir)
+
+    total = len(list(ArtifactType))
+    counter = [0]
+    original_generate = harness._generate_artifact
+
+    async def _tracked_generate(req, artifact_type):
+        counter[0] += 1
+        print(f"Generating artifact {counter[0]}/{total}: {artifact_type.value}...")
+        return await original_generate(req, artifact_type)
+
+    harness._generate_artifact = _tracked_generate
+    result = harness.run(request)
+    print(f"✓ {result.artifact_count} artifacts written to {result.spec_dir}")
 
 
 if __name__ == "__main__":
