@@ -26,19 +26,48 @@ logger = logging.getLogger(__name__)
 # JSON schema for structured output enforcement
 _AGENT_PLAN_SCHEMA = AgentPlan.model_json_schema()
 
-PLANNER_SYSTEM_PROMPT = """You are a task decomposition specialist for a multi-agent system.
+PLANNER_SYSTEM_PROMPT = """You are a task decomposition engine. The following rules are ABSOLUTE and MUST be followed without exception.
 
-Your job: decompose a user task into a minimal list of atomic subtasks that can be executed by specialized agents.
+## ABSOLUTE LAWS
 
-## Rules
+1. You MUST decompose the user task into the MINIMUM number of atomic subtasks. Fewer tasks is always correct. More tasks requires explicit justification.
+2. You MUST assign each task to exactly ONE domain from: {domain_names}.
+3. You MUST set `deps` to a list of task IDs that MUST complete before this task starts (can be empty list).
+4. Task IDs MUST be short strings like "t1", "t2", etc.
+5. You MUST NOT create cyclic dependencies.
+6. The `prompt` field MUST be a complete, self-contained instruction for that domain agent.
+7. You MUST NOT split a task merely because it involves multiple steps or touches multiple files — a single agent handles multi-step work within its domain.
 
-1. Each task must be atomic and independently executable by a domain specialist.
-2. Assign each task to exactly ONE domain from: {domain_names}.
-3. Set `deps` to a list of task IDs that must complete before this task starts (can be empty).
-4. Prefer FEWER larger tasks over many tiny ones — avoid over-decomposition.
-5. Task IDs must be short strings like "t1", "t2", etc.
-6. Never create cyclic dependencies.
-7. The `prompt` field must be a complete, self-contained instruction for that domain agent.
+## INDEPENDENCE TEST
+
+A task is independent ONLY IF its result does not change based on another task's result.
+
+If task B requires knowledge of what task A produced, task B MUST declare task A as a dependency. If task B's output would be the same regardless of task A's output, they MAY be split into independent tasks. When uncertain, MERGE.
+
+## RATIONALIZATION TABLE
+
+Before splitting tasks, check your reasoning against this table. If your reasoning matches a row, apply the verdict immediately.
+
+| Rationalization | Why It Is Wrong | Verdict |
+|---|---|---|
+| "These tasks share context, so they must be separate" | Shared context means they are the SAME task. MUST merge. | MERGE |
+| "These could run in parallel" | Parallel execution potential does NOT create independence. If sequencing is required, they are NOT independent. | MERGE or ADD DEP |
+| "Separating them is cleaner" | Cleanliness is NOT a decomposition criterion. | MERGE |
+| "They belong to different domains" | Domain boundaries do NOT equal task boundaries. | MERGE |
+| "They might need separate handling" | Uncertainty is NOT a valid split reason. | MERGE |
+
+These examples are not exhaustive. Any split justified by cleanliness, file boundaries,
+domain boundaries, implementation steps, hypothetical parallelism, or vague future risk
+is invalid unless the outputs are truly independent under the Independence Test above.
+
+## COMMITMENT DEVICE
+
+Before outputting JSON, you MUST output a reasoning block delimited by `<reasoning>` and `</reasoning>` tags. This block MUST contain:
+(a) The final task count and why it is the minimum necessary.
+(b) The domain assignment for each task and why that domain was chosen.
+(c) For each split (where two tasks exist instead of one), the independence rationale: state explicitly that each task's result does NOT change based on the other's result.
+
+After `</reasoning>`, output ONLY the JSON — no markdown fences, no commentary.
 
 ## Output Format (JSON only, no markdown)
 
@@ -175,8 +204,19 @@ def planner_node(state: AgentState) -> dict:
         try:
             raw = _call_provider_with_schema(provider, messages, model_id)
 
-            # Strip markdown code fences if present
+            # Strip a leading <reasoning>...</reasoning> block if present
+            # (commitment device output). Only strip when the response starts
+            # with the block AND the closing tag appears before the first JSON
+            # object opener — this prevents accidental truncation when a task
+            # prompt legitimately contains these XML tags inside a string value.
             raw = raw.strip()
+            if raw.startswith("<reasoning>"):
+                end = raw.find("</reasoning>")
+                first_json = raw.find("{")
+                if end != -1 and (first_json == -1 or end < first_json):
+                    raw = raw[end + len("</reasoning>"):].strip()
+
+            # Strip markdown code fences if present (after reasoning block removal)
             if raw.startswith("```"):
                 lines = raw.split("\n")
                 raw = "\n".join(lines[1:-1]) if len(lines) > 2 else raw
@@ -194,7 +234,7 @@ def planner_node(state: AgentState) -> dict:
                 messages.append(Message(role="assistant", content=raw if 'raw' in locals() else ""))
                 messages.append(Message(
                     role="user",
-                    content=f"Your previous response was invalid: {str(exc)[:200]}\n\nPlease respond with valid JSON only, matching the schema exactly."
+                    content=f"Your previous response was invalid: {str(exc)[:200]}\n\nOutput the <reasoning> block first, then ONLY the JSON matching the schema exactly."
                 ))
 
     raise ValueError(

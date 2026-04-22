@@ -384,7 +384,7 @@ def test_stream_with_text_chunks():
 
 def test_planner_exports_prompt():
     """PLANNER_SYSTEM_PROMPT should be exported and contain key sections."""
-    assert "task decomposition specialist" in PLANNER_SYSTEM_PROMPT.lower()
+    assert "task decomposition" in PLANNER_SYSTEM_PROMPT.lower()
     assert "{schema}" in PLANNER_SYSTEM_PROMPT  # Schema placeholder
     assert "backend" in PLANNER_SYSTEM_PROMPT  # Domain list
     assert "testing" in PLANNER_SYSTEM_PROMPT
@@ -419,7 +419,7 @@ def test_provider_receives_schema_enforced_system_prompt_and_user_task():
     messages = mock_provider.stream_calls[0]["messages"]
     assert messages[0].role == "system"
     assert '"title": "AgentPlan"' in messages[0].content
-    assert "Prefer FEWER larger tasks over many tiny ones" in messages[0].content
+    assert "MUST" in messages[0].content
     assert messages[1].role == "user"
     assert task in messages[1].content
 
@@ -506,3 +506,76 @@ def test_non_parse_errors_propagate_without_retry():
 
     # Should NOT retry on RuntimeError — called exactly once
     assert call_count == 1
+
+
+def test_reasoning_block_stripped_by_planner_node():
+    """planner_node must strip a leading <reasoning>...</reasoning> block before parsing."""
+    plan_json = json.dumps(_make_valid_plan_dict())
+
+    async def _mock_stream_with_reasoning(*args, **kwargs):
+        """Provider that prefixes the JSON with a <reasoning> block."""
+        yield Message(
+            role="assistant",
+            content=f"<reasoning>4 tasks, all independent</reasoning>\n{plan_json}",
+        )
+
+    mock_provider = MockProvider(stream_generator=_mock_stream_with_reasoning)
+
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        state: AgentState = {
+            "task": "Build a REST API",
+            "dag": {},
+            "completed": [],
+            "outputs": {},
+            "errors": [],
+            "depth": 0,
+            "max_depth": 10,
+            "workdir": "/tmp",
+            "auto": False,
+        }
+        result = planner_node(state)
+
+    assert "dag" in result
+    assert "tasks" in result["dag"]
+
+
+def test_reasoning_block_not_stripped_when_embedded_in_json():
+    """planner_node must NOT strip <reasoning> tags that appear inside JSON string values."""
+    # JSON where a task prompt legitimately mentions the <reasoning> tag
+    plan_with_tag_in_content = {
+        "tasks": [
+            {
+                "id": "t1",
+                "domain": "docs",
+                "prompt": "Document the <reasoning>...</reasoning> XML format used by the planner",
+                "deps": [],
+            }
+        ]
+    }
+    json_with_embedded_tag = json.dumps(plan_with_tag_in_content)
+
+    async def _mock_stream_json_with_tag(*args, **kwargs):
+        """Provider that returns JSON whose content includes <reasoning> tags."""
+        yield Message(role="assistant", content=json_with_embedded_tag)
+
+    mock_provider = MockProvider(stream_generator=_mock_stream_json_with_tag)
+
+    with patch("maestro.planner.node.resolve_model", return_value=(mock_provider, "gpt-4o")):
+        state: AgentState = {
+            "task": "Document the planner format",
+            "dag": {},
+            "completed": [],
+            "outputs": {},
+            "errors": [],
+            "depth": 0,
+            "max_depth": 10,
+            "workdir": "/tmp",
+            "auto": False,
+        }
+        result = planner_node(state)
+
+    # JSON must not be corrupted — the task with the embedded tag must survive
+    assert "dag" in result
+    tasks = result["dag"]["tasks"]
+    assert len(tasks) == 1
+    assert "<reasoning>" in tasks[0]["prompt"]
