@@ -27,6 +27,9 @@ github-copilot = "maestro.providers.copilot:CopilotProvider"
 [tool.setuptools.packages.find]
 include = ["maestro*"]
 
+[tool.setuptools.package-data]
+maestro = ["sdlc/static/*.html"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
