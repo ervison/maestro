@@ -108,6 +108,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260418-fpa | Fix ChatGPT browser OAuth login flow causing unknown_error during maestro auth login chatgpt | 2026-04-18 | 29fd84d | [260418-fpa-fix-chatgpt-browser-oauth-login-flow-cau](./quick/260418-fpa-fix-chatgpt-browser-oauth-login-flow-cau/) |
 | 180426-quick-cli | Add --provider to models and allow non-chatgpt providers to run (quick fix) | 2026-04-18 | 0995fa9 | [20260418-quick-cli-add-provider-flag](./quick/20260418-quick-cli-add-provider-flag/) |
+| 220426-sdlc-ux | Fix SDLC discover: write artifacts incrementally, real-time progress, clarify gaps UX | 2026-04-22 | 4801b24 | [20260422-sdlc-ux-fixes](./quick/20260422-sdlc-ux-fixes/) |
 
 ## Deferred Items
 
