@@ -6,6 +6,8 @@ from maestro.sdlc.schemas import (
     ARTIFACT_ORDER,
     ArtifactType,
     DiscoveryResult,
+    GapAnswer,
+    GapItem,
     SDLCArtifact,
     SDLCRequest,
 )
@@ -67,25 +69,27 @@ def test_discovery_result_artifact_count() -> None:
 
 
 def test_gap_item_dataclass() -> None:
-    from maestro.sdlc.schemas import GapItem
-
     item = GapItem(
         question="What is the target audience?",
         options=["B2C consumers", "B2B companies", "Internal teams"],
         recommended_index=0,
     )
+    default_item = GapItem(
+        question="What is the target audience?",
+        options=["B2C consumers", "B2B companies", "Internal teams"],
+    )
 
     assert item.question == "What is the target audience?"
     assert item.options[0] == "B2C consumers"
     assert item.recommended_index == 0
+    assert default_item.recommended_index == 0
 
 
 def test_gap_answer_dataclass() -> None:
-    from maestro.sdlc.schemas import GapAnswer
-
     ans = GapAnswer(
         question="What is the target audience?",
         chosen_option="B2C consumers",
     )
 
+    assert ans.question == "What is the target audience?"
     assert ans.chosen_option == "B2C consumers"
