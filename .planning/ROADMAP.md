@@ -2,7 +2,7 @@
 
 ## Overview
 
-Maestro transforms from a single-agent CLI into a multi-agent parallel execution engine. The journey builds bottom-up: first establish the provider plugin system (so every component speaks a neutral interface), then refactor the agent loop onto that abstraction, then layer the multi-agent DAG orchestrator on top. Every phase delivers a coherent, testable capability. Phases 1–7 establish multi-provider infrastructure; phases 8–11 build the multi-agent DAG engine.
+Maestro transforms from a single-agent CLI into a multi-agent parallel execution engine. The journey builds bottom-up: first establish the provider plugin system (so every component speaks a neutral interface), then refactor the agent loop onto that abstraction, then layer the multi-agent DAG orchestrator on top. Every phase delivers a coherent, testable capability. Phases 1–7 establish multi-provider infrastructure; phases 8–11 build the multi-agent DAG engine. Phases 12–13 (milestone v1.1) harden the planner and introduce the SDLC Discovery Planner.
 
 ## Phases
 
@@ -247,7 +247,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|

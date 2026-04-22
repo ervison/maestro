@@ -37,21 +37,20 @@ def test_prompt_forbids_softening_language():
     assert found == [], f"Softening language found in prompt: {found}"
 
 
-def test_over_decomposition_behavioral():
-    """Independence criterion: sequential tasks MUST declare deps, not claim independence."""
-    def check_has_deps(tasks, deps):
-        return any(len(deps.get(task["id"], [])) > 0 for task in tasks)
+def test_prompt_requires_dependencies_for_non_independent_tasks():
+    """The prompt must explicitly define the independence criterion and forbid treating
+    dependent tasks as independent.
 
-    # A sequential workflow with no deps declared — violates independence criterion
-    # (t2's result changes based on t1's result, so they are NOT independent)
-    mock_tasks = [{"id": "t1"}, {"id": "t2"}, {"id": "t3"}]
-    mock_no_deps = {"t1": [], "t2": [], "t3": []}
-    mock_correct_deps = {"t1": [], "t2": ["t1"], "t3": ["t2"]}
-
-    # Missing deps: wrong — sequential tasks must declare deps
-    assert check_has_deps(mock_tasks, mock_no_deps) is False  # bad: no deps declared
-    # Correct deps: sequential deps correctly declared
-    assert check_has_deps(mock_tasks, mock_correct_deps) is True  # good: deps present
+    This validates the prompt contract: tests in test_planner_node.py exercise the
+    planner_node runtime; this file validates prompt content only.
+    """
+    assert (
+        "A task is independent ONLY IF its result does not change based on another task's result."
+        in PLANNER_SYSTEM_PROMPT
+    )
+    assert "deps" in PLANNER_SYSTEM_PROMPT
+    assert "independent" in PLANNER_SYSTEM_PROMPT
+    assert "MUST" in PLANNER_SYSTEM_PROMPT
 
 
 def test_prompt_rationalization_row_shared_context():
@@ -90,12 +89,9 @@ def test_prompt_contains_catch_all_rule():
     assert any(phrase in PLANNER_SYSTEM_PROMPT for phrase in ["not exhaustive", "any split", "Any split"])
 
 
-def test_reasoning_block_stripped_from_raw_response():
-    """Verify that <reasoning>...</reasoning> prefix is stripped before JSON parsing."""
-    raw = "<reasoning>4 tasks, all independent</reasoning>\n{\"tasks\": []}"
-    if "<reasoning>" in raw:
-        end = raw.find("</reasoning>")
-        if end != -1:
-            raw = raw[end + len("</reasoning>"):].strip()
-    assert raw == '{"tasks": []}'
+def test_prompt_requires_reasoning_block_before_json_output():
+    """The prompt must instruct the model to output a <reasoning> block followed by JSON only."""
+    assert "<reasoning>" in PLANNER_SYSTEM_PROMPT
+    assert "</reasoning>" in PLANNER_SYSTEM_PROMPT
+    assert "ONLY the JSON" in PLANNER_SYSTEM_PROMPT or "only the JSON" in PLANNER_SYSTEM_PROMPT
 
