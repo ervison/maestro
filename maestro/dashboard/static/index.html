@@ -1,1 +1,372 @@
-<!DOCTYPE html><html><body><h1>Maestro Dashboard</h1></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maestro Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1117; color: #c9d1d9; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; display: flex; height: 100vh; overflow: hidden; }
+
+  /* Pipeline canvas */
+  #pipeline { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px; overflow: auto; }
+  .pipeline-row { display: flex; align-items: center; gap: 24px; }
+  .pipeline-column { display: flex; flex-direction: column; gap: 12px; }
+  .arrow { color: #484f58; font-size: 20px; flex-shrink: 0; }
+
+  /* Pipeline cards */
+  .card {
+    background: #161b22;
+    border: 1.5px solid #30363d;
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 160px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    user-select: none;
+  }
+  .card:hover { border-color: #58a6ff; }
+  .card.waiting { opacity: 0.5; }
+  .card.active { border-color: #388bfd; background: #0d1f3c; }
+  .card.done { opacity: 0.6; border-color: #30363d; }
+  .card.failed { border-color: #f85149; background: #200d0d; }
+
+  .card-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .card-title { font-size: 13px; font-weight: 600; color: #e6edf3; }
+  .card-status { font-size: 11px; margin-top: 4px; }
+  .card.waiting .card-status { color: #484f58; }
+  .card.active .card-status { color: #388bfd; }
+  .card.done .card-status { color: #3fb950; }
+  .card.failed .card-status { color: #f85149; }
+
+  /* Animated progress bar (shimmer) */
+  .progress-bar { height: 2px; background: #21262d; border-radius: 1px; margin-top: 8px; overflow: hidden; }
+  .progress-fill {
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, #388bfd, transparent);
+    animation: shimmer 1.4s infinite;
+    display: none;
+  }
+  .card.active .progress-fill { display: block; }
+  @keyframes shimmer {
+    0% { transform: translateX(-150%); }
+    100% { transform: translateX(350%); }
+  }
+
+  /* Side panel */
+  #panel {
+    width: 380px;
+    background: #161b22;
+    border-left: 1px solid #30363d;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #panel.open { display: flex; }
+
+  #panel-header {
+    padding: 16px;
+    border-bottom: 1px solid #30363d;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  #panel-title { font-size: 14px; font-weight: 600; color: #e6edf3; }
+  #panel-close { background: none; border: none; color: #8b949e; cursor: pointer; font-size: 18px; line-height: 1; }
+  #panel-close:hover { color: #e6edf3; }
+
+  #panel-meta { padding: 12px 16px; border-bottom: 1px solid #30363d; display: flex; flex-direction: column; gap: 6px; }
+  .meta-row { display: flex; justify-content: space-between; }
+  .meta-key { color: #8b949e; }
+  .meta-val { color: #c9d1d9; }
+
+  #panel-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .log-tool { color: #d29922; }
+  .log-text { color: #6e7681; }
+  .cursor {
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    background: #388bfd;
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+    margin-left: 2px;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+  /* Empty state */
+  #empty { color: #484f58; font-size: 14px; text-align: center; }
+
+  /* Status badge */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-waiting { background: #21262d; color: #8b949e; }
+  .badge-active { background: #0d2e5f; color: #58a6ff; }
+  .badge-done { background: #0d2c1e; color: #3fb950; }
+  .badge-failed { background: #2c0d0d; color: #f85149; }
+</style>
+</head>
+<body>
+
+<div id="pipeline">
+  <div id="empty">Waiting for agent run...</div>
+</div>
+
+<div id="panel">
+  <div id="panel-header">
+    <div>
+      <div id="panel-title">—</div>
+      <span id="panel-badge" class="badge badge-waiting">waiting</span>
+    </div>
+    <button id="panel-close" onclick="closePanel()">✕</button>
+  </div>
+  <div id="panel-meta">
+    <div class="meta-row"><span class="meta-key">Domain</span><span class="meta-val" id="meta-domain">—</span></div>
+    <div class="meta-row"><span class="meta-key">Model</span><span class="meta-val" id="meta-model">—</span></div>
+    <div class="meta-row"><span class="meta-key">Elapsed</span><span class="meta-val" id="meta-elapsed">—</span></div>
+    <div class="meta-row"><span class="meta-key">Tools used</span><span class="meta-val" id="meta-tools">0</span></div>
+    <div class="meta-row" id="desc-row" style="display:none"><span class="meta-key">Task</span><span class="meta-val" id="meta-desc" style="max-width:220px;text-align:right;word-break:break-word">—</span></div>
+  </div>
+  <div id="panel-log"></div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const nodes = {};          // id → {id, domain, status, model, elapsed, toolCount, logs, description}
+let selectedId = null;
+let elapsedTimers = {};    // id → setInterval handle
+
+// ── SSE connection ─────────────────────────────────────────────────────────
+const sse = new EventSource('/events');
+sse.onmessage = e => {
+  const event = JSON.parse(e.data);
+  handleEvent(event);
+};
+sse.onerror = () => {
+  console.warn('SSE connection lost — will retry');
+};
+
+// ── Event handlers ─────────────────────────────────────────────────────────
+function handleEvent(event) {
+  if (event.type === 'dag_ready') {
+    initDag(event.tasks);
+  } else if (event.type === 'node_update') {
+    updateNode(event);
+  } else if (event.type === 'node_log') {
+    appendLog(event);
+  }
+}
+
+function initDag(tasks) {
+  document.getElementById('empty').style.display = 'none';
+
+  // Initialize synthetic pipeline nodes
+  ['planner', 'scheduler', 'aggregator'].forEach(id => {
+    if (!nodes[id]) nodes[id] = makeNode(id, id, id, []);
+  });
+
+  tasks.forEach(t => {
+    nodes[t.id] = makeNode(t.id, t.domain, t.description || t.id, t.deps || []);
+  });
+
+  renderPipeline();
+}
+
+function makeNode(id, domain, description, deps) {
+  return { id, domain, description, deps, status: 'waiting', model: '—', elapsed: null, toolCount: 0, logs: [] };
+}
+
+function updateNode(event) {
+  const { id, status, model, elapsed, domain } = event;
+
+  if (!nodes[id]) {
+    nodes[id] = makeNode(id, domain || id, id, []);
+  }
+
+  const node = nodes[id];
+  node.status = status;
+  if (model) node.model = model;
+  if (elapsed != null) node.elapsed = elapsed;
+  if (domain) node.domain = domain;
+
+  // Start elapsed timer when active
+  if (status === 'active' && !elapsedTimers[id]) {
+    const startMs = Date.now();
+    elapsedTimers[id] = setInterval(() => {
+      if (nodes[id]) {
+        nodes[id].elapsed = (Date.now() - startMs) / 1000;
+        if (selectedId === id) updatePanelMeta(nodes[id]);
+      }
+    }, 200);
+  }
+
+  // Stop timer when done/failed
+  if (status === 'done' || status === 'failed') {
+    clearInterval(elapsedTimers[id]);
+    delete elapsedTimers[id];
+  }
+
+  renderCard(id);
+  if (selectedId === id) updatePanelMeta(node);
+}
+
+function appendLog(event) {
+  const { id, kind, text } = event;
+  if (!nodes[id]) return;
+
+  const node = nodes[id];
+  node.logs.push({ kind, text });
+  if (kind === 'tool') node.toolCount++;
+
+  if (selectedId === id) {
+    appendLogLine(kind, text);
+    if (kind === 'tool' && nodes[id]) updatePanelMeta(nodes[id]);
+  }
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────────
+function renderPipeline() {
+  const pipeline = document.getElementById('pipeline');
+  pipeline.innerHTML = '';
+
+  const workerIds = Object.keys(nodes).filter(id => !['planner','scheduler','aggregator'].includes(id));
+
+  const row = document.createElement('div');
+  row.className = 'pipeline-row';
+
+  // Planner
+  row.appendChild(makeCardEl('planner'));
+  row.appendChild(makeArrow());
+
+  // Scheduler
+  row.appendChild(makeCardEl('scheduler'));
+  row.appendChild(makeArrow());
+
+  // Workers column
+  if (workerIds.length > 0) {
+    const col = document.createElement('div');
+    col.className = 'pipeline-column';
+    workerIds.forEach(id => col.appendChild(makeCardEl(id)));
+    row.appendChild(col);
+    row.appendChild(makeArrow());
+  }
+
+  // Aggregator
+  row.appendChild(makeCardEl('aggregator'));
+
+  pipeline.appendChild(row);
+}
+
+function makeCardEl(id) {
+  const node = nodes[id];
+  const el = document.createElement('div');
+  el.className = `card ${node.status}`;
+  el.id = `card-${id}`;
+  el.onclick = () => openPanel(id);
+  el.innerHTML = `
+    <div class="card-label">${node.domain}</div>
+    <div class="card-title">${id}</div>
+    <div class="card-status">${statusLabel(node.status)}</div>
+    <div class="progress-bar"><div class="progress-fill"></div></div>
+  `;
+  return el;
+}
+
+function renderCard(id) {
+  const existing = document.getElementById(`card-${id}`);
+  if (!existing) {
+    renderPipeline();
+    return;
+  }
+  const node = nodes[id];
+  existing.className = `card ${node.status}`;
+  existing.querySelector('.card-label').textContent = node.domain;
+  existing.querySelector('.card-status').textContent = statusLabel(node.status);
+}
+
+function makeArrow() {
+  const el = document.createElement('div');
+  el.className = 'arrow';
+  el.textContent = '→';
+  return el;
+}
+
+function statusLabel(status) {
+  return { waiting: 'waiting', active: 'running…', done: '✓ done', failed: '✗ failed' }[status] || status;
+}
+
+// ── Side panel ─────────────────────────────────────────────────────────────
+function openPanel(id) {
+  selectedId = id;
+  const node = nodes[id];
+  const panel = document.getElementById('panel');
+  panel.classList.add('open');
+
+  document.getElementById('panel-title').textContent = id;
+  updatePanelMeta(node);
+
+  // Render logs
+  const logEl = document.getElementById('panel-log');
+  logEl.innerHTML = '';
+  node.logs.forEach(l => appendLogLine(l.kind, l.text));
+
+  // Show description if available
+  if (node.description && node.description !== id) {
+    document.getElementById('meta-desc').textContent = node.description;
+    document.getElementById('desc-row').style.display = 'flex';
+  }
+}
+
+function closePanel() {
+  selectedId = null;
+  document.getElementById('panel').classList.remove('open');
+}
+
+function updatePanelMeta(node) {
+  // Badge
+  const badge = document.getElementById('panel-badge');
+  badge.className = `badge badge-${node.status}`;
+  badge.textContent = node.status;
+
+  document.getElementById('meta-domain').textContent = node.domain;
+  document.getElementById('meta-model').textContent = node.model || '—';
+  document.getElementById('meta-elapsed').textContent = node.elapsed != null ? `${node.elapsed.toFixed(1)}s` : '—';
+  document.getElementById('meta-tools').textContent = node.toolCount;
+}
+
+function appendLogLine(kind, text) {
+  const logEl = document.getElementById('panel-log');
+
+  // Remove cursor from previous last line
+  const oldCursor = logEl.querySelector('.cursor');
+  if (oldCursor) oldCursor.remove();
+
+  const line = document.createElement('div');
+  line.className = kind === 'tool' ? 'log-tool' : 'log-text';
+  line.textContent = text;
+
+  const node = selectedId ? nodes[selectedId] : null;
+  if (node && node.status === 'active') {
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    line.appendChild(cursor);
+  }
+
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+</script>
+</body>
+</html>
