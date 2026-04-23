@@ -82,6 +82,11 @@ Status: COMPLETE
     _write(planning / "phases/02-second/02-SUMMARY.md", "# Phase 2\n")
 
     _write(
+        planning / "REQUIREMENTS.md",
+        "# Maestro - v1.1 Requirements\n\n## Scope\n\nThis file is scoped to milestone `v1.1`.\n",
+    )
+
+    _write(
         planning / "v1.1-MILESTONE-SUMMARY.md",
         """# Maestro v1.1 - Milestone Summary Report
 
@@ -141,7 +146,7 @@ def test_repository_planning_artifacts_are_currently_consistent() -> None:
 
 def test_missing_requirements_reported(tmp_path: Path) -> None:
     planning = _make_planning_tree(tmp_path)
-    # Do NOT write REQUIREMENTS.md — absence should be reported
+    (planning / "REQUIREMENTS.md").unlink()  # Remove to simulate absence
 
     from maestro.planning import check_planning_consistency
 

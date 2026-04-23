@@ -92,7 +92,17 @@ def check_planning_consistency(planning_root: str | Path) -> ConsistencyCheckRes
 
     if not summary_path.exists():
         errors.append(f"Missing milestone summary for STATE.md milestone: {summary_path}")
-        return ConsistencyCheckResult(errors)
+    requirements_path = root / "REQUIREMENTS.md"
+    if not requirements_path.exists():
+        errors.append("Missing REQUIREMENTS.md — cannot validate milestone scope alignment.")
+    else:
+        req_milestone = _parse_requirements(requirements_path)
+        if req_milestone != state.milestone:
+            errors.append(
+                f"REQUIREMENTS.md is scoped to `{req_milestone}` but STATE.md milestone is `{state.milestone}`."
+            )
+
+    return ConsistencyCheckResult(errors)
 
     summary = _parse_summary(summary_path)
     if state.milestone not in summary.milestone_mentions:
@@ -218,3 +228,12 @@ def _require_match(text: str, pattern: str, label: str) -> str:
     if match is None:
         raise ValueError(f"Missing required field: {label}")
     return match.group("value")
+
+
+def _parse_requirements(path: Path) -> str:
+    """Extract the milestone slug from the REQUIREMENTS.md scope declaration."""
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"scoped to milestone [`]([^`]+)[`]", text)
+    if match is None:
+        raise ValueError(f"REQUIREMENTS.md is missing 'scoped to milestone `...`' declaration: {path}")
+    return match.group(1)
