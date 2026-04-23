@@ -291,7 +291,11 @@ Plans:
   1. Repository verification fails when `.planning/ROADMAP.md`, `.planning/STATE.md`, the active milestone summary, or referenced phase evidence drift out of alignment.
   2. The consistency gate runs in normal automated verification for the repository.
   3. Milestone workflow documentation points future updates through the same gate.
-**Plans**: 0 plans (ready for planning)
+**Plans**: 2 plans
+
+Plans:
+- [ ] 14-01-PLAN.md — Extend check_planning_consistency() with REQUIREMENTS.md alignment and add comprehensive drift tests
+- [ ] 14-02-PLAN.md — Add CLI error-path tests and MILESTONE-WORKFLOW.md documentation
 
 ### Phase 15: External Provider Install Smoke Test
 **Goal**: Maestro proves the third-party provider contract through a real isolated install path instead of only local/static evidence
