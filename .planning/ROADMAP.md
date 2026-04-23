@@ -4,6 +4,8 @@
 
 Maestro transforms from a single-agent CLI into a multi-agent parallel execution engine. The journey builds bottom-up: first establish the provider plugin system (so every component speaks a neutral interface), then refactor the agent loop onto that abstraction, then layer the multi-agent DAG orchestrator on top. Every phase delivers a coherent, testable capability. Phases 1–7 establish multi-provider infrastructure; phases 8–11 build the multi-agent DAG engine. Phases 12–13 (milestone v1.1) harden the planner and introduce the SDLC Discovery Planner.
 
+All roadmap phases are now complete. Remaining follow-up work is tracked separately in `.planning/TECH-DEBT-REGISTER.md`.
+
 ## Phases
 
 **Phase Numbering:**
@@ -12,22 +14,23 @@ Maestro transforms from a single-agent CLI into a multi-agent parallel execution
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Provider Plugin Protocol** - Define the ProviderPlugin Protocol and neutral streaming types
-- [ ] **Phase 2: Multi-Slot Auth Store** - Refactor auth to per-provider storage with backward compatibility
+- [x] **Phase 1: Provider Plugin Protocol** - Define the ProviderPlugin Protocol and neutral streaming types ✅ COMPLETE (2026-04-17)
+- [x] **Phase 2: Multi-Slot Auth Store** - Refactor auth to per-provider storage with backward compatibility ✅ COMPLETE (2026-04-17)
 - [x] **Phase 3: ChatGPT Provider Migration** - Move existing HTTP/SSE logic into ChatGPTProvider
 - [x] **Phase 4: Config & Provider Registry** - Runtime discovery, model resolution, and provider registry ✅ COMPLETE (2026-04-18)
 - [x] **Phase 5: Agent Loop Refactor** - Wire provider.stream() into the agentic loop with zero regressions ✅ COMPLETE (2026-04-18)
 - [x] **Phase 6: Auth & Model CLI Commands** - Expose auth management and model discovery to users ✅ COMPLETE (2026-04-18)
-- [ ] **Phase 7: GitHub Copilot Provider** - Second provider with device code OAuth
+- [x] **Phase 7: GitHub Copilot Provider** - Second provider with device code OAuth ✅ COMPLETE (2026-04-18)
 - [x] **Phase 8: DAG State, Types & Domains** - Multi-agent type system and domain prompt definitions ✅ COMPLETE (2026-04-18)
 - [x] **Phase 9: Planner** - LLM-driven DAG generation with structured output validation ✅ COMPLETE (2026-04-18)
 - [x] **Phase 10: Scheduler & Workers** - Parallel execution engine with dependency dispatch and recursion guards ✅ COMPLETE (2026-04-19)
 - [x] **Phase 11: Aggregator & Multi-Agent CLI** - Final summary pass and `--multi` flag integration ✅ COMPLETE (2026-04-19)
+- [x] **Phase 12: DAG Planner Hardening** - Harden planner decomposition rules and prompt compliance ✅ COMPLETE (2026-04-21)
 - [x] **Phase 13: SDLC Discovery Planner** - `maestro discover` generates 13-artifact specification packages ✅ COMPLETE (2026-04-22)
 
 ## Phase Details
 
-### Phase 1: Provider Plugin Protocol
+### Phase 1: Provider Plugin Protocol ✅ COMPLETE
 **Goal**: Developers can define a new provider by implementing a typed Protocol with neutral streaming types
 **Depends on**: Nothing (first phase)
 **Requirements**: PROV-01, PROV-06
@@ -35,12 +38,16 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. `ProviderPlugin` Protocol is importable from `maestro.providers.base` with all required methods (id, name, list_models, stream, auth_required, login, is_authenticated)
   2. `Message`, `Tool`, `ToolCall` neutral types are importable and carry all fields needed for provider-neutral communication
   3. A test class implementing the Protocol passes runtime `isinstance()` check
-**Plans**: 1 plan
+**Plans**: 1 plan (COMPLETE)
+
+**Artifacts**:
+  - `.planning/phases/01-provider-plugin-protocol/01-01-SUMMARY.md`
+  - `.planning/phases/01-provider-plugin-protocol/01-VERIFICATION.md`
 
 Plans:
 - [x] 01-01-PLAN.md — Define ProviderPlugin Protocol and neutral types (Message, Tool, ToolCall, ToolResult)
 
-### Phase 2: Multi-Slot Auth Store
+### Phase 2: Multi-Slot Auth Store ✅ COMPLETE
 **Goal**: Credentials are stored per-provider in a dedicated auth file with a clean public API
 **Depends on**: Phase 1
 **Requirements**: AUTH-01, AUTH-02, AUTH-08
@@ -49,10 +56,18 @@ Plans:
   2. `~/.maestro/auth.json` is created with file mode `0o600` on first write
   3. Existing `maestro auth login` (no provider arg) shows deprecation warning and routes to `maestro auth login chatgpt`
   4. `auth.all_providers()` returns a list of provider IDs with stored credentials
-**Plans**: TBD
+**Plans**: 3 plans (COMPLETE)
+
+**Artifacts**:
+  - `.planning/phases/02-multi-slot-auth-store/02-01-SUMMARY.md`
+  - `.planning/phases/02-multi-slot-auth-store/02-02-SUMMARY.md`
+  - `.planning/phases/02-multi-slot-auth-store/02-03-SUMMARY.md`
+  - `.planning/phases/02-multi-slot-auth-store/02-VERIFICATION.md`
 
 Plans:
-- [ ] 02-01: TBD
+- [x] 02-01-PLAN.md — Define Phase 2 auth-store acceptance tests and CLI migration constraints
+- [x] 02-02-PLAN.md — Implement provider-keyed auth store, secure writes, migration, and compatibility shims
+- [x] 02-03-PLAN.md — Add canonical `maestro auth login [provider]` CLI path and deprecation behavior
 
 ### Phase 3: ChatGPT Provider Migration ✅ COMPLETE
 **Goal**: Existing ChatGPT HTTP/SSE logic is encapsulated in a provider class implementing the Protocol
@@ -124,7 +139,7 @@ Plans:
 Plans:
 - [x] 06-01-PLAN.md — Add auth login/logout/status and models CLI subcommands with multi-provider support
 
-### Phase 7: GitHub Copilot Provider
+### Phase 7: GitHub Copilot Provider ✅ COMPLETE
 **Goal**: Users can authenticate with GitHub Copilot via device code OAuth and use it as an alternative provider
 **Depends on**: Phase 1, Phase 2, Phase 4
 **Requirements**: COPILOT-01, COPILOT-02, COPILOT-03, COPILOT-04, COPILOT-05, AUTH-04, AUTH-07
@@ -135,10 +150,15 @@ Plans:
   4. `slow_down` OAuth error increments the polling interval by 5 seconds (not ignored); `authorization_pending` continues at current interval
   5. `maestro models --provider github-copilot` lists available Copilot model IDs
   6. `is_authenticated()` returns `False` when no Copilot token is stored
-**Plans**: 1 plan
+**Plans**: 1 plan (COMPLETE)
+
+**Artifacts**:
+  - `.planning/phases/07-github-copilot-provider/07-01-SUMMARY.md`
+  - `.planning/phases/07-github-copilot-provider/07-VERIFICATION.md`
+  - `.planning/phases/07-github-copilot-provider/07-REVIEW-FIX.md`
 
 Plans:
-- [ ] 07-01-PLAN.md — Create CopilotProvider with OAuth device code flow, wire format conversion, and comprehensive tests
+- [x] 07-01-PLAN.md — Create CopilotProvider with OAuth device code flow, wire format conversion, and comprehensive tests
 
 ### Phase 8: DAG State, Types & Domains ✅ COMPLETE
 **Goal**: The multi-agent type system and domain specialization prompts are defined and independently validated
@@ -217,6 +237,23 @@ Plans:
 Plans:
 - [x] 11-01-PLAN.md — CLI --multi flag, aggregator node, lifecycle events, and comprehensive tests
 
+### Phase 12: DAG Planner Hardening ✅ COMPLETE
+**Goal**: The planner prompt uses strict decomposition rules that reduce over-splitting and improve DAG quality
+**Depends on**: Phase 11
+**Requirements**: PLAN-01, PLAN-03, PLAN-04
+**Success Criteria** (what must be TRUE):
+  1. ✅ `PLANNER_SYSTEM_PROMPT` uses MUST/MUST NOT language instead of soft guidance
+  2. ✅ Prompt includes an explicit task-independence rule and rationalization table to reduce over-decomposition
+  3. ✅ Planner safely strips the required pre-JSON `<reasoning>` block before `AgentPlan.model_validate_json()`
+  4. ✅ Prompt-content and planner-node regression tests cover the new hardening behavior
+**Plans**: 1 plan (COMPLETE)
+**Artifacts**:
+  - `.planning/phases/12-dag-planner-hardening/12-01-SUMMARY.md`
+  - `.planning/phases/12-dag-planner-hardening/12-VERIFICATION.md`
+
+Plans:
+- [x] 12-01-PLAN.md — Harden planner prompt authority rules and add regression coverage
+
 ### Phase 13: SDLC Discovery Planner ✅ COMPLETE
 **Goal**: `maestro discover "<prompt>"` generates a complete 13-artifact specification package
 **Depends on**: Phase 11
@@ -251,15 +288,16 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Provider Plugin Protocol | 0/? | Not started | - |
-| 2. Multi-Slot Auth Store | 0/? | Not started | - |
+| 1. Provider Plugin Protocol | 1/1 | Complete | 2026-04-17 |
+| 2. Multi-Slot Auth Store | 3/3 | Complete | 2026-04-17 |
 | 3. ChatGPT Provider Migration | 1/1 | Complete   | 2026-04-17 |
 | 4. Config & Provider Registry | 1/1 | Complete | 2026-04-18 |
 | 5. Agent Loop Refactor | 1/1 | Complete | 2026-04-18 |
 | 6. Auth & Model CLI Commands | 1/1 | Complete | 2026-04-18 |
-| 7. GitHub Copilot Provider | 0/? | Not started | - |
+| 7. GitHub Copilot Provider | 1/1 | Complete | 2026-04-18 |
 | 8. DAG State, Types & Domains | 2/2 | Complete | 2026-04-18 |
 | 9. Planner | 1/1 | Complete | 2026-04-18 |
 | 10. Scheduler & Workers | 1/1 | Complete | 2026-04-19 |
 | 11. Aggregator & Multi-Agent CLI | 1/1 | Complete | 2026-04-19 |
+| 12. DAG Planner Hardening | 1/1 | Complete | 2026-04-21 |
 | 13. SDLC Discovery Planner | 4/4 | Complete | 2026-04-22 |
