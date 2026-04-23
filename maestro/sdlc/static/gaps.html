@@ -87,6 +87,7 @@
   .option-label:hover { border-color: var(--accent); }
   .option-label.recommended { border-color: var(--yellow); }
   .option-label input[type="radio"] { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; }
+  .option-label input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; }
   .option-label.selected { border-color: var(--accent); background: var(--accent-bg); }
   .option-text { flex: 1; }
   .rec-badge {
@@ -99,6 +100,25 @@
     border-radius: 10px;
     padding: 1px 7px;
     flex-shrink: 0;
+  }
+  .free-text {
+    width: 100%;
+    margin-top: 10px;
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 12px;
+    resize: vertical;
+  }
+  .free-text:focus { outline: none; border-color: var(--accent); }
+  .mode-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    display: block;
   }
 
   footer { margin-top: 32px; display: flex; gap: 12px; align-items: center; }
@@ -165,21 +185,26 @@ function renderGaps() {
   const container = document.getElementById('questions');
   container.innerHTML = '';
   gaps.forEach((gap, i) => {
+    const inputType = gap.selection_mode === 'multiple' ? 'checkbox' : 'radio';
+    const recommendedOptions = new Set(gap.recommended_options || []);
     const card = document.createElement('div');
     card.className = 'gap-card';
     card.innerHTML = `
       <div class="gap-number">Question ${i + 1} of ${gaps.length}</div>
       <div class="gap-question">${escHtml(gap.question)}</div>
+      ${gap.selection_mode === 'multiple' ? '<span class="mode-hint">Select all that apply</span>' : ''}
       <div class="options" id="opts-${i}"></div>
+      ${gap.allow_free_text ? `<textarea class="free-text" id="free-text-${i}" placeholder="${escHtml(gap.free_text_placeholder || '')}"></textarea>` : ''}
     `;
     const optsEl = card.querySelector(`#opts-${i}`);
-    gap.options.forEach((opt, j) => {
+    gap.options.forEach((opt) => {
+      const isRecommended = recommendedOptions.has(opt);
       const lbl = document.createElement('label');
-      lbl.className = 'option-label' + (j === gap.recommended_index ? ' recommended' : '');
+      lbl.className = 'option-label' + (isRecommended ? ' recommended' : '');
       lbl.innerHTML = `
-        <input type="radio" name="gap-${i}" value="${escHtml(opt)}" onchange="onSelect(this, ${i})">
+        <input type="${inputType}" name="gap-${i}" value="${escHtml(opt)}" onchange="onSelect(this, ${i})">
         <span class="option-text">${escHtml(opt)}</span>
-        ${j === gap.recommended_index ? '<span class="rec-badge">recommended</span>' : ''}
+        ${isRecommended ? '<span class="rec-badge">recommended</span>' : ''}
       `;
       optsEl.appendChild(lbl);
     });
@@ -188,25 +213,33 @@ function renderGaps() {
   updateSubmitState();
 }
 
-function onSelect(radio, gapIndex) {
-  // Highlight selected
+function onSelect(input, gapIndex) {
   const opts = document.getElementById(`opts-${gapIndex}`).querySelectorAll('.option-label');
-  opts.forEach(l => l.classList.remove('selected'));
-  radio.parentElement.classList.add('selected');
+  if (input.type === 'radio') {
+    opts.forEach(l => l.classList.remove('selected'));
+    input.parentElement.classList.add('selected');
+  } else {
+    input.parentElement.classList.toggle('selected', input.checked);
+  }
   updateSubmitState();
 }
 
 function updateSubmitState() {
   const allAnswered = gaps.every((_, i) => {
-    return document.querySelector(`input[name="gap-${i}"]:checked`) !== null;
+    return document.querySelectorAll(`input[name="gap-${i}"]:checked`).length > 0;
   });
   document.getElementById('submit-btn').disabled = !allAnswered;
 }
 
 async function submitAnswers() {
   const answers = gaps.map((gap, i) => {
-    const checked = document.querySelector(`input[name="gap-${i}"]:checked`);
-    return { question: gap.question, chosen_option: checked ? checked.value : '' };
+    const checkedInputs = Array.from(document.querySelectorAll(`input[name="gap-${i}"]:checked`));
+    const freeTextarea = document.getElementById(`free-text-${i}`);
+    return {
+      question: gap.question,
+      selected_options: checkedInputs.map(c => c.value),
+      free_text: freeTextarea ? freeTextarea.value.trim() : '',
+    };
   });
 
   document.getElementById('submit-btn').disabled = true;
