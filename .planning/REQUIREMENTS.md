@@ -24,9 +24,12 @@ This file is scoped to milestone `v1.2`. It tracks the hardening work selected f
 
 ### External Provider Contract (PLUGIN)
 
-- [ ] **PLUGIN-01**: A smoke test creates or installs a minimal third-party provider package in an isolated environment and exposes it through the `maestro.providers` entry-point group.
-- [ ] **PLUGIN-02**: After installation, Maestro discovers the third-party provider through its runtime registry without any source edits inside the main repository.
-- [ ] **PLUGIN-03**: The smoke path is repeatable in automation and does not depend on mutating a developer's global Python environment.
+- [x] **PLUGIN-01
+**: A smoke test creates or installs a minimal third-party provider package in an isolated environment and exposes it through the `maestro.providers` entry-point group.
+- [x] **PLUGIN-02
+**: After installation, Maestro discovers the third-party provider through its runtime registry without any source edits inside the main repository.
+- [x] **PLUGIN-03
+**: The smoke path is repeatable in automation and does not depend on mutating a developer's global Python environment.
 
 ### Copilot Release Gate (COP-SMOKE)
 
