@@ -85,16 +85,22 @@ class DiscoveryHarness:
             # Write immediately so progress is visible on disk
             write_artifact(spec_dir, artifact)
             if artifact_type == ArtifactType.GAPS and self._provider is not None:
-                answers = resolve_gaps(
+                answers = await resolve_gaps(
                     artifact.content,
+                    provider=self._provider,
+                    model=self._model,
                     port=self._gaps_port,
                     open_browser=self._open_browser,
                 )
                 if answers:
-                    answers_text = "\n".join(
-                        f"- {answer.question} → {answer.chosen_option}"
-                        for answer in answers
-                    )
+                    answers_lines = []
+                    for answer in answers:
+                        opts_str = ", ".join(answer.selected_options)
+                        line = f"- {answer.question} → {opts_str}"
+                        if answer.free_text:
+                            line += f" (note: {answer.free_text})"
+                        answers_lines.append(line)
+                    answers_text = "\n".join(answers_lines)
                     effective_request = SDLCRequest(
                         prompt=f"{effective_request.prompt}\n\n## Gap Answers\n{answers_text}",
                         language=effective_request.language,

@@ -1,6 +1,7 @@
 """Tests for the gaps server - parser and server round-trip."""
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
@@ -168,11 +169,20 @@ def test_gaps_server_serves_answers_endpoint():
         assert len(data) == 2
         assert data[0]["question"] == "Is SSO required?"
         assert "options" in data[0]
+        assert "selection_mode" in data[0]
         assert "recommended_index" in data[0]
 
         answers = [
-            {"question": "Is SSO required?", "chosen_option": "Yes"},
-            {"question": "What is the scale?", "chosen_option": "Unknown / TBD"},
+            {
+                "question": "Is SSO required?",
+                "selected_options": ["Yes"],
+                "free_text": "",
+            },
+            {
+                "question": "What is the scale?",
+                "selected_options": ["Unknown / TBD"],
+                "free_text": "",
+            },
         ]
         req = urllib.request.Request(
             f"http://localhost:{port}/answers",
@@ -185,7 +195,7 @@ def test_gaps_server_serves_answers_endpoint():
         time.sleep(0.1)
         result = server.get_answers(timeout=1.0)
         assert len(result) == 2
-        assert result[0].chosen_option == "Yes"
+        assert result[0].selected_options == ["Yes"]
     finally:
         server.stop()
 
@@ -203,7 +213,7 @@ def test_gaps_server_get_answers_blocks_until_submission():
 
     def submit_later():
         time.sleep(0.1)
-        answers = [{"question": "Any gaps?", "chosen_option": "Yes"}]
+        answers = [{"question": "Any gaps?", "selected_options": ["Yes"], "free_text": ""}]
         req = urllib.request.Request(
             f"http://localhost:{port}/answers",
             data=json.dumps(answers).encode("utf-8"),
@@ -221,3 +231,120 @@ def test_gaps_server_get_answers_blocks_until_submission():
     assert result is not None
     assert len(result) == 1
     assert result[0].question == "Any gaps?"
+
+
+def test_enrich_gap_items_no_provider_uses_fallback():
+    from maestro.sdlc.gaps_server import enrich_gap_items
+    from maestro.sdlc.schemas import GapItem
+
+    items = [GapItem(question="Is SSO required?", options=[])]
+
+    result = asyncio.run(enrich_gap_items(items, provider=None, model=None, context=""))
+
+    assert len(result) == 1
+    assert len(result[0].options) >= 2
+    assert result[0].selection_mode in ("single", "multiple")
+
+
+def test_enrich_gap_items_provider_returns_valid_json():
+    from maestro.sdlc.gaps_server import enrich_gap_items
+    from maestro.sdlc.schemas import GapItem
+
+    class FakeProvider:
+        async def stream(self, messages, model=None, **kw):
+            del messages, model, kw
+            payload = '{"selection_mode":"multiple","options":["REST","GraphQL","gRPC"],"recommended_options":["REST"],"allow_free_text":false,"free_text_placeholder":""}'
+            yield type("Msg", (), {"content": payload, "tool_calls": None})()
+
+    items = [GapItem(question="Which API protocols are needed?", options=[])]
+
+    result = asyncio.run(
+        enrich_gap_items(items, provider=FakeProvider(), model="x", context="API project")
+    )
+
+    assert result[0].selection_mode == "multiple"
+    assert "REST" in result[0].options
+
+
+def test_enrich_gap_items_provider_bad_json_uses_fallback():
+    from maestro.sdlc.gaps_server import enrich_gap_items
+    from maestro.sdlc.schemas import GapItem
+
+    class BadProvider:
+        async def stream(self, messages, model=None, **kw):
+            del messages, model, kw
+            yield type("Msg", (), {"content": "not json at all", "tool_calls": None})()
+
+    items = [GapItem(question="Is mobile app required?", options=[])]
+
+    result = asyncio.run(enrich_gap_items(items, provider=BadProvider(), model="x", context=""))
+
+    assert len(result[0].options) >= 2
+
+
+def test_gaps_json_endpoint_includes_new_fields():
+    import json as _j
+
+    from maestro.sdlc.gaps_server import GapsServer
+    from maestro.sdlc.schemas import GapItem
+
+    items = [
+        GapItem(
+            question="Which protocols are needed?",
+            options=["REST", "GraphQL"],
+            selection_mode="multiple",
+            allow_free_text=False,
+            recommended_options=["REST"],
+        )
+    ]
+    server = GapsServer(items, port=0)
+    server.start()
+    try:
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{server.port}/gaps")
+        data = _j.loads(resp.read())
+        assert data[0]["selection_mode"] == "multiple"
+        assert data[0]["allow_free_text"] is False
+        assert data[0]["recommended_options"] == ["REST"]
+    finally:
+        server.stop()
+
+
+def test_answers_endpoint_parses_selected_options():
+    import json as _j
+
+    from maestro.sdlc.gaps_server import GapsServer
+    from maestro.sdlc.schemas import GapItem
+
+    items = [
+        GapItem(
+            question="Which protocols?",
+            options=["REST", "GraphQL"],
+            selection_mode="multiple",
+        )
+    ]
+    server = GapsServer(items, port=0)
+    server.start()
+    try:
+        payload = _j.dumps(
+            [
+                {
+                    "question": "Which protocols?",
+                    "selected_options": ["REST", "GraphQL"],
+                    "free_text": "",
+                }
+            ]
+        ).encode()
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{server.port}/answers",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        resp = urllib.request.urlopen(req)
+        assert resp.status == 200
+        answers = server.get_answers(timeout=1.0)
+        assert answers is not None
+        assert answers[0].selected_options == ["REST", "GraphQL"]
+        assert answers[0].free_text == ""
+    finally:
+        server.stop()

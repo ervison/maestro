@@ -139,10 +139,10 @@ def test_harness_resolves_gaps_and_enriches_prompt(tmp_path: Path, monkeypatch) 
             content=content,
         )
 
-    mock_answers = [GapAnswer(question="Is SSO required?", chosen_option="Yes")]
+    mock_answers = [GapAnswer(question="Is SSO required?", selected_options=["Yes"])]
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", return_value=mock_answers) as mock_resolve:
+        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=mock_answers)) as mock_resolve:
             harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
             request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
             result = asyncio.run(harness.arun(request))
@@ -174,7 +174,9 @@ def test_harness_post_gap_artifacts_use_resolved_prompt_rules(tmp_path: Path) ->
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
         with patch(
             "maestro.sdlc.harness.resolve_gaps",
-            return_value=[GapAnswer(question="Is SSO required?", chosen_option="Yes")],
+            new=AsyncMock(
+                return_value=[GapAnswer(question="Is SSO required?", selected_options=["Yes"])]
+            ),
         ):
             harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
             request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
@@ -211,7 +213,7 @@ def test_harness_raises_if_post_gap_artifact_has_open_markers(tmp_path: Path) ->
         )
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", return_value=[]):
+        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
             harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
             request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
             with pytest.raises(RuntimeError, match=r"Unresolved \[GAP\]/\[HYPOTHESIS\]"):
@@ -239,7 +241,7 @@ def test_harness_allows_inline_marker_mentions_after_gap_resolution(tmp_path: Pa
         )
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", return_value=[]):
+        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
             harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
             request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
             result = asyncio.run(harness.arun(request))
@@ -269,7 +271,7 @@ def test_harness_deduplicates_repeated_artifact_content(tmp_path: Path) -> None:
         )
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", return_value=[]):
+        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
             harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
             request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
             result = asyncio.run(harness.arun(request))

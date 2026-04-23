@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import json as _json
 import re
 import threading
 import webbrowser
@@ -171,6 +172,104 @@ def _looks_portuguese(text: str) -> bool:
     return any(token in f" {probe} " for token in tokens)
 
 
+_ENRICH_SYSTEM = """\
+You are a requirements analyst. Given a gap question from an SDLC discovery session, \
+return a JSON object (no markdown, raw JSON only) with exactly these fields:
+- selection_mode: "single" if the question has one correct answer, "multiple" if several can apply simultaneously
+- options: array of 3-6 short, concrete, mutually-understandable answer strings (NOT sentence fragments of the question itself)
+- recommended_options: array with 0-2 options you consider most common/default (must be items from options)
+- allow_free_text: true if the question is open-ended enough to need a custom answer
+- free_text_placeholder: short placeholder string for the textarea when allow_free_text is true, else ""
+
+Rules:
+- Each option must be a standalone phrase a user can select without reading the question again
+- Do NOT split the question sentence into fragments as options
+- Use the project context to make options domain-relevant
+- Respond with ONLY the JSON object, no explanation, no markdown fences
+"""
+
+_ENRICH_USER_TMPL = "Project context: {context}\n\nGap question: {question}"
+
+
+async def enrich_gap_items(
+    items: list[GapItem],
+    provider: Any,
+    model: str | None,
+    context: str,
+) -> list[GapItem]:
+    """Enrich gap items with LLM-generated options and UI metadata.
+
+    Falls back to heuristic if provider is None or returns unparseable content.
+    """
+    enriched: list[GapItem] = []
+    for item in items:
+        if provider is None:
+            enriched.append(_heuristic_enrich(item))
+            continue
+        try:
+            enriched.append(await _llm_enrich(item, provider, model, context))
+        except Exception:
+            enriched.append(_heuristic_enrich(item))
+    return enriched
+
+
+async def _llm_enrich(
+    item: GapItem,
+    provider: Any,
+    model: str | None,
+    context: str,
+) -> GapItem:
+    messages = [
+        {"role": "system", "content": _ENRICH_SYSTEM},
+        {
+            "role": "user",
+            "content": _ENRICH_USER_TMPL.format(context=context, question=item.question),
+        },
+    ]
+    collected = ""
+    async for msg in provider.stream(messages, model=model):
+        if msg.content:
+            collected += msg.content
+
+    data = _json.loads(collected.strip())
+    return GapItem(
+        question=item.question,
+        options=[str(o) for o in data.get("options", [])],
+        selection_mode=data.get("selection_mode", "single"),
+        recommended_index=0,
+        recommended_options=[str(o) for o in data.get("recommended_options", [])],
+        allow_free_text=bool(data.get("allow_free_text", False)),
+        free_text_placeholder=str(data.get("free_text_placeholder", "")),
+    )
+
+
+def _heuristic_enrich(item: GapItem) -> GapItem:
+    """Apply heuristic option inference and wrap into a full GapItem."""
+    options = _infer_options(item.question)
+    q_lower = item.question.lower()
+    open_prefixes = (
+        "what ", "which ", "how ", "when ", "where ", "why ", "who ",
+        "quem ", "qual ", "quais ", "como ", "quanto ", "quantos ",
+        "quantas ", "quando ", "onde ", "por que ", "o que ",
+    )
+    allow_free = any(q_lower.startswith(p) for p in open_prefixes)
+    multi_keywords = (
+        "quais ", "which ", "select all", "pode ser mais", "podem ser",
+        "list ", "listar", "technologies", "tecnologias", "protocols",
+        "protocolos", "features", "funcionalidades",
+    )
+    is_multi = any(kw in q_lower for kw in multi_keywords)
+    return GapItem(
+        question=item.question,
+        options=options,
+        selection_mode="multiple" if is_multi else "single",
+        recommended_index=0,
+        recommended_options=[],
+        allow_free_text=allow_free,
+        free_text_placeholder="Especifique..." if _looks_portuguese(item.question) else "Specify...",
+    )
+
+
 def _extract_inline_alternatives(question: str) -> list[str]:
     """Extract inline alternatives from text like 'manual, automatica ou ambas?'"""
     source = question.strip().rstrip("?")
@@ -273,7 +372,11 @@ class GapsServer:
                     {
                         "question": item.question,
                         "options": item.options,
+                        "selection_mode": item.selection_mode,
                         "recommended_index": item.recommended_index,
+                        "recommended_options": item.recommended_options,
+                        "allow_free_text": item.allow_free_text,
+                        "free_text_placeholder": item.free_text_placeholder,
                     }
                     for item in server_ref._items
                 ]
@@ -289,15 +392,19 @@ class GapsServer:
                 length = int(self.headers.get("Content-Length", 0))
                 raw = self.rfile.read(length)
                 try:
-                    data: list[dict[str, str]] = json.loads(raw)
+                    data: list[dict] = json.loads(raw)
                     answers = [
                         GapAnswer(
                             question=item["question"],
-                            chosen_option=item["chosen_option"],
+                            selected_options=(
+                                item.get("selected_options")
+                                or [item.get("chosen_option", "unknown")]
+                            ),
+                            free_text=item.get("free_text", ""),
                         )
                         for item in data
                     ]
-                except (json.JSONDecodeError, KeyError, TypeError):
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                     self.send_error(400, "Invalid JSON")
                     return
 
@@ -321,15 +428,19 @@ def serve_gaps(items: list[GapItem], port: int = 4041) -> GapsServer:
     return server
 
 
-def resolve_gaps(
+async def resolve_gaps(
     gaps_content: str,
+    provider: Any = None,
+    model: str | None = None,
     port: int = 4041,
     open_browser: bool = True,
 ) -> list[GapAnswer]:
-    """Parse gaps from markdown, serve questionnaire, block until answered."""
+    """Parse gaps from markdown, enrich with LLM, serve questionnaire, block until answered."""
     items = parse_gaps(gaps_content)
     if not items:
         return []
+
+    items = await enrich_gap_items(items, provider=provider, model=model, context=gaps_content[:500])
 
     server = serve_gaps(items, port=port)
     url = f"http://localhost:{server.port}"

@@ -85,11 +85,23 @@ def test_gap_item_dataclass() -> None:
     assert default_item.recommended_index == 0
 
 
-def test_gap_answer_dataclass() -> None:
-    ans = GapAnswer(
-        question="What is the target audience?",
-        chosen_option="B2C consumers",
-    )
+def test_gap_item_defaults() -> None:
+    item = GapItem(question="Is SSO required?", options=["Yes", "No"])
 
-    assert ans.question == "What is the target audience?"
-    assert ans.chosen_option == "B2C consumers"
+    assert item.selection_mode == "single"
+    assert item.allow_free_text is False
+    assert item.free_text_placeholder == ""
+    assert item.recommended_options == []
+    assert item.recommended_index == 0
+
+
+def test_gap_answer_new_fields() -> None:
+    ans = GapAnswer(question="Is SSO required?", selected_options=["Yes"])
+
+    assert ans.selected_options == ["Yes"]
+    assert ans.free_text == ""
+
+
+def test_gap_answer_rejects_empty_selected() -> None:
+    with pytest.raises(ValueError):
+        GapAnswer(question="q", selected_options=[])

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
+from typing import Literal
 
 
 class ArtifactType(enum.Enum):
@@ -134,11 +135,15 @@ class DiscoveryResult:
 
 @dataclass
 class GapItem:
-    """A single gap question with answer options."""
+    """A single gap question with answer options and UI metadata."""
 
     question: str
     options: list[str]
+    selection_mode: Literal["single", "multiple"] = "single"
     recommended_index: int = 0
+    recommended_options: list[str] = field(default_factory=list)
+    allow_free_text: bool = False
+    free_text_placeholder: str = ""
 
 
 @dataclass
@@ -146,4 +151,9 @@ class GapAnswer:
     """User's answer to a single gap question."""
 
     question: str
-    chosen_option: str
+    selected_options: list[str]
+    free_text: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.selected_options:
+            raise ValueError("selected_options must have at least one item")
