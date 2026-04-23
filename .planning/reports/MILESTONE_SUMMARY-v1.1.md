@@ -14,7 +14,7 @@ Core value remains: `maestro run --multi "build a REST API with tests and docs"`
 Current milestone context:
 - `gsd-sdk query init.progress` resolves active milestone as `v1.1`
 - 13 phases discovered
-- 11 phases marked `complete`, 2 phases marked `in_progress` in metadata (`06`, `13`)
+- 13 phases marked `complete` in roadmap/state artifacts after the reconciliation pass
 
 Primary artifacts used:
 - `.planning/PROJECT.md`
@@ -66,14 +66,14 @@ Major architecture decisions and why they were chosen:
 | 03 | chatgpt-provider-migration | complete | Extracted ChatGPT HTTP/SSE logic into provider implementation and registered entry point. |
 | 04 | provider-registry | complete | Added provider discovery, registry lookup, and model resolution pipeline. |
 | 05 | agent-loop-refactor | complete | Switched loop transport to provider streaming while preserving behavior. |
-| 06 | auth-model-cli-commands | in_progress | Delivered `auth login/logout/status` and `models` CLI surface with tests. |
+| 06 | auth-model-cli-commands | complete | Delivered `auth login/logout/status` and `models` CLI surface with tests. |
 | 07 | github-copilot-provider | complete | Implemented Copilot OAuth device flow and streaming provider support. |
 | 08 | dag-state-types-domains | complete | Introduced reducer-safe state, planner schemas, validator, and domain prompts. |
 | 09 | planner | complete | Implemented planner node with structured output validation and retry behavior. |
 | 10 | scheduler-workers | complete | Implemented dependency-aware parallel dispatch with worker recursion/path guards. |
 | 11 | aggregator-multi-agent-cli | complete | Added `--multi`, lifecycle events, and optional aggregator finalization. |
 | 12 | dag-planner-hardening | complete | Hardened planner prompt with strict decomposition and reasoning guardrails. |
-| 13 | sdlc-discovery-planner | in_progress | Added `maestro discover` to generate a 13-artifact SDLC package. |
+| 13 | sdlc-discovery-planner | complete | Added `maestro discover` to generate a 13-artifact SDLC package. |
 
 ## 4. Decisions
 
@@ -128,8 +128,7 @@ Audit verdict reference:
 Open debt and deferred items gathered from verification/context/audit artifacts:
 
 - **TD-02 / WORK-06 (Deferred):** Recursive sub-planner call path is not implemented (optional requirement).
-- **Roadmap-state consistency debt:** Roadmap checkboxes for Phases 1, 2, and 7 do not fully align with implementation and verification artifacts.
-- **Metadata consistency debt:** `init.progress` shows milestone `v1.1` with phases `06` and `13` still `in_progress`, while milestone narrative artifacts indicate broader completion.
+- **Planning consistency follow-up:** Keep `.planning/ROADMAP.md`, `.planning/STATE.md`, and milestone summaries aligned through the automated `maestro planning check` gate.
 - **Verification nuance debt:** Some historical verification files reflect temporary failures that were fixed later; onboarding readers should prioritize latest summary + audit context.
 - **Retrospective gap:** `.planning/RETROSPECTIVE.md` is absent, so lessons-learned and process improvements are under-documented.
 
@@ -165,7 +164,7 @@ For new contributors:
 ## Stats
 
 - **Timeline:** 2026-04-17 -> 2026-04-23
-- **Phases:** 11 complete / 13 total (per `init.progress` metadata)
+- **Phases:** 13 complete / 13 total (per `.planning/ROADMAP.md` and `.planning/STATE.md`)
 - **Commits in window:** 245 (fallback method: earliest phase commit date)
 - **Diff shortstat:** 5332 files changed (+202283 / -629083)
 - **Contributors:** Ervison Lima, ervison, copilot-swe-agent[bot]

@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 import warnings
+from pathlib import Path
 
 from maestro import auth
 from maestro.agent import run
@@ -147,6 +148,18 @@ def main():
 
     # status
     sub.add_parser("status", help="Show auth status")
+
+    # planning
+    planning_p = sub.add_parser("planning", help="Planning artifact maintenance")
+    planning_sub = planning_p.add_subparsers(dest="planning_command")
+    planning_check_p = planning_sub.add_parser(
+        "check", help="Check ROADMAP/STATE/summary consistency"
+    )
+    planning_check_p.add_argument(
+        "--root",
+        default=".planning",
+        help="Planning artifact directory to validate (default: .planning)",
+    )
 
     # discover
     discover_p = sub.add_parser("discover", help="Run SDLC discovery planner")
@@ -528,6 +541,13 @@ def main():
     elif args.command == "discover":
         _handle_discover(args)
 
+    elif args.command == "planning":
+        if args.planning_command == "check":
+            _handle_planning_check(args)
+        else:
+            planning_p.print_help()
+            sys.exit(1)
+
     else:
         parser.print_help()
 
@@ -573,6 +593,23 @@ def _handle_discover(args) -> None:
     )
     result = harness.run(request)
     print(f"\n✓ {result.artifact_count} artifacts written to {result.spec_dir}")
+
+
+def _handle_planning_check(args) -> None:
+    """Handle `maestro planning check`."""
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(getattr(args, "root", ".planning"))
+    if result.errors:
+        print("Planning consistency check failed:", file=sys.stderr)
+        for error in result.errors:
+            print(f"- {error}", file=sys.stderr)
+        sys.exit(1)
+
+    print(
+        f"Planning consistency check passed for {Path(getattr(args, 'root', '.planning')).resolve()}"
+    )
+    sys.exit(0)
 
 
 if __name__ == "__main__":
