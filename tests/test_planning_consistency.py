@@ -135,3 +135,44 @@ def test_repository_planning_artifacts_are_currently_consistent() -> None:
     result = check_planning_consistency(repo_root / ".planning")
 
     assert result.errors == []
+
+
+# ── Plan 14-01 Task 1: REQUIREMENTS.md milestone alignment checks ─────────────
+
+def test_missing_requirements_reported(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    # Do NOT write REQUIREMENTS.md — absence should be reported
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert any("Missing REQUIREMENTS.md" in e for e in result.errors)
+
+
+def test_requirements_milestone_mismatch_reported(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    _write(
+        planning / "REQUIREMENTS.md",
+        "# Maestro - v9.9 Requirements\n\n## Scope\n\nThis file is scoped to milestone `v9.9`.\n",
+    )
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert any("REQUIREMENTS.md is scoped to" in e for e in result.errors)
+
+
+def test_requirements_milestone_aligned_no_error(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    _write(
+        planning / "REQUIREMENTS.md",
+        "# Maestro - v1.1 Requirements\n\n## Scope\n\nThis file is scoped to milestone `v1.1`.\n",
+    )
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert not any("REQUIREMENTS.md" in e for e in result.errors)
