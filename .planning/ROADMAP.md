@@ -2,9 +2,7 @@
 
 ## Overview
 
-Maestro transforms from a single-agent CLI into a multi-agent parallel execution engine. The journey builds bottom-up: first establish the provider plugin system (so every component speaks a neutral interface), then refactor the agent loop onto that abstraction, then layer the multi-agent DAG orchestrator on top. Every phase delivers a coherent, testable capability. Phases 1–7 establish multi-provider infrastructure; phases 8–11 build the multi-agent DAG engine. Phases 12–13 (milestone v1.1) harden the planner and introduce the SDLC Discovery Planner.
-
-All roadmap phases are now complete. Remaining follow-up work is tracked separately in `.planning/TECH-DEBT-REGISTER.md`.
+Maestro transformed from a single-agent CLI into a multi-agent parallel execution engine in Phases 1-13. The next milestone focuses on hardening the shipped system instead of adding a new product surface. Phases 14-17 (milestone `v1.2`) convert the highest-priority debt items into planned work: planning artifact integrity, external provider install validation, Copilot release readiness, and aggregator runtime guardrails.
 
 ## Phases
 
@@ -27,6 +25,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 11: Aggregator & Multi-Agent CLI** - Final summary pass and `--multi` flag integration ✅ COMPLETE (2026-04-19)
 - [x] **Phase 12: DAG Planner Hardening** - Harden planner decomposition rules and prompt compliance ✅ COMPLETE (2026-04-21)
 - [x] **Phase 13: SDLC Discovery Planner** - `maestro discover` generates 13-artifact specification packages ✅ COMPLETE (2026-04-22)
+- [ ] **Phase 14: Planning Consistency Gate** - Enforce automated alignment checks across roadmap, state, and milestone artifacts
+- [ ] **Phase 15: External Provider Install Smoke Test** - Verify third-party `maestro.providers` packages in an isolated install path
+- [ ] **Phase 16: Copilot Release Smoke Gate** - Add a release-grade real-auth smoke check for GitHub Copilot
+- [ ] **Phase 17: Aggregator Guardrails** - Bound optional aggregator spend and rate behavior in unattended runs
 
 ## Phase Details
 
@@ -281,10 +283,51 @@ Plans:
 - [x] 13-03-PLAN.md — Writer module and brownfield detection
 - [x] 13-04-PLAN.md — `maestro discover` CLI subcommand
 
+### Phase 14: Planning Consistency Gate
+**Goal**: Planning artifacts fail fast when roadmap, state, summary, and scoped milestone requirements drift out of sync
+**Depends on**: Phase 13
+**Requirements**: META-01, META-02, META-03
+**Success Criteria** (what must be TRUE):
+  1. Repository verification fails when `.planning/ROADMAP.md`, `.planning/STATE.md`, the active milestone summary, or referenced phase evidence drift out of alignment.
+  2. The consistency gate runs in normal automated verification for the repository.
+  3. Milestone workflow documentation points future updates through the same gate.
+**Plans**: 0 plans (ready for planning)
+
+### Phase 15: External Provider Install Smoke Test
+**Goal**: Maestro proves the third-party provider contract through a real isolated install path instead of only local/static evidence
+**Depends on**: Phase 4
+**Requirements**: PLUGIN-01, PLUGIN-02, PLUGIN-03
+**Success Criteria** (what must be TRUE):
+  1. A minimal third-party provider package can be installed in an isolated environment without editing Maestro source.
+  2. Maestro discovers the installed package through the `maestro.providers` entry-point group at runtime.
+  3. The smoke path is repeatable in automation and does not mutate a developer's global environment.
+**Plans**: 0 plans (ready for planning)
+
+### Phase 16: Copilot Release Smoke Gate
+**Goal**: The most user-sensitive provider path has a release-grade real-world verification gate
+**Depends on**: Phase 7, Phase 15
+**Requirements**: COP-SMOKE-01, COP-SMOKE-02, COP-SMOKE-03
+**Success Criteria** (what must be TRUE):
+  1. The smoke gate exercises the real GitHub Copilot device-code login path.
+  2. The same path verifies at least one live authenticated Copilot API request.
+  3. The gate is explicitly skippable when credentials, a real account, or network access are unavailable.
+**Plans**: 0 plans (ready for planning)
+
+### Phase 17: Aggregator Guardrails
+**Goal**: Optional aggregator LLM calls stay bounded by explicit runtime policy
+**Depends on**: Phase 11
+**Requirements**: AGG-GUARD-01, AGG-GUARD-02, AGG-GUARD-03, AGG-GUARD-04
+**Success Criteria** (what must be TRUE):
+  1. Aggregator calls are protected by explicit spend or call-count guardrails.
+  2. Repeated aggregation attempts are bounded during unattended usage.
+  3. The CLI explains when aggregation is blocked or skipped by policy.
+  4. Automated tests cover the allow, block, and skip paths.
+**Plans**: 0 plans (ready for planning)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -301,3 +344,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 11. Aggregator & Multi-Agent CLI | 1/1 | Complete | 2026-04-19 |
 | 12. DAG Planner Hardening | 1/1 | Complete | 2026-04-21 |
 | 13. SDLC Discovery Planner | 4/4 | Complete | 2026-04-22 |
+| 14. Planning Consistency Gate | 0/0 | Planned | - |
+| 15. External Provider Install Smoke Test | 0/0 | Planned | - |
+| 16. Copilot Release Smoke Gate | 0/0 | Planned | - |
+| 17. Aggregator Guardrails | 0/0 | Planned | - |
