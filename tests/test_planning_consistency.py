@@ -181,3 +181,30 @@ def test_requirements_milestone_aligned_no_error(tmp_path: Path) -> None:
     result = check_planning_consistency(planning)
 
     assert not any("REQUIREMENTS.md" in e for e in result.errors)
+
+
+# ── Plan 14-01 Task 2: Additional drift path coverage ────────────────────────
+
+def test_missing_phase_evidence_reported(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    (planning / "phases/01-first/01-SUMMARY.md").unlink()
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert any("phases/01-first/01-SUMMARY.md" in e for e in result.errors)
+
+
+def test_summary_missing_milestone_mention_reported(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    _write(
+        planning / "v1.1-MILESTONE-SUMMARY.md",
+        "# Milestone Summary\n\nNo version mentioned here.\n",
+    )
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert any("v1.1" in e and "does not mention" in e for e in result.errors)

@@ -92,17 +92,7 @@ def check_planning_consistency(planning_root: str | Path) -> ConsistencyCheckRes
 
     if not summary_path.exists():
         errors.append(f"Missing milestone summary for STATE.md milestone: {summary_path}")
-    requirements_path = root / "REQUIREMENTS.md"
-    if not requirements_path.exists():
-        errors.append("Missing REQUIREMENTS.md — cannot validate milestone scope alignment.")
-    else:
-        req_milestone = _parse_requirements(requirements_path)
-        if req_milestone != state.milestone:
-            errors.append(
-                f"REQUIREMENTS.md is scoped to `{req_milestone}` but STATE.md milestone is `{state.milestone}`."
-            )
-
-    return ConsistencyCheckResult(errors)
+        return ConsistencyCheckResult(errors)
 
     summary = _parse_summary(summary_path)
     if state.milestone not in summary.milestone_mentions:
@@ -135,6 +125,16 @@ def check_planning_consistency(planning_root: str | Path) -> ConsistencyCheckRes
                     f"{report_path.relative_to(root.parent)} reports {complete_count}/{total_count} complete phases, "
                     f"but ROADMAP.md shows {roadmap.completed_phases}/{roadmap.total_phases}."
                 )
+
+    requirements_path = root / "REQUIREMENTS.md"
+    if not requirements_path.exists():
+        errors.append("Missing REQUIREMENTS.md — cannot validate milestone scope alignment.")
+    else:
+        req_milestone = _parse_requirements(requirements_path)
+        if req_milestone != state.milestone:
+            errors.append(
+                f"REQUIREMENTS.md is scoped to `{req_milestone}` but STATE.md milestone is `{state.milestone}`."
+            )
 
     return ConsistencyCheckResult(errors)
 
