@@ -305,7 +305,10 @@ Plans:
   1. A minimal third-party provider package can be installed in an isolated environment without editing Maestro source.
   2. Maestro discovers the installed package through the `maestro.providers` entry-point group at runtime.
   3. The smoke path is repeatable in automation and does not mutate a developer's global environment.
-**Plans**: 0 plans (ready for planning)
+**Plans**: 1 plan
+
+Plans:
+- [ ] 15-01-PLAN.md — Create hello_provider fixture and subprocess-based isolated-install smoke test
 
 ### Phase 16: Copilot Release Smoke Gate
 **Goal**: The most user-sensitive provider path has a release-grade real-world verification gate
