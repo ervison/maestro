@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "hello-provider"
+version = "0.1.0"
+description = "Minimal test fixture provider for maestro smoke tests"
+requires-python = ">=3.11"
+
+[project.entry-points."maestro.providers"]
+hello = "hello_provider:HelloProvider"
+
+[tool.setuptools]
+py-modules = ["hello_provider"]
