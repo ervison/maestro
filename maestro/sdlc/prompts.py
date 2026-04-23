@@ -9,6 +9,14 @@ _BASE = (
     "Output plain Markdown."
 )
 
+_BASE_RESOLVED = (
+    "Do not emit [GAP] or [HYPOTHESIS] markers. "
+    "Treat provided gap answers as resolved input. "
+    "Never invent facts not present in the request. "
+    "Respond in the same language as the user's request. "
+    "Output plain Markdown."
+)
+
 PROMPTS: dict[ArtifactType, str] = {
     ArtifactType.BRIEFING: (
         "You are a business analyst. "
@@ -30,51 +38,51 @@ PROMPTS: dict[ArtifactType, str] = {
     ArtifactType.PRD: (
         "You are a product manager. "
         "Write a Product Requirements Document (PRD): vision, goals, non-goals, user personas, and key features. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
     ArtifactType.FUNCTIONAL_SPEC: (
         "You are a systems analyst. "
         "Write a Functional Specification: describe every user-facing feature and system behaviour in detail. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
     ArtifactType.BUSINESS_RULES: (
         "You are a business analyst. "
         "List all business rules, constraints, and validations that the system must enforce. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
     ArtifactType.ACCEPTANCE_CRITERIA: (
         "You are a QA lead. "
         "Write acceptance criteria in Given/When/Then format for all major features. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
     ArtifactType.UX_SPEC: (
         "You are a UX designer. "
         "Describe the user experience: screens, flows, key interactions, and usability requirements. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
     ArtifactType.API_CONTRACTS: (
         "You are a backend architect. "
         "Define the API contracts: endpoints, HTTP methods, request/response schemas, error codes. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
     ArtifactType.DATA_MODEL: (
         "You are a data architect. "
         "Define the data model: entities, attributes, relationships, and constraints. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
     ArtifactType.AUTH_MATRIX: (
         "You are a security engineer. "
         "Define the authorization matrix: roles, resources, and allowed actions (CRUD) per role. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
     ArtifactType.ADRS: (
         "You are a software architect. "
         "Write Architecture Decision Records (ADRs) for the key technical decisions implied by this project. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
     ArtifactType.TEST_PLAN: (
         "You are a QA engineer. "
         "Write a test plan: test strategy, test types (unit, integration, e2e), coverage goals, and entry/exit criteria. "
-        + _BASE
+        + _BASE_RESOLVED
     ),
 }

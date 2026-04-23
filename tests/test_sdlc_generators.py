@@ -35,6 +35,20 @@ class EmptyProvider:
         yield  # make it an async generator
 
 
+class FlakyProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream(self, messages, tools, model):
+        del messages, tools, model
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError(
+                "httpx.RemoteProtocolError: peer closed connection without sending complete message body"
+            )
+        yield Message(role="assistant", content="recovered content")
+
+
 @pytest.mark.asyncio
 async def test_generate_artifact_returns_sdlc_artifact() -> None:
     provider = MockProvider()
@@ -78,6 +92,17 @@ async def test_generate_artifact_all_types_succeed() -> None:
         result = await generate_artifact(provider, None, request, artifact_type)
         assert isinstance(result, SDLCArtifact)
         assert result.artifact_type == artifact_type
+
+
+@pytest.mark.asyncio
+async def test_generate_artifact_retries_transient_stream_error() -> None:
+    provider = FlakyProvider()
+    request = SDLCRequest("Build a CRM")
+
+    result = await generate_artifact(provider, None, request, ArtifactType.API_CONTRACTS)
+
+    assert result.content == "recovered content"
+    assert provider.calls == 2
 
 
 @pytest.mark.asyncio

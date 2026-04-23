@@ -41,6 +41,117 @@ def test_parse_gaps_no_gap_tag():
     assert items == []
 
 
+def test_parse_gaps_accepts_markdown_list_prefixes():
+    from maestro.sdlc.gaps_server import parse_gaps
+
+    content = """\
+# Gaps
+
+- [GAP] Is SSO required?
+* [GAP] Which regions must we support?
+1. [GAP] What is the expected monthly active user count?
+"""
+
+    items = parse_gaps(content)
+    assert [item.question for item in items] == [
+        "Is SSO required?",
+        "Which regions must we support?",
+        "What is the expected monthly active user count?",
+    ]
+
+
+def test_parse_gaps_open_portuguese_question_avoids_yes_no_defaults():
+    from maestro.sdlc.gaps_server import parse_gaps
+
+    content = "[GAP] Qual e exatamente o fluxo a ser testado?\n"
+    items = parse_gaps(content)
+
+    assert len(items) == 1
+    assert items[0].options == [
+        "Definir resposta especifica",
+        "Precisa de discussao",
+        "Depende do contexto",
+        "Nao se aplica",
+    ]
+
+
+def test_parse_gaps_binary_question_keeps_yes_no_options():
+    from maestro.sdlc.gaps_server import parse_gaps
+
+    content = "[GAP] Is SSO required?\n"
+    items = parse_gaps(content)
+
+    assert len(items) == 1
+    assert items[0].options == [
+        "Yes",
+        "No",
+        "Needs discussion",
+        "Not applicable",
+    ]
+
+
+def test_parse_gaps_portuguese_who_question_uses_open_options():
+    from maestro.sdlc.gaps_server import parse_gaps
+
+    content = "[GAP] Quem pode pausar um gap?\n"
+    items = parse_gaps(content)
+
+    assert len(items) == 1
+    assert items[0].options == [
+        "Definir resposta especifica",
+        "Precisa de discussao",
+        "Depende do contexto",
+        "Nao se aplica",
+    ]
+
+
+def test_parse_gaps_extracts_inline_alternatives_without_parentheses():
+    from maestro.sdlc.gaps_server import parse_gaps
+
+    content = "[GAP] A pausa e manual, automatica ou ambas?\n"
+    items = parse_gaps(content)
+
+    assert len(items) == 1
+    assert items[0].options == [
+        "A pausa e manual",
+        "automatica",
+        "ambas",
+        "Needs discussion",
+        "Not applicable",
+    ]
+
+
+def test_parse_gaps_sanitizes_nested_markers_and_deduplicates_questions():
+    from maestro.sdlc.gaps_server import parse_gaps
+
+    content = """\
+[GAP] [HYPOTHESIS] O que significa gap neste contexto? E preciso confirmar com o usuario.
+[GAP] O que significa gap neste contexto?
+[GAP] Se quiser, posso transformar esses gaps em checklist.
+"""
+
+    items = parse_gaps(content)
+
+    assert [item.question for item in items] == [
+        "O que significa gap neste contexto?",
+        "Se quiser, posso transformar esses gaps em checklist",
+    ]
+
+
+def test_parse_gaps_ignores_trailing_llm_offer_text_appended_to_gap():
+    from maestro.sdlc.gaps_server import parse_gaps
+
+    content = (
+        "[GAP] Qual e o objetivo da pausa? "
+        "Se quiser, posso transformar esses gaps em criterios de aceite.\n"
+    )
+
+    items = parse_gaps(content)
+
+    assert len(items) == 1
+    assert items[0].question == "Qual e o objetivo da pausa?"
+
+
 def test_gaps_server_serves_answers_endpoint():
     """GapsServer serves GET /gaps and accepts POST /answers."""
     from maestro.sdlc.gaps_server import GapsServer, parse_gaps

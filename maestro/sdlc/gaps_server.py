@@ -20,18 +20,39 @@ _DEFAULT_OPTIONS: list[str] = [
     "Other (specify in notes)",
 ]
 
+_DEFAULT_OPEN_OPTIONS_EN: list[str] = [
+    "Provide specific answer",
+    "Needs discussion",
+    "Depends on context",
+    "Not applicable",
+]
+
+_DEFAULT_OPEN_OPTIONS_PT: list[str] = [
+    "Definir resposta especifica",
+    "Precisa de discussao",
+    "Depende do contexto",
+    "Nao se aplica",
+]
+
 
 def parse_gaps(gaps_markdown: str) -> list[GapItem]:
     """Extract ``[GAP]`` questions from generated gaps markdown."""
     items: list[GapItem] = []
+    seen_questions: set[str] = set()
     for line in gaps_markdown.splitlines():
         stripped = line.strip()
+        stripped = re.sub(r"^(?:[-*+]\s+|\d+\.\s+)", "", stripped)
         if not stripped.startswith("[GAP]"):
             continue
 
-        question = stripped[len("[GAP]") :].strip()
+        question = _sanitize_gap_question(stripped[len("[GAP]") :].strip())
         if not question:
             continue
+
+        question_key = question.casefold()
+        if question_key in seen_questions:
+            continue
+        seen_questions.add(question_key)
 
         items.append(
             GapItem(
@@ -48,12 +69,17 @@ def _infer_options(question: str) -> list[str]:
     """Heuristically derive answer options from question text."""
     q_lower = question.lower()
 
+    inline_alternatives = _extract_inline_alternatives(question)
+    if inline_alternatives:
+        return inline_alternatives + ["Needs discussion", "Not applicable"]
+
     paren_match = re.search(r"\(([^)]+)\)", question)
     if paren_match:
         inner = paren_match.group(1)
         parts = [
             part.strip().rstrip("?")
-            for part in re.split(r"\s+or\s+", inner, flags=re.IGNORECASE)
+            for part in re.split(r"\s+(?:or|ou)\s+|/", inner, flags=re.IGNORECASE)
+            if part.strip()
         ]
         if len(parts) >= 2:
             return parts + ["Needs discussion", "Not applicable"]
@@ -73,6 +99,31 @@ def _infer_options(question: str) -> list[str]:
     if any(q_lower.startswith(keyword) for keyword in yes_no_keywords):
         return ["Yes", "No", "Needs discussion", "Not applicable"]
 
+    open_question_keywords = (
+        "what ",
+        "which ",
+        "how ",
+        "when ",
+        "where ",
+        "why ",
+        "who ",
+        "quem ",
+        "qual ",
+        "quais ",
+        "como ",
+        "quanto ",
+        "quantos ",
+        "quantas ",
+        "quando ",
+        "onde ",
+        "por que ",
+        "o que ",
+    )
+    if any(q_lower.startswith(keyword) for keyword in open_question_keywords):
+        if _looks_portuguese(question):
+            return _DEFAULT_OPEN_OPTIONS_PT.copy()
+        return _DEFAULT_OPEN_OPTIONS_EN.copy()
+
     if any(
         keyword in q_lower
         for keyword in ("how many", "how much", "count", "number", "volume", "scale")
@@ -86,6 +137,64 @@ def _infer_options(question: str) -> list[str]:
         return ["B2C consumers", "B2B companies", "Internal teams", "Mixed / TBD"]
 
     return _DEFAULT_OPTIONS.copy()
+
+
+def _sanitize_gap_question(question: str) -> str:
+    """Normalize a raw [GAP] line into a clean single question."""
+    cleaned = re.sub(r"^(?:\[(?:GAP|HYPOTHESIS)\]\s*)+", "", question, flags=re.IGNORECASE)
+    cleaned = cleaned.replace("**", "").strip()
+    cleaned = re.split(
+        r"\s+(?:e preciso confirmar|é preciso confirmar|se quiser, posso)\b",
+        cleaned,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip(" .;:-")
+    return cleaned
+
+
+def _looks_portuguese(text: str) -> bool:
+    """Best-effort language hint for default option localization."""
+    probe = text.lower()
+    tokens = (
+        " qual ",
+        " quais ",
+        " como ",
+        " quem ",
+        " quanto ",
+        " quantos ",
+        " quantas ",
+        " quando ",
+        " onde ",
+        " por que ",
+        " o que ",
+    )
+    return any(token in f" {probe} " for token in tokens)
+
+
+def _extract_inline_alternatives(question: str) -> list[str]:
+    """Extract inline alternatives from text like 'manual, automatica ou ambas?'"""
+    source = question.strip().rstrip("?")
+    if ":" in source:
+        source = source.split(":", 1)[1].strip()
+
+    if not re.search(r"\s(?:or|ou)\s", source, flags=re.IGNORECASE):
+        return []
+
+    chunks: list[str] = []
+    for comma_part in source.split(","):
+        for raw in re.split(r"\s+(?:or|ou)\s+", comma_part, flags=re.IGNORECASE):
+            candidate = raw.strip(" .;:-")
+            if candidate:
+                chunks.append(candidate)
+
+    deduped: list[str] = []
+    for chunk in chunks:
+        if chunk not in deduped:
+            deduped.append(chunk)
+
+    if 2 <= len(deduped) <= 6:
+        return deduped
+    return []
 
 
 class GapsServer:

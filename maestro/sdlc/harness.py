@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 from pathlib import Path
 
@@ -69,6 +70,7 @@ class DiscoveryHarness:
 
         total = len(ARTIFACT_ORDER)
         artifacts: list[SDLCArtifact] = []
+        gaps_index = ARTIFACT_ORDER.index(ArtifactType.GAPS)
         for i, artifact_type in enumerate(ARTIFACT_ORDER, start=1):
             print(
                 f"[{i}/{total}] Generating {artifact_type.value}...",
@@ -76,6 +78,9 @@ class DiscoveryHarness:
                 flush=True,
             )
             artifact = await self._generate_artifact(effective_request, artifact_type)
+            artifact = self._normalize_artifact(artifact)
+            if self._provider is not None and i > gaps_index + 1:
+                self._ensure_no_open_markers(artifact)
             artifacts.append(artifact)
             # Write immediately so progress is visible on disk
             write_artifact(spec_dir, artifact)
@@ -127,6 +132,44 @@ class DiscoveryHarness:
             )
 
         return result
+
+    @staticmethod
+    def _ensure_no_open_markers(artifact: SDLCArtifact) -> None:
+        """Fail fast if post-gap artifacts still contain unresolved markers."""
+        unresolved_marker = re.search(
+            r"(?im)^\s*(?:[-*+]\s+|\d+\.\s+)?\[(?:GAP|HYPOTHESIS)\]",
+            artifact.content,
+        )
+        if unresolved_marker:
+            raise RuntimeError(
+                "Unresolved [GAP]/[HYPOTHESIS] markers found in "
+                f"post-gap artifact {artifact.filename}."
+            )
+
+    @staticmethod
+    def _normalize_artifact(artifact: SDLCArtifact) -> SDLCArtifact:
+        """Clean common provider artifacts like repeated full-document echoes."""
+        content = artifact.content.strip()
+        deduped = DiscoveryHarness._strip_repeated_suffix(content)
+        if deduped == content:
+            return artifact
+        return SDLCArtifact(
+            artifact_type=artifact.artifact_type,
+            filename=artifact.filename,
+            content=deduped,
+        )
+
+    @staticmethod
+    def _strip_repeated_suffix(content: str) -> str:
+        """Remove exact trailing repetition of the full document body."""
+        length = len(content)
+        if length < 2 or length % 2:
+            return content
+
+        half = length // 2
+        if content[:half].strip() == content[half:].strip():
+            return content[:half].strip()
+        return content
 
     async def _generate_artifact(
         self,

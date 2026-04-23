@@ -152,8 +152,127 @@ def test_harness_resolves_gaps_and_enriches_prompt(tmp_path: Path, monkeypatch) 
     assert result.artifact_count == len(ARTIFACT_ORDER)
 
 
+def test_harness_post_gap_artifacts_use_resolved_prompt_rules(tmp_path: Path) -> None:
+    import asyncio
+
+    captured_prompt_by_type: dict[ArtifactType, str] = {}
+
+    async def fake_generate(self_ref, request, artifact_type):
+        del self_ref
+        from maestro.sdlc.schemas import SDLCArtifact
+
+        captured_prompt_by_type[artifact_type] = request.prompt
+        content = "[GAP] Is SSO required?" if artifact_type == ArtifactType.GAPS else "# content"
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content=content,
+        )
+
+    from maestro.sdlc.schemas import GapAnswer
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch(
+            "maestro.sdlc.harness.resolve_gaps",
+            return_value=[GapAnswer(question="Is SSO required?", chosen_option="Yes")],
+        ):
+            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+            asyncio.run(harness.arun(request))
+
+    assert "## Gap Answers" in captured_prompt_by_type[ArtifactType.PRD]
+
+
 def test_harness_reflect_disabled_produces_no_report(tmp_path: Path) -> None:
     """Stub mode (no provider) always produces reflect_report=None."""
     harness = DiscoveryHarness(workdir=str(tmp_path))  # no provider → stub mode
     result = harness.run(SDLCRequest("Build X", workdir=str(tmp_path)))
     assert result.reflect_report is None
+
+
+def test_harness_raises_if_post_gap_artifact_has_open_markers(tmp_path: Path) -> None:
+    """After GAPS are resolved, later artifacts must not keep [GAP]/[HYPOTHESIS]."""
+    import asyncio
+
+    from maestro.sdlc.schemas import SDLCArtifact
+
+    async def fake_generate(self_ref, request, artifact_type):
+        del self_ref, request
+        if artifact_type == ArtifactType.PRD:
+            content = "[HYPOTHESIS] still open"
+        elif artifact_type == ArtifactType.GAPS:
+            content = "[GAP] Is SSO required?"
+        else:
+            content = "# content"
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content=content,
+        )
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch("maestro.sdlc.harness.resolve_gaps", return_value=[]):
+            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+            with pytest.raises(RuntimeError, match=r"Unresolved \[GAP\]/\[HYPOTHESIS\]"):
+                asyncio.run(harness.arun(request))
+
+
+def test_harness_allows_inline_marker_mentions_after_gap_resolution(tmp_path: Path) -> None:
+    """Inline mentions like '`[GAP]` marker' should not be treated as unresolved placeholders."""
+    import asyncio
+
+    from maestro.sdlc.schemas import SDLCArtifact
+
+    async def fake_generate(self_ref, request, artifact_type):
+        del self_ref, request
+        if artifact_type == ArtifactType.GAPS:
+            content = "[GAP] Is SSO required?"
+        elif artifact_type == ArtifactType.PRD:
+            content = "The questionnaire used `[GAP]` tags as metadata only."
+        else:
+            content = "# content"
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content=content,
+        )
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch("maestro.sdlc.harness.resolve_gaps", return_value=[]):
+            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+            result = asyncio.run(harness.arun(request))
+
+    assert result.artifact_count == len(ARTIFACT_ORDER)
+
+
+def test_harness_deduplicates_repeated_artifact_content(tmp_path: Path) -> None:
+    import asyncio
+
+    from maestro.sdlc.schemas import SDLCArtifact
+
+    repeated = "# PRD\n\nLinha A\nLinha B"
+
+    async def fake_generate(self_ref, request, artifact_type):
+        del self_ref, request
+        if artifact_type == ArtifactType.GAPS:
+            content = "[GAP] Is SSO required?"
+        elif artifact_type == ArtifactType.PRD:
+            content = repeated + repeated
+        else:
+            content = "# content"
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content=content,
+        )
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch("maestro.sdlc.harness.resolve_gaps", return_value=[]):
+            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+            result = asyncio.run(harness.arun(request))
+
+    prd = next(artifact for artifact in result.artifacts if artifact.artifact_type == ArtifactType.PRD)
+    assert prd.content == repeated
