@@ -15,9 +15,12 @@ This file is scoped to milestone `v1.2`. It tracks the hardening work selected f
 
 ### Planning Integrity (META)
 
-- [ ] **META-01**: A repository-level planning consistency check validates alignment between `.planning/ROADMAP.md`, `.planning/STATE.md`, the active milestone summary, and phase evidence references.
-- [ ] **META-02**: The consistency check runs in automated verification for the repository so planning drift fails fast instead of being discovered during milestone closeout.
-- [ ] **META-03**: New-milestone and milestone-close documentation paths reference the consistency gate so future planning updates keep the artifact set synchronized.
+- [x] **META-01
+**: A repository-level planning consistency check validates alignment between `.planning/ROADMAP.md`, `.planning/STATE.md`, the active milestone summary, and phase evidence references.
+- [x] **META-02
+**: The consistency check runs in automated verification for the repository so planning drift fails fast instead of being discovered during milestone closeout.
+- [x] **META-03
+**: New-milestone and milestone-close documentation paths reference the consistency gate so future planning updates keep the artifact set synchronized.
 
 ### External Provider Contract (PLUGIN)
 
