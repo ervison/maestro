@@ -254,11 +254,20 @@ def scheduler_route(state: AgentState) -> str:
             return END
         return "aggregator"
 
-    # Safety: if we're here with no ready tasks but unfinished work,
-    # that means tasks are still running or something went wrong (e.g.
-    # scheduler recorded an error for permanently-blocked tasks).
-    # Do NOT route to aggregator while unfinished tasks remain — end the run
-    # so the caller can inspect errors instead of producing a misleading summary.
+    # Check if any dispatched tasks are still in-progress (running workers).
+    # Workers loop back to scheduler when they finish, so we must NOT route to
+    # END or aggregator while dispatched tasks are still executing.
+    dispatched = set(state.get("dispatched", []))
+    in_progress = dispatched - terminal
+
+    if in_progress:
+        # At least one worker is still running; return to scheduler to wait.
+        return "scheduler"
+
+    # Safety: if we're here with no ready tasks and no in-progress work,
+    # but unfinished tasks remain, they are permanently blocked by failed deps.
+    # End the run so the caller can inspect errors instead of producing a
+    # misleading summary.
     return END
 
 
@@ -644,7 +653,7 @@ _builder.add_node("worker", worker_node)
 _builder.add_node("aggregator", aggregator_node)
 
 _builder.add_edge(START, "scheduler")
-_builder.add_conditional_edges("scheduler", scheduler_route, ["dispatch", "aggregator", END])
+_builder.add_conditional_edges("scheduler", scheduler_route, ["dispatch", "aggregator", "scheduler", END])
 _builder.add_conditional_edges("dispatch", dispatch_route, ["worker"])
 _builder.add_edge("worker", "scheduler")
 _builder.add_edge("aggregator", END)
