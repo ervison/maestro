@@ -64,4 +64,8 @@ async def _stream_artifact_content(provider, messages, model: str | None) -> str
 
 def _is_retryable_stream_error(exc: RuntimeError) -> bool:
     message = str(exc).lower()
-    return "remoteprotocolerror" in message or "incomplete chunked read" in message
+    return (
+        "remoteprotocolerror" in message
+        or "incomplete chunked read" in message
+        or "expected sse response" in message
+    )

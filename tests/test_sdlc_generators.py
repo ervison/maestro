@@ -49,6 +49,20 @@ class FlakyProvider:
         yield Message(role="assistant", content="recovered content")
 
 
+class NonSSEProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream(self, messages, tools, model):
+        del messages, tools, model
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError(
+                "Expected SSE response from ChatGPT API, got status 429 with Content-Type 'application/json': rate limited"
+            )
+        yield Message(role="assistant", content="recovered after non-sse error")
+
+
 @pytest.mark.asyncio
 async def test_generate_artifact_returns_sdlc_artifact() -> None:
     provider = MockProvider()
@@ -102,6 +116,17 @@ async def test_generate_artifact_retries_transient_stream_error() -> None:
     result = await generate_artifact(provider, None, request, ArtifactType.API_CONTRACTS)
 
     assert result.content == "recovered content"
+    assert provider.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_artifact_retries_non_sse_stream_error() -> None:
+    provider = NonSSEProvider()
+    request = SDLCRequest("Build a CRM")
+
+    result = await generate_artifact(provider, None, request, ArtifactType.API_CONTRACTS)
+
+    assert result.content == "recovered after non-sse error"
     assert provider.calls == 2
 
 

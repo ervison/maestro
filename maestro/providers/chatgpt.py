@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import httpx
-from httpx_sse import aconnect_sse
 
 from maestro import auth
 from maestro.providers.base import (
@@ -307,6 +306,25 @@ def _parse_tool_call(item: dict) -> ToolCall:
     )
 
 
+async def _iter_sse_data_lines(response: httpx.Response) -> AsyncIterator[str]:
+    """Yield SSE data payloads without requiring a specific content-type header."""
+    data_lines: list[str] = []
+
+    async for line in response.aiter_lines():
+        if line == "":
+            if data_lines:
+                yield "\n".join(data_lines)
+                data_lines = []
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+
+    if data_lines:
+        yield "\n".join(data_lines)
+
+
 # Re-export TokenSet for backward compatibility
 TokenSet = auth.TokenSet
 
@@ -404,27 +422,25 @@ class ChatGPTProvider:
         tool_calls: list[ToolCall] = []
 
         async with httpx.AsyncClient() as client:
-            async with aconnect_sse(
-                client,
+            async with client.stream(
                 "POST",
                 RESPONSES_ENDPOINT,
                 json=payload,
                 headers=_headers(tokens),
                 timeout=120,
-            ) as event_source:
-                response = event_source.response
+            ) as response:
                 if not response.is_success:
                     body = await response.aread()
                     raise RuntimeError(
-                        f"API error {response.status_code}: {body[:800].decode()}"
+                        f"API error {response.status_code}: {body[:800].decode(errors='replace')}"
                     )
 
-                async for sse in event_source.aiter_sse():
-                    if sse.data == "[DONE]":
+                async for data in _iter_sse_data_lines(response):
+                    if data == "[DONE]":
                         break
 
                     try:
-                        event = json.loads(sse.data)
+                        event = json.loads(data)
                     except json.JSONDecodeError:
                         continue
 
@@ -433,7 +449,7 @@ class ChatGPTProvider:
                     if etype == "response.output_text.delta":
                         delta = event.get("delta", "")
                         text_parts.append(delta)
-                        yield delta  # Yield text chunk
+                        yield delta
 
                     elif etype == "response.output_item.done":
                         item = event.get("item", {})

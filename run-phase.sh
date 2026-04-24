@@ -56,7 +56,16 @@ code-review() {
 
       run_gsd gsd-code-review ""$@" --depth=deep"
 
-      REVIEW_FILE="$(find .planning/phases -maxdepth 2 -type f \( -name ""$@"-*-REVIEW.md" -o -name ""$@"-REVIEW.md" \) | head -n 1)"
+      REVIEW_FILES="$(
+  find .planning/phases -maxdepth 2 -type f \
+    \( \
+      -name "${PHASE}-*-REVIEW.md" \
+      -o -name "${PHASE}-REVIEW.md" \
+      -o -name "${PHASE}-*-REVIEW-FIX.md" \
+      -o -name "${PHASE}-REVIEW-FIX.md" \
+    \) \
+  | sort
+)"
 
       if [ -z "$REVIEW_FILE" ]; then
         echo "Erro: arquivo de review não encontrado após gsd-code-review"
