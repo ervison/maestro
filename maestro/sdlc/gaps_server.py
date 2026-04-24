@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from maestro.providers.base import Message
 from maestro.sdlc.schemas import GapAnswer, GapItem
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -220,11 +221,11 @@ async def _llm_enrich(
     context: str,
 ) -> GapItem:
     messages = [
-        {"role": "system", "content": _ENRICH_SYSTEM},
-        {
-            "role": "user",
-            "content": _ENRICH_USER_TMPL.format(context=context, question=item.question),
-        },
+        Message(role="system", content=_ENRICH_SYSTEM),
+        Message(
+            role="user",
+            content=_ENRICH_USER_TMPL.format(context=context, question=item.question),
+        ),
     ]
     collected = ""
     async for msg in provider.stream(messages, model=model):
