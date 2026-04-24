@@ -187,9 +187,13 @@ def planner_node(state: AgentState) -> dict:
     runtime_provider = state.get("provider")
 
     resolved_provider, model_id = resolve_model(agent_name="planner")
-    # Prefer caller-supplied provider (has live auth credentials) over resolved one,
-    # but always use the model from the resolution chain.
-    provider = runtime_provider if runtime_provider is not None else resolved_provider
+    # Only reuse the injected provider when its id matches the resolved provider,
+    # so agent-specific config (e.g. agent.planner.model=github-copilot/...) is
+    # honoured even when the caller injected a different provider for auth context.
+    if runtime_provider is not None and runtime_provider.id == resolved_provider.id:
+        provider = runtime_provider
+    else:
+        provider = resolved_provider
 
     system_prompt = _build_system_prompt()
     messages = [
