@@ -93,6 +93,60 @@ class Config:
             raise KeyError(f"Cannot set key on non-container: {key}")
 
 
+def _validate_root_config(data: Any) -> None:
+    """Validate top-level config object shape.
+
+    Args:
+        data: Parsed JSON value from config file.
+
+    Raises:
+        RuntimeError: If top-level structure or known scalar fields are invalid.
+    """
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected object, got {type(data).__name__}"
+        )
+
+    model = data.get("model")
+    if model is not None and not isinstance(model, str):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'model' to be a string"
+        )
+
+    agent = data.get("agent", {})
+    if not isinstance(agent, dict):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'agent' to be an object"
+        )
+
+
+def _validate_aggregator_config(aggregator: Any) -> None:
+    """Validate the aggregator section of the config.
+
+    Args:
+        aggregator: Value of the ``aggregator`` key from the parsed config dict.
+
+    Raises:
+        RuntimeError: If the aggregator section has invalid type or field values.
+    """
+    if not isinstance(aggregator, dict):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator' to be an object"
+        )
+
+    max_calls = aggregator.get("max_calls")
+    if max_calls is not None and (type(max_calls) is not int or max_calls < 0):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_calls' to be a non-negative int"
+        )
+
+    max_tokens = aggregator.get("max_tokens_per_run")
+    if max_tokens is not None and type(max_tokens) is not int:
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_tokens_per_run' to be an int"
+        )
+
+
 def load() -> Config:
     """Load configuration from disk.
 
@@ -113,44 +167,13 @@ def load() -> Config:
             f"Invalid config file at {CONFIG_FILE}; remove or repair the file."
         ) from exc
 
-    if not isinstance(data, dict):
-        raise RuntimeError(
-            f"Invalid config file at {CONFIG_FILE}; expected object, got {type(data).__name__}"
-        )
-
-    model = data.get("model")
-    if model is not None and not isinstance(model, str):
-        raise RuntimeError(
-            f"Invalid config file at {CONFIG_FILE}; expected 'model' to be a string"
-        )
-
-    agent = data.get("agent", {})
-    if not isinstance(agent, dict):
-        raise RuntimeError(
-            f"Invalid config file at {CONFIG_FILE}; expected 'agent' to be an object"
-        )
-
-    aggregator = data.get("aggregator", {})
-    if not isinstance(aggregator, dict):
-        raise RuntimeError(
-            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator' to be an object"
-        )
-
-    max_calls = aggregator.get("max_calls")
-    if max_calls is not None and (type(max_calls) is not int or max_calls < 0):
-        raise RuntimeError(
-            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_calls' to be a non-negative int"
-        )
-    max_tokens = aggregator.get("max_tokens_per_run")
-    if max_tokens is not None and type(max_tokens) is not int:
-        raise RuntimeError(
-            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_tokens_per_run' to be an int"
-        )
+    _validate_root_config(data)
+    _validate_aggregator_config(data.get("aggregator", {}))
 
     return Config(
-        model=model,
-        agent=agent,
-        aggregator=aggregator,
+        model=data.get("model"),
+        agent=data.get("agent", {}),
+        aggregator=data.get("aggregator", {}),
     )
 
 
