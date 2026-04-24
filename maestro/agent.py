@@ -24,22 +24,19 @@ from maestro.providers.chatgpt import (
 )
 
 
-def _run_httpx_stream_sync(
-    messages: list[Message],
-    model: str,
-    tools: list[Tool],
-    tokens: auth.TokenSet,
-) -> list:
-    """Synchronous wrapper for legacy httpx.stream() SSE loop.
+def _convert_messages_to_input(messages: list[Message]) -> tuple[list, str]:
+    """Convert neutral Message objects to ChatGPT Responses API wire format.
 
-    Backward-compatibility shim for original tests that mock httpx.stream.
-    Converts neutral types back to ChatGPT wire format and parses SSE.
+    Args:
+        messages: Neutral message list from the agentic loop.
+
+    Returns:
+        A tuple of ``(input_items, instructions)`` where *input_items* is the
+        list of request items and *instructions* is the system-prompt string
+        (empty string if none was found).
     """
-    api_model = resolve_model(model)
-
-    # Convert neutral messages to ChatGPT input format
-    input_items = []
-    instructions = ""
+    input_items: list = []
+    instructions: str = ""
     for msg in messages:
         if msg.role == "system":
             instructions = msg.content
@@ -52,9 +49,7 @@ def _run_httpx_stream_sync(
                 }
             )
         elif msg.role == "assistant":
-            # Handle assistant messages with tool calls
             if msg.tool_calls:
-                # This is a tool-call response - convert to function_call items
                 for tc in msg.tool_calls:
                     input_items.append(
                         {
@@ -73,7 +68,6 @@ def _run_httpx_stream_sync(
                     }
                 )
         elif msg.role == "tool":
-            # Tool output becomes function_call_output
             input_items.append(
                 {
                     "type": "function_call_output",
@@ -81,20 +75,112 @@ def _run_httpx_stream_sync(
                     "output": msg.content,
                 }
             )
+    return input_items, instructions
 
-    # Convert neutral tools to ChatGPT tool format
-    chatgpt_tools = []
-    for tool in tools:
-        chatgpt_tools.append(
-            {
-                "type": "function",
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": tool.parameters,
-            }
-        )
 
-    import sys as _sys
+def _convert_tools_to_chatgpt(tools: list[Tool]) -> list[dict]:
+    """Convert neutral Tool objects to ChatGPT Responses API tool format.
+
+    Args:
+        tools: Neutral tool list.
+
+    Returns:
+        List of ChatGPT-formatted tool dicts.
+    """
+    return [
+        {
+            "type": "function",
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
+        }
+        for tool in tools
+    ]
+
+
+def _parse_sse_events(response: httpx.Response) -> tuple[list[str], list[ToolCall]]:
+    """Parse SSE lines from a streaming Responses API response.
+
+    Accumulates text delta strings and fully-assembled ToolCall objects.
+
+    Args:
+        response: An open ``httpx.Response`` from a streaming request.
+
+    Returns:
+        A tuple of ``(text_parts, tool_calls)``.
+    """
+    text_parts: list[str] = []
+    tool_calls: list[ToolCall] = []
+
+    for line in response.iter_lines():
+        if not line.startswith("data: "):
+            continue
+        raw = line[6:]
+        if raw == "[DONE]":
+            break
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        etype = event.get("type", "")
+        if etype == "response.output_text.delta":
+            text_parts.append(event.get("delta", ""))
+        elif etype == "response.output_item.done":
+            item = event.get("item", {})
+            if item.get("type") == "function_call":
+                # Responses API uses 'call_id' for function_call_output
+                # references; 'id' is the output-item ID.
+                tool_call_id = item.get("call_id") or item.get("id", "")
+                tool_calls.append(
+                    ToolCall(
+                        id=tool_call_id,
+                        name=item.get("name", ""),
+                        arguments=json.loads(item.get("arguments", "{}")),
+                    )
+                )
+
+    return text_parts, tool_calls
+
+
+def _assemble_response(text_parts: list[str], tool_calls: list[ToolCall]) -> list:
+    """Build the final result list from accumulated SSE data.
+
+    Returns text-delta strings followed by the consolidated ``Message``.
+
+    Args:
+        text_parts: Individual text delta strings from the stream.
+        tool_calls: Completed tool calls collected from the stream.
+
+    Returns:
+        List whose items are text-delta strings (for streaming display) plus a
+        final ``Message`` with role ``"assistant"``.
+    """
+    result: list = []
+    if text_parts:
+        result.extend(text_parts)
+    final_content = "".join(text_parts)
+    result.append(
+        Message(role="assistant", content=final_content, tool_calls=tool_calls)
+    )
+    return result
+
+
+def _run_httpx_stream_sync(
+    messages: list[Message],
+    model: str,
+    tools: list[Tool],
+    tokens: auth.TokenSet,
+) -> list:
+    """Synchronous wrapper for legacy httpx.stream() SSE loop.
+
+    Backward-compatibility shim for original tests that mock httpx.stream.
+    Converts neutral types back to ChatGPT wire format and parses SSE.
+    """
+    api_model = resolve_model(model)
+
+    input_items, instructions = _convert_messages_to_input(messages)
+    chatgpt_tools = _convert_tools_to_chatgpt(tools)
+
     payload: dict = {
         "model": api_model,
         "instructions": instructions or "You are a helpful assistant.",
@@ -107,9 +193,6 @@ def _run_httpx_stream_sync(
         payload["tools"] = chatgpt_tools
         payload["tool_choice"] = "auto"
 
-    text_parts: list[str] = []
-    tool_calls: list[ToolCall] = []
-
     with httpx.stream(
         "POST",
         RESPONSES_ENDPOINT,
@@ -121,44 +204,9 @@ def _run_httpx_stream_sync(
             body = r.read().decode()
             raise RuntimeError(f"API error {r.status_code}: {body[:800]}")
 
-        for line in r.iter_lines():
-            if not line.startswith("data: "):
-                continue
-            raw = line[6:]
-            if raw == "[DONE]":
-                break
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            etype = event.get("type", "")
-            if etype == "response.output_text.delta":
-                text_parts.append(event.get("delta", ""))
-            elif etype == "response.output_item.done":
-                item = event.get("item", {})
-                if item.get("type") == "function_call":
-                    # Responses API uses 'call_id' for function_call_output references;
-                    # 'id' is the output-item ID. Use call_id when present.
-                    tool_call_id = item.get("call_id") or item.get("id", "")
-                    tool_calls.append(
-                        ToolCall(
-                            id=tool_call_id,
-                            name=item.get("name", ""),
-                            arguments=json.loads(item.get("arguments", "{}")),
-                        )
-                    )
+        text_parts, tool_calls = _parse_sse_events(r)
 
-    # Build final result: text deltas as separate chunks, then final Message
-    result: list = []
-    if text_parts:
-        # Return deltas as individual string chunks for streaming
-        result.extend(text_parts)
-    # Always return final message with tool calls (may be empty)
-    final_content = "".join(text_parts)
-    result.append(
-        Message(role="assistant", content=final_content, tool_calls=tool_calls)
-    )
-    return result
+    return _assemble_response(text_parts, tool_calls)
 
 
 def _convert_tool_schemas(schemas: list[dict]) -> list[Tool]:
