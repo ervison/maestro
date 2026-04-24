@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections import deque
 from typing import Any, Callable
 
 
@@ -26,7 +27,7 @@ class DashboardEmitter:
 
     def __init__(self) -> None:
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
-        self._history: list[dict[str, Any]] = []
+        self._history: deque[dict[str, Any]] = deque(maxlen=1000)
         self._lock = threading.Lock()
 
     def subscribe(self, handler: Callable[[dict[str, Any]], None]) -> None:
