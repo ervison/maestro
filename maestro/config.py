@@ -134,6 +134,12 @@ def _validate_aggregator_config(aggregator: Any) -> None:
             f"Invalid config file at {CONFIG_FILE}; expected 'aggregator' to be an object"
         )
 
+    enabled = aggregator.get("enabled")
+    if enabled is not None and type(enabled) is not bool:
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.enabled' to be a bool"
+        )
+
     max_calls = aggregator.get("max_calls")
     if max_calls is not None and (type(max_calls) is not int or max_calls < 0):
         raise RuntimeError(
@@ -141,9 +147,9 @@ def _validate_aggregator_config(aggregator: Any) -> None:
         )
 
     max_tokens = aggregator.get("max_tokens_per_run")
-    if max_tokens is not None and type(max_tokens) is not int:
+    if max_tokens is not None and (type(max_tokens) is not int or max_tokens < 0):
         raise RuntimeError(
-            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_tokens_per_run' to be an int"
+            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_tokens_per_run' to be a non-negative int"
         )
 
 
