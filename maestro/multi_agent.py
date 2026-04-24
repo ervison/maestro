@@ -27,6 +27,7 @@ from maestro.domains import get_domain_prompt
 from maestro.planner.node import planner_node
 from maestro.planner.schemas import AgentState, AgentPlan, AggregatorGuardrail
 from maestro.planner.validator import validate_dag
+from maestro.models import resolve_model
 from maestro.providers.registry import get_default_provider
 
 try:
