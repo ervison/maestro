@@ -227,10 +227,13 @@ async def _llm_enrich(
             content=_ENRICH_USER_TMPL.format(context=context, question=item.question),
         ),
     ]
-    collected = ""
+    collected_parts: list[str] = []
     async for msg in provider.stream(messages, model=model):
-        if msg.content:
-            collected += msg.content
+        if isinstance(msg, str):
+            collected_parts.append(msg)
+        elif hasattr(msg, "content") and msg.content:
+            collected_parts = [msg.content]
+    collected = "".join(collected_parts)
 
     data = _json.loads(collected.strip())
     return GapItem(
