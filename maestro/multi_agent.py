@@ -123,17 +123,19 @@ def scheduler_node(state: AgentState) -> dict:
         return {"ready_tasks": [], "errors": [error_msg]}
     completed = set(state.get("completed", []))
     failed = set(state.get("failed", []))
+    dispatched = set(state.get("dispatched", []))
     terminal = completed | failed
+    in_progress = dispatched - terminal
 
     # Build dependency graph: task_id -> set of dependency task_ids
     deps_map = {t.id: set(t.deps) for t in plan.tasks}
     all_task_ids = set(deps_map.keys())
 
-    # Find ready tasks: not terminal AND all deps are completed
+    # Find ready tasks: not terminal, not in-flight, AND all deps are completed
     # A task is blocked (not ready) if any of its dependencies failed
     ready_ids = set()
     for tid, deps in deps_map.items():
-        if tid not in terminal:
+        if tid not in terminal and tid not in in_progress:
             # Check if all deps are completed (none failed)
             deps_all_completed = deps.issubset(completed)
             if deps_all_completed:
@@ -187,7 +189,10 @@ def scheduler_node(state: AgentState) -> dict:
         # but we'll let the graph continue and eventually time out,
         # or be handled elsewhere.
 
-    result: dict[str, Any] = {"ready_tasks": list(ready_tasks)}
+    result: dict[str, Any] = {
+        "ready_tasks": list(ready_tasks),
+        "dispatched": [task["id"] for task in ready_tasks],
+    }
     if errors:
         result["errors"] = errors
 
@@ -735,6 +740,7 @@ def run_multi_agent(
         "workdir": str(workdir),
         "auto": auto,
         "ready_tasks": [],
+        "dispatched": [],
         "provider": provider,
         "model": model,  # workers only — aggregator resolves its own model
         "aggregate": aggregate,

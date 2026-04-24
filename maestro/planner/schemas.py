@@ -71,6 +71,7 @@ class AgentState(TypedDict):
     emitter: NotRequired[Any]  # DashboardEmitter instance or None (not serialized)
     agg_guardrail: NotRequired[AggregatorGuardrail]  # guardrail policy; None = no limits
     agg_calls_done: NotRequired[int]  # tracks calls this run (default 0)
+    dispatched: Annotated[list[str], operator.add]  # Task IDs ever dispatched (append-only)
 
 
 DomainName = Literal[
