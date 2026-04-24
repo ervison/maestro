@@ -59,10 +59,21 @@ def _make_handler(emitter: DashboardEmitter) -> type[BaseHTTPRequestHandler]:
             # planner output and worker logs from the local server.
             self.end_headers()
 
-            client_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+            client_queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=256)
 
             def handler(event: dict[str, Any]) -> None:
-                client_queue.put(event)
+                try:
+                    client_queue.put_nowait(event)
+                except queue.Full:
+                    # Drop oldest event to make room, then enqueue new one
+                    try:
+                        client_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        client_queue.put_nowait(event)
+                    except queue.Full:
+                        pass  # Still full after drop — skip this event
 
             emitter.subscribe(handler)
             try:
