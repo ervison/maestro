@@ -27,7 +27,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: SDLC Discovery Planner** - `maestro discover` generates 13-artifact specification packages ✅ COMPLETE (2026-04-22)
 - [x] **Phase 14: Planning Consistency Gate** - Enforce automated alignment checks across roadmap, state, and milestone artifacts ✅ COMPLETE (2026-04-23)
 - [x] **Phase 15: External Provider Install Smoke Test** - Verify third-party `maestro.providers` packages in an isolated install path ✅ COMPLETE (2026-04-24)
-- [ ] **Phase 16: Copilot Release Smoke Gate** - Add a release-grade real-auth smoke check for GitHub Copilot
+- [x] **Phase 16: Copilot Release Smoke Gate** - Add a release-grade real-auth smoke check for GitHub Copilot ✅ COMPLETE (2026-04-24)
 - [ ] **Phase 17: Aggregator Guardrails** - Bound optional aggregator spend and rate behavior in unattended runs
 
 ## Phase Details
