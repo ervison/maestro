@@ -36,4 +36,5 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "integration: marks tests as integration tests requiring real credentials (opt-in via MAESTRO_RUN_INTEGRATION=1)",
+    "copilot_smoke: Copilot release smoke gate — requires MAESTRO_COPILOT_SMOKE=1 and real GitHub Copilot credentials",
 ]

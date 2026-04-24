@@ -27,9 +27,9 @@ This file is scoped to milestone `v1.2`. It tracks the hardening work selected f
 
 ### Copilot Release Gate (COP-SMOKE)
 
-- [ ] **COP-SMOKE-01**: A release-grade smoke path exercises the real GitHub Copilot device-code login flow, including user instructions and polling completion.
-- [ ] **COP-SMOKE-02**: The same gate verifies at least one live authenticated Copilot API request after login succeeds.
-- [ ] **COP-SMOKE-03**: The smoke gate is safe to skip when credentials, a real account, or network access are unavailable, with the skip condition documented explicitly.
+- [x] **COP-SMOKE-01**: A release-grade smoke path exercises the real GitHub Copilot device-code login flow, including user instructions and polling completion.
+- [x] **COP-SMOKE-02**: The same gate verifies at least one live authenticated Copilot API request after login succeeds.
+- [x] **COP-SMOKE-03**: The smoke gate is safe to skip when credentials, a real account, or network access are unavailable, with the skip condition documented explicitly.
 
 ### Aggregator Runtime Guardrails (AGG-GUARD)
 

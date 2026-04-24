@@ -38,6 +38,7 @@ maestro/sdlc/writer.py
 maestro/sdlc/static/gaps.html
 tests/test_cli_discover.py
 tests/test_cli_planning.py
+tests/test_copilot_smoke.py
 tests/test_dashboard_emitter.py
 tests/test_dashboard_integration.py
 tests/test_dashboard_server.py
