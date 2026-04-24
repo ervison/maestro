@@ -82,7 +82,12 @@ def search_in_files(args: dict, workdir: Path) -> dict:
         if not fpath.is_file():
             continue
         try:
-            for i, line in enumerate(fpath.read_text(errors="replace").splitlines(), 1):
+            resolved_file = fpath.resolve()
+            resolved_file.relative_to(workdir.resolve())
+        except ValueError:
+            continue
+        try:
+            for i, line in enumerate(resolved_file.read_text(errors="replace").splitlines(), 1):
                 if regex.search(line):
                     matches.append(
                         {
