@@ -341,11 +341,58 @@ def _handle_legacy_logout() -> None:
         print("Not logged in to chatgpt.")
 
 
+def _models_probe_mode(args) -> None:
+    """Handle `maestro models --check` probe path."""
+    from maestro.providers.chatgpt import fetch_models, probe_available_models
+
+    provider_label = getattr(args, "provider", None) or "chatgpt"
+    print(
+        "Probing models for provider: "
+        f"{provider_label} (this may take a moment)..."
+    )
+    ts = auth.load()
+    if not ts:
+        print("Not logged in to ChatGPT.")
+        sys.exit(1)
+    ts = auth.ensure_valid(ts)
+    available = probe_available_models(ts, force=True)
+    all_models = fetch_models()
+    for m in all_models:
+        if m in available:
+            print(f"  chatgpt/{m}  [available]")
+        else:
+            print(f"  chatgpt/{m}  [not available]")
+    print(f"\n{len(available)}/{len(all_models)} models available.")
+
+
+def _models_filter_provider(args, models_by_provider: dict) -> dict:
+    """Filter models_by_provider to a single provider, or exit on error."""
+    from maestro.providers.registry import list_providers
+
+    provider_models = models_by_provider.get(args.provider)
+    if provider_models:
+        return {args.provider: provider_models}
+
+    discovered = list_providers()
+    if args.provider in discovered:
+        print(f"Provider '{args.provider}' has no available models.")
+        print(
+            "(Provider may require authentication: "
+            f"maestro auth login {args.provider})"
+        )
+    else:
+        print(f"Unknown provider: '{args.provider}'")
+        available = (
+            ", ".join(sorted(discovered)) if discovered else "(none installed)"
+        )
+        print(f"Available providers: {available}")
+    sys.exit(1)
+
+
 def _handle_models(args) -> None:
     """Handle `maestro models` command."""
     from maestro.models import get_available_models, format_model_list
-    from maestro.providers.registry import list_providers
-    from maestro.providers.chatgpt import fetch_models, probe_available_models
+    from maestro.providers.chatgpt import fetch_models
 
     if args.refresh:
         print("Refreshing models from models.dev...")
@@ -356,46 +403,13 @@ def _handle_models(args) -> None:
         sys.exit(1)
 
     if args.check:
-        provider_label = getattr(args, "provider", None) or "chatgpt"
-        print(
-            "Probing models for provider: "
-            f"{provider_label} (this may take a moment)..."
-        )
-        ts = auth.load()
-        if not ts:
-            print("Not logged in to ChatGPT.")
-            sys.exit(1)
-        ts = auth.ensure_valid(ts)
-        available = probe_available_models(ts, force=True)
-        all_models = fetch_models()
-        for m in all_models:
-            if m in available:
-                print(f"  chatgpt/{m}  [available]")
-            else:
-                print(f"  chatgpt/{m}  [not available]")
-        print(f"\n{len(available)}/{len(all_models)} models available.")
+        _models_probe_mode(args)
         return
 
     models_by_provider = get_available_models()
 
     if args.provider:
-        provider_models = models_by_provider.get(args.provider)
-        if provider_models is None or not provider_models:
-            discovered = list_providers()
-            if args.provider in discovered:
-                print(f"Provider '{args.provider}' has no available models.")
-                print(
-                    "(Provider may require authentication: "
-                    f"maestro auth login {args.provider})"
-                )
-            else:
-                print(f"Unknown provider: '{args.provider}'")
-                available = (
-                    ", ".join(sorted(discovered)) if discovered else "(none installed)"
-                )
-                print(f"Available providers: {available}")
-            sys.exit(1)
-        models_by_provider = {args.provider: provider_models}
+        models_by_provider = _models_filter_provider(args, models_by_provider)
 
     models_by_provider = {
         provider_id: models
