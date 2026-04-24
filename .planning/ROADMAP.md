@@ -2,7 +2,7 @@
 
 ## Overview
 
-Maestro transformed from a single-agent CLI into a multi-agent parallel execution engine in Phases 1-13. The next milestone focuses on hardening the shipped system instead of adding a new product surface. Phases 14-17 (milestone `v1.2`) convert the highest-priority debt items into planned work: planning artifact integrity, external provider install validation, Copilot release readiness, and aggregator runtime guardrails.
+Maestro transformed from a single-agent CLI into a multi-agent parallel execution engine in Phases 1-13. The next milestone focuses on hardening the shipped system instead of adding a new product surface. Phases 14-17 (milestone `v1.2`) convert the highest-priority debt items into planned work: planning artifact integrity, external provider install validation, Copilot release readiness, and aggregator runtime guardrails. Phases 18-20 reopen the milestone to close audit-confirmed gaps in verification evidence, planning drift detection, and Copilot release-path coverage.
 
 ## Phases
 
@@ -29,6 +29,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 15: External Provider Install Smoke Test** - Verify third-party `maestro.providers` packages in an isolated install path ✅ COMPLETE (2026-04-24)
 - [x] **Phase 16: Copilot Release Smoke Gate** - Add a release-grade real-auth smoke check for GitHub Copilot ✅ COMPLETE (2026-04-24)
 - [x] **Phase 17: Aggregator Guardrails** - Bound optional aggregator spend and rate behavior in unattended runs ✅ COMPLETE (2026-04-24)
+- [ ] **Phase 18: Milestone Evidence & Traceability Closure** - Reconcile milestone artifacts and add missing verification evidence for phases 14-17
+- [ ] **Phase 19: Planning Drift Detection Hardening** - Make the planning consistency gate fail on live milestone drift and enforce it in automation
+- [ ] **Phase 20: Copilot Release Path E2E Smoke Gate** - Verify the CLI and provider-registry Copilot release path end to end
 
 ## Phase Details
 
@@ -337,10 +340,52 @@ Plans:
 Plans:
 - [x] 17-01-PLAN.md — AggregatorGuardrail dataclass, check function, scheduler_route enforcement, config validation, and tests
 
+### Phase 18: Milestone Evidence & Traceability Closure
+**Goal**: Milestone `v1.2` planning artifacts and verification evidence become internally consistent so audit closure reflects shipped behavior instead of stale metadata
+**Depends on**: Phase 14, Phase 15, Phase 16, Phase 17
+**Requirements**: META-03, PLUGIN-01, PLUGIN-02, PLUGIN-03, COP-SMOKE-03, AGG-GUARD-01, AGG-GUARD-02, AGG-GUARD-03, AGG-GUARD-04
+**Gap Closure**: Closes audit gaps caused by missing verification artifacts, missing summary frontmatter, and stale milestone traceability/evidence alignment across phases 14-17
+**Success Criteria** (what must be TRUE):
+  1. Phases 14-17 each contain the verification artifacts and summary metadata required by the milestone workflow.
+  2. `.planning/REQUIREMENTS.md`, `.planning/STATE.md`, and `.planning/v1.2-MILESTONE-SUMMARY.md` reflect the same current milestone status and requirement completion state.
+  3. The milestone closeout flow records evidence showing the verified status of plugin smoke coverage, Copilot safe-skip behavior, and aggregator guardrail coverage.
+**Plans**: 0 plans
+
+Plans:
+- [ ] 18-01-PLAN.md — Restore missing verification artifacts, summary frontmatter, and milestone traceability for phases 14-17
+
+### Phase 19: Planning Drift Detection Hardening
+**Goal**: `maestro planning check` and its automation fail whenever live milestone artifacts drift out of sync
+**Depends on**: Phase 18
+**Requirements**: META-01, META-02
+**Gap Closure**: Closes the audit's planning-consistency integration and flow gaps where live `v1.2` drift still passes the gate
+**Success Criteria** (what must be TRUE):
+  1. `maestro planning check` fails when `.planning/STATE.md`, milestone summaries, roadmap status, or required evidence references contradict each other.
+  2. Regression tests cover the live-drift cases found in the `v1.2` audit.
+  3. Repository automation runs the hardened gate so the mismatch cannot pass CI unnoticed.
+**Plans**: 0 plans
+
+Plans:
+- [ ] 19-01-PLAN.md — Harden planning drift detection and extend automation-backed regression coverage
+
+### Phase 20: Copilot Release Path E2E Smoke Gate
+**Goal**: The audited Copilot release smoke path proves the user-facing CLI and runtime provider-registry path end to end
+**Depends on**: Phase 16, Phase 19
+**Requirements**: COP-SMOKE-01, COP-SMOKE-02
+**Gap Closure**: Closes the audit's Copilot integration and E2E flow gaps where the smoke gate bypasses CLI and registry wiring
+**Success Criteria** (what must be TRUE):
+  1. The smoke gate exercises `maestro auth login github-copilot` instead of constructing the provider directly.
+  2. The same test path resolves the provider through the runtime registry before making a live authenticated request.
+  3. Verification artifacts record the release-path evidence and any explicit skip conditions.
+**Plans**: 0 plans
+
+Plans:
+- [ ] 20-01-PLAN.md — Rework Copilot smoke coverage to prove the CLI and provider-registry release path end to end
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -361,3 +406,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 15. External Provider Install Smoke Test | 1/1 | Complete | 2026-04-24 |
 | 16. Copilot Release Smoke Gate | 1/1 | Complete | 2026-04-24 |
 | 17. Aggregator Guardrails | 1/1 | Complete | 2026-04-24 |
+| 18. Milestone Evidence & Traceability Closure | 0/1 | Not Started | - |
+| 19. Planning Drift Detection Hardening | 0/1 | Not Started | - |
+| 20. Copilot Release Path E2E Smoke Gate | 0/1 | Not Started | - |

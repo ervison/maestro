@@ -15,21 +15,21 @@ This file is scoped to milestone `v1.2`. It tracks the hardening work selected f
 
 ### Planning Integrity (META)
 
-- [x] **META-01**: A repository-level planning consistency check validates alignment between `.planning/ROADMAP.md`, `.planning/STATE.md`, the active milestone summary, and phase evidence references.
-- [x] **META-02**: The consistency check runs in automated verification for the repository so planning drift fails fast instead of being discovered during milestone closeout.
-- [x] **META-03**: New-milestone and milestone-close documentation paths reference the consistency gate so future planning updates keep the artifact set synchronized.
+- [ ] **META-01**: A repository-level planning consistency check validates alignment between `.planning/ROADMAP.md`, `.planning/STATE.md`, the active milestone summary, and phase evidence references.
+- [ ] **META-02**: The consistency check runs in automated verification for the repository so planning drift fails fast instead of being discovered during milestone closeout.
+- [ ] **META-03**: New-milestone and milestone-close documentation paths reference the consistency gate so future planning updates keep the artifact set synchronized.
 
 ### External Provider Contract (PLUGIN)
 
-- [x] **PLUGIN-01**: A smoke test creates or installs a minimal third-party provider package in an isolated environment and exposes it through the `maestro.providers` entry-point group.
-- [x] **PLUGIN-02**: After installation, Maestro discovers the third-party provider through its runtime registry without any source edits inside the main repository.
-- [x] **PLUGIN-03**: The smoke path is repeatable in automation and does not depend on mutating a developer's global Python environment.
+- [ ] **PLUGIN-01**: A smoke test creates or installs a minimal third-party provider package in an isolated environment and exposes it through the `maestro.providers` entry-point group.
+- [ ] **PLUGIN-02**: After installation, Maestro discovers the third-party provider through its runtime registry without any source edits inside the main repository.
+- [ ] **PLUGIN-03**: The smoke path is repeatable in automation and does not depend on mutating a developer's global Python environment.
 
 ### Copilot Release Gate (COP-SMOKE)
 
-- [x] **COP-SMOKE-01**: A release-grade smoke path exercises the real GitHub Copilot device-code login flow, including user instructions and polling completion.
-- [x] **COP-SMOKE-02**: The same gate verifies at least one live authenticated Copilot API request after login succeeds.
-- [x] **COP-SMOKE-03**: The smoke gate is safe to skip when credentials, a real account, or network access are unavailable, with the skip condition documented explicitly.
+- [ ] **COP-SMOKE-01**: A release-grade smoke path exercises the real GitHub Copilot device-code login flow, including user instructions and polling completion.
+- [ ] **COP-SMOKE-02**: The same gate verifies at least one live authenticated Copilot API request after login succeeds.
+- [ ] **COP-SMOKE-03**: The smoke gate is safe to skip when credentials, a real account, or network access are unavailable, with the skip condition documented explicitly.
 
 ### Aggregator Runtime Guardrails (AGG-GUARD)
 
@@ -49,16 +49,16 @@ This file is scoped to milestone `v1.2`. It tracks the hardening work selected f
 
 | REQ-ID | Phase | Description |
 |--------|-------|-------------|
-| META-01 | Phase 14 | Planning consistency check validates roadmap, state, summary, and evidence alignment |
-| META-02 | Phase 14 | Consistency check is part of automated verification |
-| META-03 | Phase 14 | Workflow documentation points future milestone updates through the consistency gate |
-| PLUGIN-01 | Phase 15 | Isolated third-party provider install smoke path |
-| PLUGIN-02 | Phase 15 | Runtime provider discovery works after install without source edits |
-| PLUGIN-03 | Phase 15 | Smoke path is automation-safe and avoids global environment mutation |
-| COP-SMOKE-01 | Phase 16 | Real Copilot device-code login gate |
-| COP-SMOKE-02 | Phase 16 | Live authenticated Copilot API request after login |
-| COP-SMOKE-03 | Phase 16 | Explicit safe-skip path for unavailable credentials or network |
-| AGG-GUARD-01 | Phase 17 | Explicit spend or call-count guardrails around aggregator |
-| AGG-GUARD-02 | Phase 17 | Repeated aggregation attempts are bounded in unattended runs |
-| AGG-GUARD-03 | Phase 17 | CLI explains aggregator blocks or skips clearly |
-| AGG-GUARD-04 | Phase 17 | Guardrail behavior is covered by automated tests |
+| META-01 | Phase 19 | Planning consistency check validates roadmap, state, summary, and evidence alignment |
+| META-02 | Phase 19 | Consistency check is part of automated verification |
+| META-03 | Phase 18 | Workflow documentation points future milestone updates through the consistency gate |
+| PLUGIN-01 | Phase 18 | Isolated third-party provider install smoke path |
+| PLUGIN-02 | Phase 18 | Runtime provider discovery works after install without source edits |
+| PLUGIN-03 | Phase 18 | Smoke path is automation-safe and avoids global environment mutation |
+| COP-SMOKE-01 | Phase 20 | Real Copilot device-code login gate |
+| COP-SMOKE-02 | Phase 20 | Live authenticated Copilot API request after login |
+| COP-SMOKE-03 | Phase 18 | Explicit safe-skip path for unavailable credentials or network |
+| AGG-GUARD-01 | Phase 18 | Explicit spend or call-count guardrails around aggregator |
+| AGG-GUARD-02 | Phase 18 | Repeated aggregation attempts are bounded in unattended runs |
+| AGG-GUARD-03 | Phase 18 | CLI explains aggregator blocks or skips clearly |
+| AGG-GUARD-04 | Phase 18 | Guardrail behavior is covered by automated tests |
