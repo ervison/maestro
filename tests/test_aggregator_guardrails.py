@@ -235,7 +235,7 @@ class TestConfigValidation:
             "aggregator": {"max_calls": "invalid"}
         }
 
-        with pytest.raises(RuntimeError, match="expected 'aggregator.max_calls' to be an int"):
+        with pytest.raises(RuntimeError, match="expected 'aggregator.max_calls' to be a non-negative int"):
             load()
 
     @patch('maestro.config.CONFIG_FILE')
