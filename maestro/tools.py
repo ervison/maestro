@@ -132,31 +132,17 @@ def move_file(args: dict, workdir: Path) -> dict:
     return {"ok": True}
 
 
-def execute_shell(args: dict, workdir: Path) -> dict:
-    cmd = args.get("command")
-    if not cmd:
-        return {"error": "Missing required argument: command"}
-    timeout = args.get("timeout", 30)
-    try:
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            cwd=workdir,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "returncode": result.returncode,
-        }
-    except subprocess.TimeoutExpired as e:
-        return {
-            "error": f"Command timed out after {timeout}s",
-            "stdout": e.stdout or "",
-            "stderr": e.stderr or "",
-        }
+def execute_shell(args: dict, workdir: Path) -> dict:  # noqa: ARG001
+    """Disabled: shell=True bypasses the workdir path guard (resolve_path).
+
+    Free-form shell execution allows absolute paths and directory traversal
+    (e.g. ``cat /etc/passwd``, ``rm ../file``) regardless of *workdir*.
+    Re-enable only after sandboxing with shell=False and per-argument
+    resolve_path validation.
+    """
+    return {
+        "error": "execute_shell is disabled because it bypasses the workdir path guard"
+    }
 
 
 _TOOL_FNS = {
