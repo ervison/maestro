@@ -100,23 +100,21 @@ def test_copilot_smoke_login_and_api_call(
 
     # --- Live API request (COP-SMOKE-02) ------------------------------------
     messages = [Message(role="user", content="Reply with exactly the word: SMOKE_OK")]
-    collected: list[str] = []
+    final_content: str = ""
 
     async def _run_stream() -> None:
+        nonlocal final_content
         async for chunk in provider.stream(messages=messages, model=model):
             if isinstance(chunk, Message) and chunk.role == "assistant" and chunk.content:
-                collected.append(chunk.content)
-            elif isinstance(chunk, str) and chunk:
-                # Partial text chunk — accumulate for final check
-                collected.append(chunk)
+                # Capture the final complete Message content (per ProviderPlugin contract).
+                final_content = chunk.content
 
     asyncio.run(_run_stream())
 
-    assert collected, (
-        f"Expected at least one response chunk from live Copilot API using model={model!r}. "
+    assert final_content, (
+        f"Expected a final assistant Message from live Copilot API using model={model!r}. "
         "Check that the token has Copilot API access."
     )
-    full_response = "".join(collected)
-    assert len(full_response) > 0, (
-        f"Expected non-empty response from Copilot API, got: {full_response!r}"
+    assert "SMOKE_OK" in final_content, (
+        f"Expected response to contain 'SMOKE_OK', got: {final_content!r}"
     )
