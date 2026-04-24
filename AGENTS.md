@@ -156,7 +156,6 @@ Architecture not yet mapped. Follow existing patterns found in the codebase.
 <!-- GSD:skills-start source:skills/ -->
 ## Project Skills
 
-skills/
 <!-- GSD:skills-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
