@@ -423,6 +423,7 @@ def _handle_run(args) -> None:
 
     wd = Path(args.workdir).resolve() if args.workdir else Path.cwd()
 
+    model_id: str | None = None
     try:
         provider, model_id = resolve_model(model_flag=args.model)
 
@@ -445,7 +446,7 @@ def _handle_run(args) -> None:
 
     except (RuntimeError, ValueError) as e:
         msg = str(e)
-        if "not supported" in msg:
+        if "not supported" in msg and model_id is not None:
             print(f"Error: model '{model_id}' is not available for your account.")
             print("Run 'maestro models --check' to see which models work for you.")
         else:
