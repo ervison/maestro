@@ -185,7 +185,7 @@ class TestRunMultiAgentGuardrailIntegration:
         assert "summary" not in result
         mock_load_config.assert_called()
 
-    @patch('maestro.config.load')
+    @patch('maestro.multi_agent.load_config')
     def test_run_multi_agent_builds_guardrail_from_config(self, mock_load_config):
         """Test that run_multi_agent builds AggregatorGuardrail from config values."""
         mock_config = MagicMock()
@@ -202,8 +202,8 @@ class TestRunMultiAgentGuardrailIntegration:
         mock_load_config.assert_not_called()  # Not yet
 
         # Actually call run_multi_agent to trigger the config loading
-        with patch('maestro.providers.registry.get_default_provider'), \
-             patch('maestro.planner.node.planner_node') as mock_planner, \
+        with patch('maestro.multi_agent.get_default_provider'), \
+             patch('maestro.multi_agent.planner_node') as mock_planner, \
              patch('maestro.multi_agent.graph.invoke') as mock_invoke:
 
             mock_planner.return_value = {"dag": {"tasks": []}}
