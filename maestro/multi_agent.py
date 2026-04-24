@@ -479,6 +479,115 @@ Be concise but thorough.
 """
 
 
+def _build_aggregator_prompt(
+    task: str, outputs: dict[str, str], failed: list, errors: list
+) -> str:
+    """Build the user message for the aggregator LLM call.
+
+    Args:
+        task: Original user task string.
+        outputs: Mapping of task_id -> output text from workers.
+        failed: List of failed task IDs.
+        errors: List of error message strings.
+
+    Returns:
+        Formatted user message string.
+    """
+    outputs_text = "\n\n".join(
+        f"=== {task_id} ===\n{output}" for task_id, output in outputs.items()
+    )
+
+    if failed:
+        failed_text = "\n".join(f"- {tid}" for tid in failed)
+        outputs_text += f"\n\n=== Failed Tasks ===\n{failed_text}"
+
+    if errors:
+        errors_text = "\n".join(f"- {err}" for err in errors)
+        outputs_text += f"\n\n=== Errors ===\n{errors_text}"
+
+    return f"Original task: {task}\n\nWorker outputs:\n\n{outputs_text}"
+
+
+def _resolve_aggregator_provider(state: AgentState):
+    """Resolve the provider and model to use for the aggregator LLM call.
+
+    Reuses the caller-injected provider only when it matches the provider
+    ID selected by resolve_model; otherwise falls back to the resolved provider.
+
+    Args:
+        state: AgentState (reads ``provider`` key).
+
+    Returns:
+        Tuple of (provider, model_string).
+    """
+    resolved_provider, aggregator_model = resolve_model(agent_name="aggregator")
+    runtime_provider = state.get("provider")
+
+    if runtime_provider is not None and runtime_provider.id == resolved_provider.id:
+        provider = runtime_provider
+    else:
+        provider = resolved_provider
+
+    return provider, aggregator_model
+
+
+async def _run_aggregator_stream(provider, model: str, user_message: str, task: str) -> str:
+    """Run the aggregator LLM stream and return the full response text.
+
+    Args:
+        provider: ProviderPlugin instance to call.
+        model: Model identifier string.
+        user_message: User message content.
+        task: Original user task (used in the system prompt).
+
+    Returns:
+        Aggregated text from the stream.
+    """
+    from maestro.providers.base import Message
+
+    system_prompt = AGGREGATOR_SYSTEM_PROMPT.format(task=task)
+    messages = [
+        Message(role="system", content=system_prompt),
+        Message(role="user", content=user_message),
+    ]
+    chunks: list[str] = []
+    async for chunk in provider.stream(messages, model=model):
+        if isinstance(chunk, str):
+            chunks.append(chunk)
+        elif isinstance(chunk, Message) and chunk.content:
+            chunks = [chunk.content]
+    return "".join(chunks)
+
+
+def _run_aggregator_sync(provider, model: str, user_message: str, task: str) -> str:
+    """Run _run_aggregator_stream synchronously, bridging existing event loops.
+
+    Args:
+        provider: ProviderPlugin instance.
+        model: Model identifier.
+        user_message: Formatted user message.
+        task: Original user task.
+
+    Returns:
+        Aggregated text from the stream, or a fallback error string.
+    """
+    async def _aggregate():
+        return await _run_aggregator_stream(provider, model, user_message, task)
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(_aggregate())).result()
+    elif loop is not None:
+        return loop.run_until_complete(_aggregate())
+    else:
+        return asyncio.run(_aggregate())
+
+
 def aggregator_node(state: AgentState) -> dict:
     """Produce final summary from all worker outputs.
 
@@ -509,77 +618,15 @@ def aggregator_node(state: AgentState) -> dict:
         _print_lifecycle("aggregator", "done")
         return {"summary": "No worker outputs to summarize."}
 
-    # Build the prompt for the aggregator
-    outputs_text = "\n\n".join(
-        f"=== {task_id} ===\n{output}" for task_id, output in outputs.items()
-    )
-
-    if failed:
-        failed_text = "\n".join(f"- {tid}" for tid in failed)
-        outputs_text += f"\n\n=== Failed Tasks ===\n{failed_text}"
-
-    if errors:
-        errors_text = "\n".join(f"- {err}" for err in errors)
-        outputs_text += f"\n\n=== Errors ===\n{errors_text}"
-
-    user_message = f"Original task: {task}\n\nWorker outputs:\n\n{outputs_text}"
-
-    # Resolve provider and model via shared priority chain.
-    # Always use resolve_model(agent_name="aggregator") so config.agent.aggregator.model
-    # is honoured. If a provider was injected by the caller, use it for auth context
-    # but still let resolve_model determine the model string.
-    runtime_provider = state.get("provider")
-
-    resolved_provider, aggregator_model = resolve_model(agent_name="aggregator")
-    # Prefer the caller-supplied provider only when it targets the same provider
-    # as the one resolve_model selected. If they differ (e.g., a ChatGPT provider
-    # was injected but config selects a Copilot-only aggregator model), use the
-    # resolved provider to avoid calling a model on the wrong provider.
-    if runtime_provider is not None and runtime_provider.id == resolved_provider.id:
-        provider = runtime_provider
-    else:
-        provider = resolved_provider
-
-    # Use asyncio to run the async provider stream
-    async def _aggregate():
-        from maestro.providers.base import Message
-
-        system_prompt = AGGREGATOR_SYSTEM_PROMPT.format(task=task)
-        messages = [
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=user_message),
-        ]
-        chunks: list[str] = []
-        async for chunk in provider.stream(messages, model=aggregator_model):
-            if isinstance(chunk, str):
-                chunks.append(chunk)
-            elif isinstance(chunk, Message) and chunk.content:
-                chunks = [chunk.content]
-        return "".join(chunks)
-
-    # Separate loop detection from aggregation execution to properly handle
-    # provider-side RuntimeError without confusing it with "no running loop" case
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
+    user_message = _build_aggregator_prompt(task, outputs, failed, errors)
+    provider, aggregator_model = _resolve_aggregator_provider(state)
 
     try:
-        if loop and loop.is_running():
-            # Called from an already running event loop (e.g., async test)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                summary = pool.submit(lambda: asyncio.run(_aggregate())).result()
-        elif loop is not None:
-            # Loop exists but isn't running
-            summary = loop.run_until_complete(_aggregate())
-        else:
-            # No running loop - safe to use asyncio.run()
-            summary = asyncio.run(_aggregate())
+        summary = _run_aggregator_sync(provider, aggregator_model, user_message, task)
     except Exception as e:
         logger.exception("Aggregator failed: %s", e)
         summary = f"Failed to generate summary: {e}"
     else:
-        # No exception - check if summary is empty
         if not summary.strip():
             summary = "Aggregation completed but produced no output."
 
