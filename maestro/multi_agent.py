@@ -248,11 +248,11 @@ def scheduler_route(state: AgentState) -> str:
         return "aggregator"
 
     # Safety: if we're here with no ready tasks but unfinished work,
-    # there may be a problem - but scheduler_node would have added errors
-    # Check if aggregation is disabled before routing to aggregator
-    if not state.get("aggregate", True):
-        return END
-    return "aggregator"
+    # that means tasks are still running or something went wrong (e.g.
+    # scheduler recorded an error for permanently-blocked tasks).
+    # Do NOT route to aggregator while unfinished tasks remain — end the run
+    # so the caller can inspect errors instead of producing a misleading summary.
+    return END
 
 
 def dispatch_node(state: AgentState) -> dict:
