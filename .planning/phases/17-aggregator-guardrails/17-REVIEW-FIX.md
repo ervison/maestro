@@ -1,83 +1,61 @@
 ---
 phase: 17-aggregator-guardrails
-fixed_at: 2026-04-24T16:00:00Z
+fixed_at: 2026-04-24T16:30:00Z
 review_path: .planning/phases/17-aggregator-guardrails/17-REVIEW.md
 iteration: 1
-findings_in_scope: 6
-fixed: 4
-skipped: 2
-status: partial
+findings_in_scope: 3
+fixed: 3
+skipped: 0
+status: all_fixed
 ---
 
 # Phase 17: Code Review Fix Report
 
-**Fixed at:** 2026-04-24T16:00:00Z
+**Fixed at:** 2026-04-24T16:30:00Z
 **Source review:** .planning/phases/17-aggregator-guardrails/17-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 6
-- Fixed: 4
-- Skipped: 2
+- Findings in scope: 3 (WR-01, WR-02, WR-03 from the latest iteration)
+- Fixed: 3
+- Skipped: 0
+
+> Note: The first-iteration warnings WR-03 (scheduler complexity), WR-04 (aggregator complexity), WR-05 (run_multi_agent complexity) overlap with the second-iteration WR-02/WR-03; the second review supersedes the first. First-iteration WR-02 (provider/model mismatch) was already fixed before this review cycle and was confirmed present in the code.
 
 ## Fixed Issues
 
-### CR-01: Aggregator runtime path crashes with `NameError`
+### WR-01: `max_calls` contract inconsistent across schema, runtime config, and tests
 
-**Files modified:** `maestro/multi_agent.py`
-**Commit:** 5dcda17
-**Applied fix:** Added `from maestro.models import resolve_model` import at module scope, immediately above the existing `get_default_provider` import. The function at line 525 was calling `resolve_model` without it being in scope.
+**Files modified:** `maestro/config.py`, `tests/test_aggregator_guardrails.py`
+**Commits:** `41c3578`, `37ce50f`
+**Applied fix:**
+- Removed the `max_calls not in (None, 0, 1)` gate that rejected any value greater than 1.
+- Replaced the two-step int-type + allow-list check with a single combined guard: `type(max_calls) is not int or max_calls < 0`.
+- Updated the test assertion regex from `"to be an int"` to `"to be a non-negative int"` to match the revised error message.
+- All 15 guardrail tests pass after the change.
 
----
-
-### WR-01: Scheduler routes to aggregator even when tasks are still unfinished
-
-**Files modified:** `maestro/multi_agent.py`
-**Commit:** b20a1fe
-**Applied fix:** Replaced the fall-through path in `scheduler_route()` (lines 249-254) that incorrectly routed to `"aggregator"` when unfinished tasks remained. It now returns `END` unconditionally in that branch, stopping the run so callers can inspect errors rather than receiving a misleading summary. The `aggregate` flag check that was in that branch was redundant (the earlier `not unfinished` block already covers the normal aggregation path with all guardrail checks).
-**Status:** fixed: requires human verification — the routing logic change is simple but affects all cases where tasks are blocked by failures; verify against existing test suite.
-
----
-
-### WR-02: Config validation accepts booleans as integer guardrail values
+### WR-02: `load()` has elevated cyclomatic complexity (CC=13)
 
 **Files modified:** `maestro/config.py`
-**Commit:** 6b7c38c
-**Applied fix:** Changed both `isinstance(value, int)` checks for `aggregator.max_calls` and `aggregator.max_tokens_per_run` to `type(value) is not int`. This rejects `True`/`False` (which are `bool` and subclass `int`) while accepting actual integers.
+**Commit:** `29ebdf2`
+**Applied fix:**
+- Extracted `_validate_root_config(data)` — validates top-level JSON shape, `model` string type, and `agent` dict type.
+- Extracted `_validate_aggregator_config(aggregator)` — validates aggregator dict type, `max_calls` non-negative int, and `max_tokens_per_run` int.
+- Reduced `load()` to: parse JSON → `_validate_root_config` → `_validate_aggregator_config` → construct `Config`. Cyclomatic complexity drops from ~13 to ~3.
+
+### WR-03: `aggregator_node()` has elevated cyclomatic complexity (CC=13)
+
+**Files modified:** `maestro/multi_agent.py`
+**Commit:** `70670c5`
+**Applied fix:**
+- Extracted `_build_aggregator_prompt(task, outputs, failed, errors) -> str` — builds the formatted LLM user message.
+- Extracted `_resolve_aggregator_provider(state) -> (provider, model)` — resolves provider with the caller-injected vs. config-resolved matching logic (preserves the WR-02 fix from the first review).
+- Extracted `_run_aggregator_stream(provider, model, user_message, task) -> Coroutine[str]` — async function that streams tokens from the provider.
+- Extracted `_run_aggregator_sync(provider, model, user_message, task) -> str` — bridges the event loop (running loop, non-running loop, no loop) and calls `_run_aggregator_stream`.
+- `aggregator_node()` is now a thin coordinator: emit active → early-return on empty → build prompt → resolve provider → stream sync → emit done/log → return summary. Cyclomatic complexity drops from ~13 to ~4.
 
 ---
 
-### WR-03: One guardrail test patches the wrong symbols and fails
-
-**Files modified:** `tests/test_aggregator_guardrails.py`
-**Commit:** 8d2776b
-**Applied fix:** In `test_run_multi_agent_builds_guardrail_from_config`, changed:
-- `@patch('maestro.config.load')` → `@patch('maestro.multi_agent.load_config')`
-- `patch('maestro.providers.registry.get_default_provider')` → `patch('maestro.multi_agent.get_default_provider')`
-- `patch('maestro.planner.node.planner_node')` → `patch('maestro.multi_agent.planner_node')`
-
-All three are now patched where `run_multi_agent()` looks them up (in `maestro.multi_agent`), so the mocks take effect.
-
----
-
-## Skipped Issues
-
-### WR-04: `scheduler_node()` has high cyclomatic complexity
-
-**File:** `maestro/multi_agent.py:96-205`
-**Reason:** The fix suggestion provides only a skeleton (`_load_valid_plan`, `_compute_ready_tasks`, `_compute_scheduler_errors`). Implementing this refactoring requires careful extraction of the existing validation/dependency-scan logic into helpers with the same semantics. This is a non-trivial restructuring that should be reviewed by a human before committing, as getting the blocked-task/end-state detection wrong would silently break multi-agent runs. Skipped to avoid introducing logic regressions.
-**Original issue:** CC=19 in `scheduler_node()` — DAG validation, ready-task selection, blocked-task detection, and end-state handling all in one function.
-
----
-
-### WR-05: `aggregator_node()` has high cyclomatic complexity
-
-**File:** `maestro/multi_agent.py:474-576`
-**Reason:** The fix suggestion provides only a skeleton (`_run_aggregator`, `_emit_aggregator_done`). The function mixes async execution with event-loop bridging logic (three branches for running/stopped/no loop). Extracting these correctly — especially the `concurrent.futures.ThreadPoolExecutor` path — requires careful testing. Given that CR-01 (the missing import that likely stems from this complexity) is now fixed, the remaining risk is manageable but the refactor itself should be human-reviewed. Skipped to avoid regressions in async execution paths.
-**Original issue:** CC=19 in `aggregator_node()` — prompt construction, model resolution, async execution, event-loop bridging all mixed together.
-
----
-
-_Fixed: 2026-04-24T16:00:00Z_
+_Fixed: 2026-04-24T16:30:00Z_
 _Fixer: the agent (gsd-code-fixer)_
 _Iteration: 1_
