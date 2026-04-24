@@ -267,6 +267,127 @@ def _run_provider_stream_sync(
     return asyncio.run(_inner())
 
 
+def _collect_stream_chunks(
+    stream_results: list,
+) -> tuple[str, list[ToolCall]]:
+    """Extract final text and tool calls from a list of stream chunks.
+
+    Args:
+        stream_results: List of chunks returned by the streaming call; items are
+            either ``str`` (text delta) or ``Message`` (final assembled response).
+
+    Returns:
+        A tuple of ``(final_text, tool_calls)``.
+
+    Raises:
+        RuntimeError: If no output was received at all.
+    """
+    text_parts: list[str] = []
+    tool_calls: list[ToolCall] = []
+    final_message: Message | None = None
+
+    for chunk in stream_results:
+        if isinstance(chunk, str):
+            text_parts.append(chunk)
+        elif isinstance(chunk, Message):
+            final_message = chunk
+            tool_calls = chunk.tool_calls
+
+    if text_parts:
+        return "".join(text_parts), tool_calls
+    if final_message is not None:
+        return final_message.content, tool_calls
+    raise RuntimeError("No output received from agent loop")
+
+
+def _check_tool_loop(
+    recent_tool_signatures: list[str],
+    tool_calls: list[ToolCall],
+    max_repeated: int,
+) -> None:
+    """Detect an infinite tool-call loop and raise if one is found.
+
+    Appends the current call signature to *recent_tool_signatures* (mutating it
+    in place) and raises ``RuntimeError`` when the last *max_repeated* signatures
+    are identical.
+
+    Args:
+        recent_tool_signatures: Rolling window of previous call signatures (mutated).
+        tool_calls: Current iteration's tool calls.
+        max_repeated: How many consecutive identical signatures trigger the guard.
+
+    Raises:
+        RuntimeError: If the same tool call pattern has repeated *max_repeated* times.
+    """
+    call_sig = json.dumps(
+        [{"name": tc.name, "args": tc.arguments} for tc in tool_calls],
+        sort_keys=True,
+    )
+    recent_tool_signatures.append(call_sig)
+    if len(recent_tool_signatures) > max_repeated:
+        recent_tool_signatures.pop(0)
+    if (
+        len(recent_tool_signatures) == max_repeated
+        and len(set(recent_tool_signatures)) == 1
+    ):
+        raise RuntimeError(
+            f"Agent loop detected: same tool call repeated {max_repeated} times"
+            f" — {call_sig[:200]}"
+        )
+
+
+def _execute_tools_and_append(
+    tool_calls: list[ToolCall],
+    neutral_messages: list[Message],
+    final_text: str,
+    wd: Path,
+    auto: bool,
+    on_tool_start,
+) -> tuple[bool, None]:
+    """Append the assistant tool-call message and execute each tool.
+
+    Mutates *neutral_messages* in place, adding the assistant request message
+    followed by one tool-result message per call.
+
+    Args:
+        tool_calls: Tool calls to execute.
+        neutral_messages: Conversation history to append to (mutated).
+        final_text: The assistant text that accompanied the tool calls.
+        wd: Working directory for tool execution.
+        auto: Whether destructive tools are auto-approved.
+        on_tool_start: Optional callable to invoke before first tool execution.
+
+    Returns:
+        ``(new_auto, None)`` where *new_auto* reflects any auto-escalation that
+        occurred during execution.
+    """
+    neutral_messages.append(
+        Message(
+            role="assistant",
+            content=final_text,
+            tool_calls=tool_calls,
+        )
+    )
+
+    for tc in tool_calls:
+        if on_tool_start is not None:
+            on_tool_start()
+            on_tool_start = None  # only fire once per iteration
+        result, auto_escalated = execute_tool(tc.name, tc.arguments, wd, auto=auto)
+        if auto_escalated:
+            auto = True
+            print("  [maestro] Auto-approving all remaining tool calls.")
+        neutral_messages.append(
+            Message(
+                role="tool",
+                content=json.dumps(result),
+                tool_call_id=tc.id,
+            )
+        )
+
+    return auto, None
+
+
 def _run_agentic_loop(
     messages: list[BaseMessage],
     model: str,
@@ -307,24 +428,17 @@ def _run_agentic_loop(
         is used at runtime; the tokens-based path is preserved for backward
         compatibility with existing tests that mock httpx.stream().
     """
-    # Determine which path to use: provider-based (new) or tokens-based (legacy)
     use_legacy_path = tokens is not None
-
-    # Ensure workdir is set
     wd = workdir or Path.cwd()
 
-    # Convert messages to neutral types
     neutral_messages = _convert_messages_to_neutral(messages, instructions)
-
-    # Convert tool schemas to neutral Tool types
     tools = _convert_tool_schemas(TOOL_SCHEMAS)
 
-    # Track recent tool calls to detect infinite loops (same tool+args repeated)
     recent_tool_signatures: list[str] = []
     MAX_REPEATED_CALLS = 3
 
-    for iteration in range(max_iterations):
-        # Stream from provider (sync wrapper for async generator)
+    for _iteration in range(max_iterations):
+        # --- stream collection ---
         if use_legacy_path:
             stream_results = _run_httpx_stream_sync(
                 neutral_messages, model, tools, tokens
@@ -338,72 +452,20 @@ def _run_agentic_loop(
                 provider, neutral_messages, model, tools, on_text=on_text
             )
 
-        text_parts: list[str] = []
-        tool_calls: list[ToolCall] = []
-        final_message: Message | None = None
-
-        for chunk in stream_results:
-            if isinstance(chunk, str):
-                text_parts.append(chunk)
-                # on_text already called inside _run_provider_stream_sync for real-time output
-            elif isinstance(chunk, Message):
-                # Final message with complete response
-                final_message = chunk
-                tool_calls = chunk.tool_calls
-
-        # Determine final text: use streamed deltas if any, else use final message content
-        if text_parts:
-            final_text = "".join(text_parts)
-        elif final_message:
-            final_text = final_message.content
-        else:
-            raise RuntimeError("No output received from agent loop")
+        final_text, tool_calls = _collect_stream_chunks(stream_results)
 
         # No tool calls → final answer
         if not tool_calls:
             return final_text
 
-        # Detect infinite loop: same tool call signature repeated consecutively
-        call_sig = json.dumps(
-            [{"name": tc.name, "args": tc.arguments} for tc in tool_calls],
-            sort_keys=True,
-        )
-        recent_tool_signatures.append(call_sig)
-        if len(recent_tool_signatures) > MAX_REPEATED_CALLS:
-            recent_tool_signatures.pop(0)
-        if (
-            len(recent_tool_signatures) == MAX_REPEATED_CALLS
-            and len(set(recent_tool_signatures)) == 1
-        ):
-            raise RuntimeError(
-                f"Agent loop detected: same tool call repeated {MAX_REPEATED_CALLS} times — {call_sig[:200]}"
-            )
+        # --- loop detection ---
+        _check_tool_loop(recent_tool_signatures, tool_calls, MAX_REPEATED_CALLS)
 
-        # Preserve the assistant message that requested the tools
-        neutral_messages.append(
-            Message(
-                role="assistant",
-                content=final_text,
-                tool_calls=tool_calls,
-            )
+        # --- tool execution ---
+        auto, _ = _execute_tools_and_append(
+            tool_calls, neutral_messages, final_text, wd, auto, on_tool_start
         )
-
-        # Execute each tool and append results as tool messages
-        for tc in tool_calls:
-            if on_tool_start is not None:
-                on_tool_start()
-                on_tool_start = None  # only fire once per iteration
-            result, auto_escalated = execute_tool(tc.name, tc.arguments, wd, auto=auto)
-            if auto_escalated:
-                auto = True
-                print("  [maestro] Auto-approving all remaining tool calls.")
-            neutral_messages.append(
-                Message(
-                    role="tool",
-                    content=json.dumps(result),
-                    tool_call_id=tc.id,
-                )
-            )
+        on_tool_start = None  # already consumed (or not provided)
 
     raise RuntimeError(f"Agent loop exceeded max_iterations={max_iterations}")
 
