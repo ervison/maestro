@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import httpx
+from httpx_sse import aconnect_sse
 
 from maestro import auth
 from maestro.providers.base import (
@@ -399,32 +400,31 @@ class ChatGPTProvider:
                 payload["response_format"] = extra["response_format"]
 
         # Stream request
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+
         async with httpx.AsyncClient() as client:
-            async with client.stream(
+            async with aconnect_sse(
+                client,
                 "POST",
                 RESPONSES_ENDPOINT,
                 json=payload,
                 headers=_headers(tokens),
                 timeout=120,
-            ) as response:
+            ) as event_source:
+                response = event_source.response
                 if not response.is_success:
                     body = await response.aread()
                     raise RuntimeError(
                         f"API error {response.status_code}: {body[:800].decode()}"
                     )
 
-                text_parts: list[str] = []
-                tool_calls: list[ToolCall] = []
-
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    raw = line[6:]
-                    if raw == "[DONE]":
+                async for sse in event_source.aiter_sse():
+                    if sse.data == "[DONE]":
                         break
 
                     try:
-                        event = json.loads(raw)
+                        event = json.loads(sse.data)
                     except json.JSONDecodeError:
                         continue
 
