@@ -226,72 +226,84 @@ def main():
         parser.print_help()
 
 
+def _auth_login(args) -> None:
+    """Handle `maestro auth login <provider>`."""
+    method = "device" if getattr(args, "device", False) else "browser"
+    try:
+        provider = get_provider(args.provider)
+    except ValueError as e:
+        print(str(e))
+        sys.exit(1)
+    if args.provider == "chatgpt":
+        provider.login(method)
+        ts = auth.get("chatgpt")
+        if ts:
+            email = ts.get("email") or ts.get("account_id", "")
+            print(f"Logged in as: {email}" if email else "Logged in to chatgpt.")
+        else:
+            print("Logged in to chatgpt.")
+    else:
+        provider.login()
+
+
+def _auth_logout(args) -> None:
+    """Handle `maestro auth logout <provider>`."""
+    from maestro.providers.registry import list_providers
+
+    discovered = set(list_providers())
+    stored = set(auth.all_providers())
+    known = discovered | stored
+
+    if args.provider not in known:
+        print(f"Unknown provider: '{args.provider}'")
+        print(
+            "Available providers: "
+            f"{', '.join(sorted(known)) or '(none installed)'}"
+        )
+        sys.exit(1)
+
+    if auth.remove(args.provider):
+        print(f"Logged out of {args.provider}.")
+    else:
+        print(f"Not logged in to {args.provider}.")
+        sys.exit(1)
+
+
+def _auth_status() -> None:
+    """Handle `maestro auth status`."""
+    from maestro.providers.registry import list_providers
+
+    discovered = list_providers()
+    stored = set(auth.all_providers())
+    all_known = sorted(set(discovered) | stored)
+
+    if not all_known:
+        print("No providers installed.")
+        sys.exit(0)
+
+    print("Provider Status:")
+    for pid in all_known:
+        if pid in discovered:
+            try:
+                provider = get_provider(pid)
+                if provider.is_authenticated():
+                    print(f"  {pid}: authenticated")
+                else:
+                    print(f"  {pid}: not authenticated")
+            except Exception:
+                print(f"  {pid}: error loading provider")
+        else:
+            print(f"  {pid}: credentials stored (provider not installed)")
+
+
 def _handle_auth(args, auth_p) -> None:
     """Handle `maestro auth` subcommands (login / logout / status)."""
     if args.auth_command == "login":
-        method = "device" if getattr(args, "device", False) else "browser"
-        try:
-            provider = get_provider(args.provider)
-        except ValueError as e:
-            print(str(e))
-            sys.exit(1)
-        if args.provider == "chatgpt":
-            provider.login(method)
-            ts = auth.get("chatgpt")
-            if ts:
-                email = ts.get("email") or ts.get("account_id", "")
-                print(f"Logged in as: {email}" if email else "Logged in to chatgpt.")
-            else:
-                print("Logged in to chatgpt.")
-        else:
-            provider.login()
-
+        _auth_login(args)
     elif args.auth_command == "logout":
-        from maestro.providers.registry import list_providers
-
-        discovered = set(list_providers())
-        stored = set(auth.all_providers())
-        known = discovered | stored
-
-        if args.provider not in known:
-            print(f"Unknown provider: '{args.provider}'")
-            print(
-                "Available providers: "
-                f"{', '.join(sorted(known)) or '(none installed)'}"
-            )
-            sys.exit(1)
-
-        if auth.remove(args.provider):
-            print(f"Logged out of {args.provider}.")
-        else:
-            print(f"Not logged in to {args.provider}.")
-            sys.exit(1)
-
+        _auth_logout(args)
     elif args.auth_command == "status":
-        from maestro.providers.registry import list_providers
-
-        discovered = list_providers()
-        stored = set(auth.all_providers())
-        all_known = sorted(set(discovered) | stored)
-
-        if not all_known:
-            print("No providers installed.")
-            sys.exit(0)
-
-        print("Provider Status:")
-        for pid in all_known:
-            if pid in discovered:
-                try:
-                    provider = get_provider(pid)
-                    if provider.is_authenticated():
-                        print(f"  {pid}: authenticated")
-                    else:
-                        print(f"  {pid}: not authenticated")
-                except Exception:
-                    print(f"  {pid}: error loading provider")
-            else:
-                print(f"  {pid}: credentials stored (provider not installed)")
-
+        _auth_status()
     else:
         auth_p.print_help()
 
