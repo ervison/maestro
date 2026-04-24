@@ -18,6 +18,7 @@ maestro.egg-info/top_level.txt
 maestro/dashboard/__init__.py
 maestro/dashboard/emitter.py
 maestro/dashboard/server.py
+maestro/dashboard/static/index.html
 maestro/planner/__init__.py
 maestro/planner/node.py
 maestro/planner/schemas.py
@@ -36,6 +37,7 @@ maestro/sdlc/reflect.py
 maestro/sdlc/schemas.py
 maestro/sdlc/writer.py
 maestro/sdlc/static/gaps.html
+tests/test_aggregator_guardrails.py
 tests/test_cli_discover.py
 tests/test_cli_planning.py
 tests/test_copilot_smoke.py

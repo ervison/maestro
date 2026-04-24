@@ -1,7 +1,11 @@
 {
   "model_profile": "quality",
   "commit_docs": true,
-  "parallelization": true,
+  "parallelization": {
+    "enabled": true,
+    "max_parallel_agents": 4,
+    "task_level" : true
+  },
   "search_gitignored": false,
   "brave_search": false,
   "firecrawl": false,
@@ -20,13 +24,13 @@
     "plan_check": true,
     "verifier": true,
     "nyquist_validation": true,
-    "auto_advance": true,
+    "auto_advance": false,
     "node_repair": true,
     "node_repair_budget": 2,
     "ui_phase": true,
     "ui_safety_gate": true,
     "ai_integration_phase": true,
-    "tdd_mode": false,
+    "tdd_mode": true,
     "text_mode": false,
     "research_before_questions": true,
     "discuss_mode": "discuss",
