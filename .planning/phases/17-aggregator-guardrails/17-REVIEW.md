@@ -1,54 +1,16 @@
 ---
 phase: 17-aggregator-guardrails
-reviewed: 2026-04-24T15:05:56Z
+reviewed: 2026-04-24T15:19:43Z
 depth: deep
-files_reviewed: 42
+files_reviewed: 4
 files_reviewed_list:
-  - AGENTS.md
-  - maestro/agent.py
-  - maestro/auth.py
-  - maestro/cli.py
-  - maestro/config.py
-  - maestro/domains.py
-  - maestro/models.py
   - maestro/multi_agent.py
-  - maestro/planner/__init__.py
-  - maestro/planner/node.py
+  - maestro/config.py
   - maestro/planner/schemas.py
-  - maestro/planner/validator.py
-  - maestro/planning.py
-  - maestro/providers/__init__.py
-  - maestro/providers/base.py
-  - maestro/providers/chatgpt.py
-  - maestro/providers/copilot.py
-  - maestro/providers/registry.py
-  - maestro/sdlc/__init__.py
-  - maestro/sdlc/gaps_server.py
-  - maestro/sdlc/generators.py
-  - maestro/sdlc/harness.py
-  - maestro/sdlc/prompts.py
-  - maestro/sdlc/reflect.py
-  - maestro/sdlc/schemas.py
-  - maestro/sdlc/writer.py
-  - pyproject.toml
-  - run-phase.sh
-  - script.py
   - tests/test_aggregator_guardrails.py
-  - tests/test_cli_discover.py
-  - tests/test_cli_planning.py
-  - tests/test_copilot_smoke.py
-  - tests/test_dashboard_integration.py
-  - tests/test_planning_consistency.py
-  - tests/test_provider_install_smoke.py
-  - tests/test_sdlc_gaps_server.py
-  - tests/test_sdlc_generators.py
-  - tests/test_sdlc_harness.py
-  - tests/test_sdlc_reflect.py
-  - .github/workflows/planning-consistency.yml
-  - .opencode/plugins/graphify.js
 findings:
-  critical: 2
-  warning: 3
+  critical: 0
+  warning: 5
   info: 0
   total: 5
 status: issues_found
@@ -56,106 +18,162 @@ status: issues_found
 
 # Phase 17: Code Review Report
 
-**Reviewed:** 2026-04-24T15:05:56Z
+**Reviewed:** 2026-04-24T15:19:43Z
 **Depth:** deep
-**Files Reviewed:** 42
+**Files Reviewed:** 4
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the multi-agent guardrail work plus adjacent provider/SDLC/runtime paths. The main problems are a workdir escape in the shell tool, a broken LLM gap-enrichment call path that silently degrades to heuristics, an HTTP server cleanup leak, duplicated test definitions that mask test intent, and an overly complex CLI dispatcher.
+Reviewed the phase 17 aggregator-guardrail changes across `maestro/multi_agent.py`, `maestro/config.py`, `maestro/planner/schemas.py`, and `tests/test_aggregator_guardrails.py`, including cross-file tracing through `run_multi_agent() -> scheduler_route() -> aggregator_node()` and `resolve_model()`.
 
-## Critical Issues
-
-### CR-01: `execute_shell` bypasses the worker path guard
-
-**File:** `maestro/tools.py:135-148`
-**Issue:** `execute_shell()` runs arbitrary text with `shell=True` and only sets `cwd=workdir`. That does not enforce the repo's required path guard inside workers: commands can still target absolute paths or traverse outside the workdir (`rm -rf /tmp/x`, `cat /etc/passwd`, `rm ../file`). This is a direct escape hatch around `resolve_path()`.
-**Fix:** Disable free-form shell execution for workers until it is sandboxed, or replace it with structured commands executed with `shell=False` and per-argument path validation.
-
-```python
-def execute_shell(args: dict, workdir: Path) -> dict:
-    return {
-        "error": "execute_shell is disabled because it bypasses the workdir path guard"
-    }
-```
-
-### CR-02: `main()` has critical cyclomatic complexity
-
-**File:** `maestro/cli.py:56-553`
-**Issue:** `main()` has CC well above 20 by static count (top-level command dispatch plus nested auth/models/run/planning branches). At this size it is hard to reason about and easy to break when adding new commands or compatibility branches.
-**Fix:** Split each subcommand into dedicated handlers and use a small dispatch layer in `main()`.
-
-```python
-def main() -> None:
-    args = build_parser().parse_args()
-    handlers = {
-        "auth": _handle_auth,
-        "login": _handle_legacy_login,
-        "logout": _handle_legacy_logout,
-        "models": _handle_models,
-        "status": _handle_status,
-        "run": _handle_run,
-        "discover": _handle_discover,
-        "planning": _handle_planning,
-    }
-    handlers.get(args.command, _print_help)(args)
-```
+The runtime crash and bad test patching from the prior review are fixed, and the targeted guardrail tests now pass. Remaining issues are one functional bug in the call-count guardrail, one provider/model boundary bug in the aggregator path, and three high-complexity functions in `multi_agent.py`. No asymptotic-complexity findings met the deep-review reporting threshold.
 
 ## Warnings
 
-### WR-01: Gap enrichment sends the wrong message type to providers
+### WR-01: `max_calls` is effectively dead configuration
 
-**File:** `maestro/sdlc/gaps_server.py:222-230`
-**Issue:** `_llm_enrich()` builds `messages` as raw dicts, but the real provider implementations expect `maestro.providers.base.Message` objects. With ChatGPT/Copilot this path raises inside `provider.stream()`, and `enrich_gap_items()` catches the exception and silently falls back to heuristic options. Result: the advertised LLM enrichment path never actually works with real providers.
-**Fix:** Build provider-neutral `Message` objects before calling `provider.stream()`.
+**File:** `maestro/multi_agent.py:240-242, 585-591, 737-738`
+**Issue:** `scheduler_route()` reads `agg_calls_done`, but `run_multi_agent()` always initializes it to `0`, `aggregator_node()` never increments it, and the graph routes `aggregator -> END`, so the aggregator can run at most once per invocation. As a result, `max_calls` only changes behavior for `0`; any positive value behaves the same and never enforces a real ceiling.
+**Fix:** Either move the call-budget check to the layer that actually performs retries, or constrain the config to the currently-supported semantics (`None`, `0`, or `1`) until repeated aggregator attempts exist.
 
 ```python
-from maestro.providers.base import Message
-
-messages = [
-    Message(role="system", content=_ENRICH_SYSTEM),
-    Message(
-        role="user",
-        content=_ENRICH_USER_TMPL.format(context=context, question=item.question),
-    ),
-]
+max_calls = aggregator.get("max_calls")
+if max_calls not in (None, 0, 1):
+    raise RuntimeError(
+        "aggregator.max_calls currently supports only None, 0, or 1 "
+        "because the graph invokes the aggregator at most once per run"
+    )
 ```
 
-### WR-02: `GapsServer.stop()` does not close the listening socket
+### WR-02: Aggregator can mix a model from one provider with another provider instance
 
-**File:** `maestro/sdlc/gaps_server.py:325-329`
-**Issue:** `stop()` calls `shutdown()` but never calls `server_close()`. Repeated questionnaire runs can leave sockets/file descriptors hanging around longer than necessary and can keep ports bound unexpectedly.
-**Fix:** Close the server explicitly and, ideally, join the serving thread.
+**File:** `maestro/multi_agent.py:520-529`
+**Issue:** `resolve_model(agent_name="aggregator")` returns both the provider and the model selected for the aggregator, but the code then discards that provider whenever `state["provider"]` exists. If the caller injected a ChatGPT provider while config selects a Copilot-only aggregator model (or vice versa), `provider.stream(..., model=aggregator_model)` is called with a model chosen for a different provider.
+**Fix:** Reuse the injected provider only when it matches the resolved provider ID; otherwise use the provider returned by `resolve_model()`.
 
 ```python
-def stop(self) -> None:
-    if self._server:
-        self._server.shutdown()
-        self._server.server_close()
-        self._server = None
+resolved_provider, aggregator_model = resolve_model(agent_name="aggregator")
+runtime_provider = state.get("provider")
+
+if runtime_provider is not None and runtime_provider.id == resolved_provider.id:
+    provider = runtime_provider
+else:
+    provider = resolved_provider
 ```
 
-### WR-03: Duplicate test classes silently disable half of the guardrail tests
+### WR-03: `scheduler_node()` has high cyclomatic complexity
 
-**File:** `tests/test_aggregator_guardrails.py:11-272, 275-536`
-**Issue:** The module contains two copies of the same test classes. In Python, the later class definitions overwrite the earlier ones, so the first half of the file becomes dead code. That reduces test reliability and can hide mistakes in the overwritten copy.
-**Fix:** Keep one canonical copy of each test class and delete the duplicate block.
+**File:** `maestro/multi_agent.py:97-206`
+**Issue:** Static AST counting puts `scheduler_node()` at **CC=18**. Validation, dependency scanning, blocked-task detection, emitter updates, and end-state handling are all mixed into one function, which raises defect risk around scheduling edge cases.
+**Fix:** Extract DAG validation, ready-task selection, and blocked-task/error derivation into helpers so `scheduler_node()` remains a short coordinator.
+
+### WR-04: `aggregator_node()` has high cyclomatic complexity
+
+**File:** `maestro/multi_agent.py:475-577`
+**Issue:** Static AST counting puts `aggregator_node()` at **CC=17**. Prompt construction, provider/model resolution, async streaming, event-loop bridging, fallback handling, and emitter updates are all handled in one routine.
+**Fix:** Split prompt rendering, provider/model selection, and async execution into private helpers; keep `aggregator_node()` focused on orchestration.
+
+### WR-05: `run_multi_agent()` has high cyclomatic complexity
+
+**File:** `maestro/multi_agent.py:596-753`
+**Issue:** Static AST counting puts `run_multi_agent()` at **CC=13**. It combines workdir validation, provider/config bootstrap, planner invocation, event emission, graph execution, and result shaping, making integration behavior harder to reason about and test.
+**Fix:** Extract runtime bootstrap and graph-execution setup into helpers, leaving `run_multi_agent()` as a thin composition layer.
+
+---
+
+_Reviewed: 2026-04-24T15:19:43Z_
+_Reviewer: the agent (gsd-code-reviewer)_
+_Depth: deep_
+---
+phase: 17-aggregator-guardrails
+reviewed: 2026-04-24T15:54:13Z
+depth: deep
+files_reviewed: 4
+files_reviewed_list:
+  - maestro/planner/schemas.py
+  - maestro/multi_agent.py
+  - maestro/config.py
+  - tests/test_aggregator_guardrails.py
+findings:
+  critical: 0
+  warning: 3
+  info: 0
+  total: 3
+status: issues_found
+---
+
+# Phase 17: Code Review Report
+
+**Reviewed:** 2026-04-24T15:54:13Z
+**Depth:** deep
+**Files Reviewed:** 4
+**Status:** issues_found
+
+## Summary
+
+Reviewed the new aggregator guardrail schema, runtime wiring, config validation, and tests. I found one concrete cross-file logic mismatch and two cyclomatic-complexity findings. I did not find any O(n²) or worse hot-path behavior in the reviewed files; the scheduler scans are linear in the number of planned tasks.
+
+## Warnings
+
+### WR-01: `max_calls` contract is inconsistent across schema, runtime config, and tests
+
+**File:** `maestro/config.py:139-149`  
+**Also affects:** `maestro/planner/schemas.py:20-30`, `tests/test_aggregator_guardrails.py:14-30`, `tests/test_aggregator_guardrails.py:55-63`, `tests/test_aggregator_guardrails.py:188-220`, `tests/test_aggregator_guardrails.py:257-272`
+
+**Issue:** The public contract says `max_calls` is a general per-run limit (`max_calls=3`, `max_calls=2`, `max_calls=5` are all exercised in tests and documented in the dataclass), but `load()` rejects every configured value except `None`, `0`, or `1`. That means the shipped config loader cannot accept several values the tests and schema describe as valid, so the feature contract is internally inconsistent and real configs using those examples will fail at runtime.
+
+**Fix:** Pick a single contract and enforce it everywhere. If aggregation is intentionally single-shot, update the schema docs and tests to only allow `None/0/1`. If multi-call limits are intended, relax validation and wire the runtime counter so repeated calls are actually tracked.
 
 ```python
-# Keep a single copy of:
-class TestAggregatorGuardrail:
+# config.py
+max_calls = aggregator.get("max_calls")
+if max_calls is not None and (type(max_calls) is not int or max_calls < 0):
+    raise RuntimeError(
+        f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_calls' to be a non-negative int"
+    )
+```
+
+### WR-02: `load()` has elevated cyclomatic complexity (CC=13)
+
+**File:** `maestro/config.py:96-160`
+
+**Issue:** By the review rule set used here, `load()` has **CC=13** (multiple validation branches, compound conditions, and exception paths). That makes a core config-loading path harder to reason about and easier to break as more keys are added.
+
+**Fix:** Extract focused validators for the top-level object and the `aggregator` section, then keep `load()` as a short orchestration function.
+
+```python
+def _validate_aggregator_config(aggregator: dict[str, Any]) -> None:
     ...
 
-class TestSchedulerRouteIntegration:
-    ...
+def load() -> Config:
+    data = _load_raw_config()
+    _validate_root_config(data)
+    _validate_aggregator_config(data.get("aggregator", {}))
+    return Config(...)
+```
 
-class TestRunMultiAgentGuardrailIntegration:
-    ...
+### WR-03: `aggregator_node()` has elevated cyclomatic complexity (CC=13)
+
+**File:** `maestro/multi_agent.py:482-589`
+
+**Issue:** `aggregator_node()` now mixes empty-output handling, prompt construction, provider/model resolution, async streaming, event-loop bridging, and fallback error handling in one function. Under the review rule set, this reaches **CC=13**, which is a refactor threshold and raises defect risk for future changes to aggregation behavior.
+
+**Fix:** Split the function into smaller units such as `_build_aggregator_prompt(...)`, `_resolve_aggregator_provider(...)`, and `_run_aggregator_stream(...)`, then keep `aggregator_node()` as a thin coordinator with early returns.
+
+```python
+def aggregator_node(state: AgentState) -> dict:
+    if _should_return_empty_summary(state):
+        return {"summary": "No worker outputs to summarize."}
+
+    user_message = _build_aggregator_prompt(state)
+    provider, model = _resolve_aggregator_provider(state)
+    summary = _run_aggregator_stream(provider, model, user_message, state)
+    return {"summary": summary}
 ```
 
 ---
 
-_Reviewed: 2026-04-24T15:05:56Z_
-_Reviewer: the agent (gsd-code-reviewer)_
+_Reviewed: 2026-04-24T15:54:13Z_  
+_Reviewer: the agent (gsd-code-reviewer)_  
 _Depth: deep_
