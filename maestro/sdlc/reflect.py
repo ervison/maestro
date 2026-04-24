@@ -175,7 +175,7 @@ Rules:
             if isinstance(msg, str):
                 parts.append(msg)
             elif hasattr(msg, "role") and msg.role == "assistant" and msg.content:
-                parts.append(msg.content)
+                parts = [msg.content]
         return "".join(parts).strip()
 
     async def run(
