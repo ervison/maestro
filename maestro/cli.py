@@ -491,20 +491,25 @@ def _handle_run_multi(args, wd, provider, model_id) -> None:
 
     dashboard_emitter = DashboardEmitter()
     dashboard_port = int(os.environ.get("MAESTRO_DASHBOARD_PORT", "4040"))
-    start_dashboard_server(dashboard_emitter, port=dashboard_port)
+    server = start_dashboard_server(dashboard_emitter, port=dashboard_port)
     print(f"[maestro] dashboard → http://localhost:{dashboard_port}")
 
-    result = run_multi_agent(
-        task=args.prompt,
-        workdir=wd,
-        auto=args.auto,
-        depth=0,
-        max_depth=2,
-        provider=provider,
-        model=model_id,
-        aggregate=aggregate,
-        emitter=dashboard_emitter,
-    )
+    try:
+        result = run_multi_agent(
+            task=args.prompt,
+            workdir=wd,
+            auto=args.auto,
+            depth=0,
+            max_depth=2,
+            provider=provider,
+            model=model_id,
+            aggregate=aggregate,
+            emitter=dashboard_emitter,
+        )
+    finally:
+        if server is not None:
+            server.shutdown()
+            server.server_close()
 
     outputs = result.get("outputs", {})
     failed = result.get("failed", [])
