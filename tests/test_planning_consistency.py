@@ -82,6 +82,11 @@ Status: COMPLETE
     _write(planning / "phases/02-second/02-SUMMARY.md", "# Phase 2\n")
 
     _write(
+        planning / "REQUIREMENTS.md",
+        "# Maestro - v1.1 Requirements\n\n## Scope\n\nThis file is scoped to milestone `v1.1`.\n",
+    )
+
+    _write(
         planning / "v1.1-MILESTONE-SUMMARY.md",
         """# Maestro v1.1 - Milestone Summary Report
 
@@ -135,3 +140,71 @@ def test_repository_planning_artifacts_are_currently_consistent() -> None:
     result = check_planning_consistency(repo_root / ".planning")
 
     assert result.errors == []
+
+
+# ── Plan 14-01 Task 1: REQUIREMENTS.md milestone alignment checks ─────────────
+
+def test_missing_requirements_reported(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    (planning / "REQUIREMENTS.md").unlink()  # Remove to simulate absence
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert any("Missing REQUIREMENTS.md" in e for e in result.errors)
+
+
+def test_requirements_milestone_mismatch_reported(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    _write(
+        planning / "REQUIREMENTS.md",
+        "# Maestro - v9.9 Requirements\n\n## Scope\n\nThis file is scoped to milestone `v9.9`.\n",
+    )
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert any("REQUIREMENTS.md is scoped to" in e for e in result.errors)
+
+
+def test_requirements_milestone_aligned_no_error(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    _write(
+        planning / "REQUIREMENTS.md",
+        "# Maestro - v1.1 Requirements\n\n## Scope\n\nThis file is scoped to milestone `v1.1`.\n",
+    )
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert not any("REQUIREMENTS.md" in e for e in result.errors)
+
+
+# ── Plan 14-01 Task 2: Additional drift path coverage ────────────────────────
+
+def test_missing_phase_evidence_reported(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    (planning / "phases/01-first/01-SUMMARY.md").unlink()
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert any("phases/01-first/01-SUMMARY.md" in e for e in result.errors)
+
+
+def test_summary_missing_milestone_mention_reported(tmp_path: Path) -> None:
+    planning = _make_planning_tree(tmp_path)
+    _write(
+        planning / "v1.1-MILESTONE-SUMMARY.md",
+        "# Milestone Summary\n\nNo version mentioned here.\n",
+    )
+
+    from maestro.planning import check_planning_consistency
+
+    result = check_planning_consistency(planning)
+
+    assert any("v1.1" in e and "does not mention" in e for e in result.errors)

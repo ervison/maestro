@@ -1,6 +1,0 @@
-[console_scripts]
-maestro = maestro.cli:main
-
-[maestro.providers]
-chatgpt = maestro.providers.chatgpt:ChatGPTProvider
-github-copilot = maestro.providers.copilot:CopilotProvider
