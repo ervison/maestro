@@ -141,6 +141,12 @@ def load() -> Config:
         raise RuntimeError(
             f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_calls' to be an int"
         )
+    if max_calls not in (None, 0, 1):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; "
+            "aggregator.max_calls currently supports only None, 0, or 1 "
+            "because the graph invokes the aggregator at most once per run"
+        )
     max_tokens = aggregator.get("max_tokens_per_run")
     if max_tokens is not None and type(max_tokens) is not int:
         raise RuntimeError(
