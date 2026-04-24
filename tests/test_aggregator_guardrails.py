@@ -249,7 +249,7 @@ class TestConfigValidation:
             "aggregator": {"max_tokens_per_run": 123.45}  # float instead of int
         }
 
-        with pytest.raises(RuntimeError, match="expected 'aggregator.max_tokens_per_run' to be an int"):
+        with pytest.raises(RuntimeError, match=r"aggregator\.max_tokens_per_run.*non-negative int"):
             load()
 
     @patch('maestro.config.CONFIG_FILE')
