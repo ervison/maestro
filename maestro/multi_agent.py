@@ -524,9 +524,14 @@ def aggregator_node(state: AgentState) -> dict:
     runtime_provider = state.get("provider")
 
     resolved_provider, aggregator_model = resolve_model(agent_name="aggregator")
-    # Prefer the caller-supplied provider (has live auth credentials) over the
-    # freshly-resolved one, but keep the model from resolve_model.
-    provider = runtime_provider if runtime_provider is not None else resolved_provider
+    # Prefer the caller-supplied provider only when it targets the same provider
+    # as the one resolve_model selected. If they differ (e.g., a ChatGPT provider
+    # was injected but config selects a Copilot-only aggregator model), use the
+    # resolved provider to avoid calling a model on the wrong provider.
+    if runtime_provider is not None and runtime_provider.id == resolved_provider.id:
+        provider = runtime_provider
+    else:
+        provider = resolved_provider
 
     # Use asyncio to run the async provider stream
     async def _aggregate():
