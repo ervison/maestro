@@ -8,7 +8,7 @@ last_updated: "2026-04-23T21:50:56.412Z"
 last_activity: 2026-04-23 - Opened milestone v1.2 scoped to TD-03, TD-04, TD-05, and TD-06
 progress:
   total_phases: 17
-  completed_phases: 13
+  completed_phases: 14
   total_plans: 23
   completed_plans: 19
   percent: 83
