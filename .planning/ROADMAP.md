@@ -332,7 +332,10 @@ Plans:
   2. Repeated aggregation attempts are bounded during unattended usage.
   3. The CLI explains when aggregation is blocked or skipped by policy.
   4. Automated tests cover the allow, block, and skip paths.
-**Plans**: 0 plans (ready for planning)
+**Plans**: 1 plan
+
+Plans:
+- [ ] 17-01-PLAN.md — AggregatorGuardrail dataclass, check function, scheduler_route enforcement, config validation, and tests
 
 ## Progress
 
