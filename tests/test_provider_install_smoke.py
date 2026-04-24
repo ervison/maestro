@@ -55,6 +55,7 @@ def test_third_party_provider_discoverable_after_isolated_install(
         [str(venv_pip), "install", "--quiet", "-e", str(repo_root)],
         capture_output=True,
         text=True,
+        timeout=120,
     )
     assert result.returncode == 0, (
         f"Failed to install maestro into venv:\nstdout: {result.stdout}\nstderr: {result.stderr}"
@@ -65,6 +66,7 @@ def test_third_party_provider_discoverable_after_isolated_install(
         [str(venv_pip), "install", "--quiet", "-e", str(fixture_dir)],
         capture_output=True,
         text=True,
+        timeout=120,
     )
     assert result.returncode == 0, (
         f"Failed to install hello_provider fixture:\nstdout: {result.stdout}\nstderr: {result.stderr}"
@@ -81,6 +83,7 @@ def test_third_party_provider_discoverable_after_isolated_install(
         [str(venv_python), "-c", discovery_script],
         capture_output=True,
         text=True,
+        timeout=30,
     )
 
     # 5. Assert success
