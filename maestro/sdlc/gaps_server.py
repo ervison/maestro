@@ -326,6 +326,7 @@ class GapsServer:
     def stop(self) -> None:
         if self._server:
             self._server.shutdown()
+            self._server.server_close()
             self._server = None
 
     def get_answers(self, timeout: float | None = None) -> list[GapAnswer] | None:
