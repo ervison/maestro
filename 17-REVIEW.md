@@ -1,9 +1,12 @@
 ---
 phase: 17
-reviewed: 2026-04-24T15:29:13Z
+reviewed: 2026-04-24T16:04:05Z
 depth: standard
-files_reviewed: 51
+files_reviewed: 53
 files_reviewed_list:
+  - .opencode/opencode.json
+  - .opencode/plugins/graphify.js
+  - AGENTS.md
   - maestro/__init__.py
   - maestro/agent.py
   - maestro/auth.py
@@ -32,7 +35,6 @@ files_reviewed_list:
   - maestro/sdlc/prompts.py
   - maestro/sdlc/reflect.py
   - maestro/sdlc/schemas.py
-  - maestro/sdlc/static/gaps.html
   - maestro/sdlc/writer.py
   - maestro/tools.py
   - pyproject.toml
@@ -56,114 +58,93 @@ files_reviewed_list:
   - tests/test_sdlc_schemas.py
   - tests/test_sdlc_writer.py
 findings:
-  critical: 3
+  critical: 1
   warning: 3
   info: 0
-  total: 6
+  total: 4
 status: issues_found
 ---
 
 # Phase 17: Code Review Report
 
-**Reviewed:** 2026-04-24T15:29:13Z
+**Reviewed:** 2026-04-24T16:04:05Z
 **Depth:** standard
-**Files Reviewed:** 51
+**Files Reviewed:** 53
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the requested Python, shell, HTML, TOML, and relevant test files with focus on multi-agent correctness, provider streaming, dashboard safety, and SDLC pipeline behavior. The highest-risk issues are in multi-agent scheduling and dashboard event retention: the scheduler can redispatch still-running tasks, and the dashboard keeps an unbounded in-memory event log on a hot path. I also found one high-complexity CLI function and two streaming-consumer bugs in the SDLC path.
-
-Three requested files were not present in this worktree and could not be reviewed: `tests/test_agent_loop.py`, `tests/test_provider_protocol.py`, and `tests/test_tools.py`.
+Reviewed the phase scope with emphasis on provider streaming, CLI error handling, dashboard/SDLC flows, and test reliability. Most of the earlier Phase 17 findings are fixed, but four issues remain: one critical cyclomatic-complexity hotspot, two runtime correctness problems, and one failing test expectation that now disagrees with the implementation.
 
 ## Critical Issues
 
-### CR-01: Scheduler can dispatch the same worker task multiple times
+### CR-01: `CopilotProvider.stream()` is untestably complex
 
-**File:** `maestro/multi_agent.py:124-154`, `maestro/multi_agent.py:284-324`
-**Issue:** `scheduler_node()` only excludes tasks that are already in `completed` or `failed`. It does not track tasks that were already dispatched but are still running. After one worker finishes and routes back to `scheduler`, any sibling task whose dependencies are already satisfied is still considered ready and can be sent again. In multi-agent mode that can duplicate tool execution, duplicate file writes, and produce inconsistent shared-workdir state.
-**Fix:** Track in-flight task IDs and exclude them from readiness until the worker returns success or failure.
+**File:** `maestro/providers/copilot.py:115-265`
+**Issue:** `CopilotProvider.stream()` has **CC=22** (static AST count), driven by nested auth checks, SSE parsing, tool-call buffering, finish-reason handling, and post-processing in one method. At this size the function is brittle: small protocol changes in Copilot chunks are easy to break and hard to cover exhaustively.
+**Fix:** Extract the major branches into helpers such as credential validation, SSE event parsing, tool-call delta accumulation, and final tool-call materialization.
+
 ```python
-# state
-in_progress: Annotated[list[str], operator.add]
-
-# when dispatching
-return {
-    "ready_tasks": ready_tasks,
-    "in_progress": [task["id"] for task in ready_tasks],
-}
-
-# scheduler readiness
-in_progress = set(state.get("in_progress", []))
-if tid not in terminal and tid not in in_progress and deps.issubset(completed):
-    ready_ids.add(tid)
-
-# worker completion/failure should remove task_id from in_progress
+async def stream(...):
+    token = self._require_token()
+    payload = self._build_payload(messages, model, tools)
+    text_parts, tool_buffers = await self._consume_sse(token, payload)
+    return self._final_message(text_parts, tool_buffers)
 ```
-
-### CR-02: Dashboard event history grows without bounds
-
-**File:** `maestro/dashboard/emitter.py:27-30`, `maestro/dashboard/emitter.py:61-64`
-**Issue:** Every emitted event is appended to `_history`, and the list is never trimmed. Workers emit text chunks and tool logs on the hot path, so long runs or repeated sessions can accumulate unbounded in-memory state. This is a static memory leak in a high-frequency code path.
-**Fix:** Replace `_history` with a bounded ring buffer or store only replay-safe snapshots.
-```python
-from collections import deque
-
-def __init__(self) -> None:
-    self._subscribers = []
-    self._history = deque(maxlen=1000)
-    self._lock = threading.Lock()
-```
-
-### CR-03: `main()` has critical cyclomatic complexity
-
-**File:** `maestro/cli.py:56-553`
-**Issue:** `main()` has estimated **CC=31** (static count; `radon` unavailable in this environment). It mixes parser construction, auth flows, model listing, run execution, planning, and discover handling in one function. At this complexity level, small CLI changes are likely to introduce unreachable branches or inconsistent exit behavior.
-**Fix:** Split command handling into dedicated functions (`_handle_auth`, `_handle_models`, `_handle_run`, `_handle_legacy_login`, etc.) and dispatch from a small command router.
 
 ## Warnings
 
-### WR-01: Gap enrichment breaks on real streaming providers
+### WR-01: CLI error path can mask the real model-resolution failure
 
-**File:** `maestro/sdlc/gaps_server.py:230-235`
-**Issue:** `_llm_enrich()` assumes every stream item has `.content`. Real providers yield `str` chunks before the final `Message`, so `msg.content` raises `AttributeError` on the first chunk. Because `enrich_gap_items()` swallows the exception and falls back, LLM-based option enrichment never works with normal streaming providers.
-**Fix:** Handle string chunks and final messages explicitly.
+**File:** `maestro/cli.py:426-450`
+**Issue:** `_handle_run()` references `model_id` inside the `except` block even when `resolve_model()` fails before `model_id` is assigned. Reproducing with `maestro.models.resolve_model` patched to raise `RuntimeError("model not supported for account")` raises `UnboundLocalError` instead of the original user-facing error.
+**Fix:** Initialize `model_id` before the `try`, or avoid referencing it when resolution failed.
+
 ```python
-collected_parts: list[str] = []
-async for msg in provider.stream(messages, model=model):
-    if isinstance(msg, str):
-        collected_parts.append(msg)
-    elif isinstance(msg, Message) and msg.content:
-        collected_parts = [msg.content]
-collected = "".join(collected_parts)
+model_id: str | None = None
+try:
+    provider, model_id = resolve_model(model_flag=args.model)
+    ...
+except (RuntimeError, ValueError) as e:
+    if "not supported" in str(e) and model_id is not None:
+        ...
 ```
 
-### WR-02: Reflect loop can double-append streamed JSON and skip corrections
+### WR-02: Gap answer endpoint accepts empty answers as `"unknown"`
 
-**File:** `maestro/sdlc/reflect.py:173-179`
-**Issue:** `_call_provider()` appends both incremental `str` chunks and the final assistant message content. For providers that emit deltas plus a full final message, JSON replies become duplicated (`<json><json>`), which makes `_extract_json()` fail and causes reflection cycles to be skipped as “malformed eval/fix JSON”.
-**Fix:** Treat the final `Message` as canonical and replace previously collected deltas when it arrives.
+**File:** `maestro/sdlc/gaps_server.py:396-413`
+**Issue:** `_receive_answers()` falls back to `[item.get("chosen_option", "unknown")]` when `selected_options` is missing. A malformed POST like `[{"question": "Q?"}]` returns HTTP 200 and stores `GapAnswer(question='Q?', selected_options=['unknown'])`, letting the discovery flow continue with fabricated answers.
+**Fix:** Reject items that provide neither `selected_options` nor a non-empty legacy `chosen_option`.
+
 ```python
-parts: list[str] = []
-async for msg in provider.stream(messages, tools=None, model=model):
-    if isinstance(msg, str):
-        parts.append(msg)
-    elif hasattr(msg, "role") and msg.role == "assistant" and msg.content:
-        parts = [msg.content]
-return "".join(parts).strip()
+selected = item.get("selected_options")
+legacy = item.get("chosen_option")
+if selected:
+    selected_options = selected
+elif legacy:
+    selected_options = [legacy]
+else:
+    raise ValueError("answer requires at least one selected option")
 ```
 
-### WR-03: Dashboard server is exposed on all network interfaces by default
+### WR-03: Config validation test now asserts an unsupported setting
 
-**File:** `maestro/dashboard/server.py:93-95`
-**Issue:** The dashboard binds to `0.0.0.0`, but it serves unauthenticated live task data, logs, and outputs. On a shared machine or reachable dev network, other hosts can connect to the dashboard even though the CLI advertises `localhost`.
-**Fix:** Bind to loopback by default and require explicit opt-in for remote exposure.
+**File:** `tests/test_aggregator_guardrails.py:257-271`
+**Issue:** `test_load_accepts_valid_config()` treats `aggregator.max_calls=5` as valid, but `maestro/config.py:144-149` deliberately rejects any value outside `None`, `0`, or `1`. Running `PYTHONPATH=. pytest tests/test_aggregator_guardrails.py::TestConfigValidation::test_load_accepts_valid_config -q` fails with that runtime error, so this test currently produces a false negative.
+**Fix:** Align the test with the supported range, or widen the implementation and graph semantics in the same change.
+
 ```python
-server = ThreadingHTTPServer(("127.0.0.1", port), _make_handler(emitter))
+mock_json_loads.return_value = {
+    "aggregator": {
+        "enabled": True,
+        "max_calls": 1,
+        "max_tokens_per_run": 1000,
+    }
+}
 ```
 
 ---
 
-_Reviewed: 2026-04-24T15:29:13Z_
+_Reviewed: 2026-04-24T16:04:05Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
