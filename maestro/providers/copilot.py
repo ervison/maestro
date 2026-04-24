@@ -117,6 +117,7 @@ class CopilotProvider:
         messages: list[Message],
         model: str,
         tools: list[Tool] | None = None,
+        **kwargs: object,
     ) -> AsyncIterator[str | Message]:
         """Stream completion from GitHub Copilot Chat Completions API.
 
@@ -136,7 +137,8 @@ class CopilotProvider:
             RuntimeError: If not authenticated or API returns error.
         """
         token = self._require_token()
-        payload = self._build_payload(messages, model, tools)
+        extra = kwargs.get("extra")
+        payload = self._build_payload(messages, model, tools, extra=extra if isinstance(extra, dict) else None)
 
         text_parts: list[str] = []
         tool_calls_buffer: dict[str, dict] = {}
@@ -208,6 +210,7 @@ class CopilotProvider:
         messages: list[Message],
         model: str,
         tools: list[Tool] | None,
+        extra: dict | None = None,
     ) -> dict:
         """Build the JSON payload for the Copilot chat completions request."""
         payload: dict = {
@@ -218,6 +221,9 @@ class CopilotProvider:
         converted_tools = _convert_tools_to_wire(tools) if tools else []
         if converted_tools:
             payload["tools"] = converted_tools
+        # Merge supported extra kwargs (e.g. response_format for structured output)
+        if extra and "response_format" in extra:
+            payload["response_format"] = extra["response_format"]
         return payload
 
     def auth_required(self) -> bool:

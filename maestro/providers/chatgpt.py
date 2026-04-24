@@ -336,6 +336,7 @@ class ChatGPTProvider:
         messages: list[Message],
         model: str,
         tools: list[Tool] | None = None,
+        **kwargs: object,
     ) -> AsyncIterator[str | Message]:
         """Stream completion from ChatGPT Responses API.
 
@@ -376,7 +377,7 @@ class ChatGPTProvider:
         instructions = _extract_instructions(messages)
 
         # Build payload
-        payload = {
+        payload: dict = {
             "model": api_model,
             "instructions": instructions or "You are a helpful assistant.",
             "input": input_items,
@@ -390,6 +391,12 @@ class ChatGPTProvider:
             "text": {"verbosity": "medium"},
             "include": ["reasoning.encrypted_content"],
         }
+
+        # Merge supported extra kwargs (e.g. response_format for structured output)
+        extra = kwargs.get("extra")
+        if isinstance(extra, dict):
+            if "response_format" in extra:
+                payload["response_format"] = extra["response_format"]
 
         # Stream request
         async with httpx.AsyncClient() as client:
