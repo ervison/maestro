@@ -1,53 +1,75 @@
 ---
 phase: 17
-fixed_at: 2026-04-24T00:00:00Z
+fixed_at: 2026-04-24T17:10:00Z
 review_path: /home/ervison/Documents/PROJETOS/labs/timeIA/worktrees/phase-17/17-REVIEW.md
 iteration: 3
-findings_in_scope: 4
-fixed: 4
+findings_in_scope: 5
+fixed: 5
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 17: Code Review Fix Report
 
-**Fixed at:** 2026-04-24T00:00:00Z
+**Fixed at:** 2026-04-24T17:10:00Z
 **Source review:** 17-REVIEW.md
 **Iteration:** 3
 
 **Summary:**
-- Findings in scope: 4
-- Fixed: 4
+- Findings in scope: 5
+- Fixed: 5
 - Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: Reflect loop can overwrite files outside `spec/`
+### CR-01: Scheduler can terminate while parallel workers are still running
 
-**Files modified:** `maestro/sdlc/reflect.py`
-**Commit:** 24542cd
-**Applied fix:** In `_apply_patches()`, replaced the bare `target = spec_dir / fname` with a resolved path guard: resolves both the candidate target and `spec_dir`, then calls `target.relative_to(spec_root)` and raises `RuntimeError` if the patch target would escape the spec directory. The `exists()` check is now performed on the already-resolved `target`.
+**Files modified:** `maestro/multi_agent.py`
+**Commit:** `0104c84`
+**Applied fix:** Added `in_progress = dispatched - terminal` check in `scheduler_route()`. When dispatched workers haven't yet completed or failed, the function now returns `"scheduler"` (loop-back) instead of `END`. Also updated `add_conditional_edges` to declare `"scheduler"` as a reachable target so LangGraph does not reject the self-loop at compile time.
 
-### WR-01: Planner can pair a model with the wrong provider
+### CR-02: Provider contract validator is untestably complex
 
-**Files modified:** `maestro/planner/node.py`
-**Commit:** ebaf09b
-**Applied fix:** Replaced the unconditional `provider = runtime_provider if runtime_provider is not None else resolved_provider` with an id-match guard: `runtime_provider` is only reused when `runtime_provider.id == resolved_provider.id`, otherwise `resolved_provider` is used. This mirrors the aggregator pattern and ensures agent-specific config (e.g. `agent.planner.model=github-copilot/...`) is honoured when the caller injected a different provider.
+**Files modified:** `maestro/providers/registry.py`
+**Commit:** `6dfcf9d`
+**Applied fix:** Extracted three focused helpers from the monolithic `_is_valid_provider()`:
+- `_validate_simple_method(instance, method_name, required_args)` — validates zero-extra-arg interface methods
+- `_validate_stream_signature(stream_attr)` — validates the `stream` positional signature
+- `_validate_stream_return_type(stream_attr)` — validates async-iterator return type
 
-### WR-02: Gap questionnaire endpoint allows cross-origin reads
+`_is_valid_provider()` is now a thin composer that calls these three helpers in sequence.
 
-**Files modified:** `maestro/sdlc/gaps_server.py`
-**Commit:** a615e8a
-**Applied fix:** Removed the `self.send_header("Access-Control-Allow-Origin", "*")` line from `_serve_gaps_json()`. Added a comment noting this is a localhost-only UI that does not need wildcard CORS exposure.
+### CR-03: Legacy HTTP stream path is too complex for safe maintenance
 
-### WR-03: `main()` has elevated cyclomatic complexity
+**Files modified:** `maestro/agent.py`
+**Commit:** `df7e76c`
+**Applied fix:** Extracted three focused helpers from `_run_httpx_stream_sync()`:
+- `_convert_messages_to_input(messages)` — converts neutral Message list to ChatGPT Responses API wire format
+- `_convert_tools_to_chatgpt(tools)` — converts neutral Tool list to ChatGPT tool format
+- `_parse_sse_events(response)` — parses SSE lines, accumulating text deltas and ToolCall objects
+- `_assemble_response(text_parts, tool_calls)` — builds the final result list
+
+The main function is now a thin coordinator of ~20 lines.
+
+### WR-01: Dashboard server is never shut down after `run --multi`
 
 **Files modified:** `maestro/cli.py`
-**Commit:** f4241a7
-**Applied fix:** Replaced the 9-branch `if/elif` command cascade in `main()` with a `handlers` dispatch dict keyed by command name. Each entry is a zero-arg lambda capturing the required args. Added a dedicated `_handle_planning(args, planning_p)` helper (extracted from the inline `if args.planning_command == "check"` block) so the dispatch table entry is a simple `lambda: _handle_planning(args, planning_p)`. Cyclomatic complexity of `main()` drops to CC≈3.
+**Commit:** `b474bb1`
+**Applied fix:** Captured the return value of `start_dashboard_server()` in `server`. Wrapped `run_multi_agent(...)` in a `try/finally` block that calls `server.shutdown()` and `server.server_close()` to release the listening socket and background thread regardless of success or failure.
+
+### WR-02: Core agent loop needs refactoring before further feature growth
+
+**Files modified:** `maestro/agent.py`
+**Commit:** `729ba34`
+**Applied fix:** Extracted three focused helpers from `_run_agentic_loop()`:
+- `_collect_stream_chunks(stream_results)` — separates text-delta and Message chunks, returns `(final_text, tool_calls)`, raises `RuntimeError` on no output
+- `_check_tool_loop(recent_tool_signatures, tool_calls, max_repeated)` — encapsulates the rolling-window repeated-call detection; raises `RuntimeError` on detection
+- `_execute_tools_and_append(tool_calls, neutral_messages, final_text, wd, auto, on_tool_start)` — appends the assistant turn and executes each tool, returning updated `auto` flag
+
+`_run_agentic_loop()` main body is now a clean iteration loop of ~30 lines with single-concern phases: stream → extract → check-loop → execute-tools.
 
 ---
 
-_Fixed: 2026-04-24T00:00:00Z_
+_Fixed: 2026-04-24T17:10:00Z_
 _Fixer: the agent (gsd-code-fixer)_
 _Iteration: 3_
