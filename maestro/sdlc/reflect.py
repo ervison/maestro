@@ -144,7 +144,12 @@ Rules:
                     file=sys.stderr,
                 )
                 continue
-            target = spec_dir / fname
+            target = (spec_dir / fname).resolve()
+            spec_root = spec_dir.resolve()
+            try:
+                target.relative_to(spec_root)
+            except ValueError as exc:
+                raise RuntimeError(f"Patch target escapes spec_dir: {fname}") from exc
             if not target.exists():
                 print(
                     f"[reflect] Warning: patch target not found: {fname}",
@@ -175,7 +180,7 @@ Rules:
             if isinstance(msg, str):
                 parts.append(msg)
             elif hasattr(msg, "role") and msg.role == "assistant" and msg.content:
-                parts.append(msg.content)
+                parts = [msg.content]
         return "".join(parts).strip()
 
     async def run(

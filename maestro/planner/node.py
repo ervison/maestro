@@ -153,14 +153,20 @@ def _call_provider_with_schema(
             # No running loop, use asyncio.run()
             return asyncio.run(_async_collect())
 
-    # Try api-level enforcement first, only fall back on unsupported kwargs
+    # Try api-level enforcement first, only fall back on unsupported kwargs or
+    # API-level rejection of response_format by remote providers (e.g. Copilot).
     try:
         return _collect_stream(use_response_format=True)
     except TypeError as exc:
         # Provider doesn't support extra/response_format kwargs
         logger.debug("api-level response_format not supported (%s), falling back to prompt-only", exc)
         return _collect_stream(use_response_format=False)
-    # Let auth/network/runtime errors propagate
+    except RuntimeError as exc:
+        if "response_format" not in str(exc).lower():
+            raise
+        logger.debug("remote API rejected response_format (%s), falling back to prompt-only", exc)
+        return _collect_stream(use_response_format=False)
+    # Let auth/network and other runtime errors propagate
 
 
 def planner_node(state: AgentState) -> dict:
@@ -187,9 +193,13 @@ def planner_node(state: AgentState) -> dict:
     runtime_provider = state.get("provider")
 
     resolved_provider, model_id = resolve_model(agent_name="planner")
-    # Prefer caller-supplied provider (has live auth credentials) over resolved one,
-    # but always use the model from the resolution chain.
-    provider = runtime_provider if runtime_provider is not None else resolved_provider
+    # Only reuse the injected provider when its id matches the resolved provider,
+    # so agent-specific config (e.g. agent.planner.model=github-copilot/...) is
+    # honoured even when the caller injected a different provider for auth context.
+    if runtime_provider is not None and runtime_provider.id == resolved_provider.id:
+        provider = runtime_provider
+    else:
+        provider = resolved_provider
 
     system_prompt = _build_system_prompt()
     messages = [

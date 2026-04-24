@@ -54,9 +54,11 @@ async def _stream_artifact_content(provider, messages, model: str | None) -> str
         if isinstance(msg, str):
             content_parts.append(msg)
         elif isinstance(msg, Message) and msg.role == "assistant" and msg.content:
-            content_parts.append(msg.content)
+            # Final assistant message replaces streamed chunks to avoid
+            # duplicating content (partial deltas + complete response).
+            content_parts = [msg.content]
         elif hasattr(msg, "role") and msg.role == "assistant" and msg.content:
-            content_parts.append(msg.content)
+            content_parts = [msg.content]
     return "".join(content_parts).strip()
 
 

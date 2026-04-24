@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from maestro.providers.base import Message
 from maestro.sdlc.schemas import GapAnswer, GapItem
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -220,16 +221,19 @@ async def _llm_enrich(
     context: str,
 ) -> GapItem:
     messages = [
-        {"role": "system", "content": _ENRICH_SYSTEM},
-        {
-            "role": "user",
-            "content": _ENRICH_USER_TMPL.format(context=context, question=item.question),
-        },
+        Message(role="system", content=_ENRICH_SYSTEM),
+        Message(
+            role="user",
+            content=_ENRICH_USER_TMPL.format(context=context, question=item.question),
+        ),
     ]
-    collected = ""
+    collected_parts: list[str] = []
     async for msg in provider.stream(messages, model=model):
-        if msg.content:
-            collected += msg.content
+        if isinstance(msg, str):
+            collected_parts.append(msg)
+        elif hasattr(msg, "content") and msg.content:
+            collected_parts = [msg.content]
+    collected = "".join(collected_parts)
 
     data = _json.loads(collected.strip())
     return GapItem(
@@ -325,6 +329,7 @@ class GapsServer:
     def stop(self) -> None:
         if self._server:
             self._server.shutdown()
+            self._server.server_close()
             self._server = None
 
     def get_answers(self, timeout: float | None = None) -> list[GapAnswer] | None:
@@ -384,7 +389,7 @@ class GapsServer:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Access-Control-Allow-Origin", "*")
+                # no wildcard CORS header — localhost-only UI
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -393,17 +398,23 @@ class GapsServer:
                 raw = self.rfile.read(length)
                 try:
                     data: list[dict] = json.loads(raw)
-                    answers = [
-                        GapAnswer(
-                            question=item["question"],
-                            selected_options=(
-                                item.get("selected_options")
-                                or [item.get("chosen_option", "unknown")]
-                            ),
-                            free_text=item.get("free_text", ""),
+                    answers = []
+                    for item in data:
+                        selected = item.get("selected_options")
+                        legacy = item.get("chosen_option")
+                        if isinstance(selected, list) and selected and all(isinstance(opt, str) and opt for opt in selected):
+                            selected_options = selected
+                        elif isinstance(legacy, str) and legacy:
+                            selected_options = [legacy]
+                        else:
+                            raise ValueError("answer requires selected_options: list[str]")
+                        answers.append(
+                            GapAnswer(
+                                question=item["question"],
+                                selected_options=selected_options,
+                                free_text=item.get("free_text", ""),
+                            )
                         )
-                        for item in data
-                    ]
                 except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                     self.send_error(400, "Invalid JSON")
                     return

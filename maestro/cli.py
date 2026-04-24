@@ -208,348 +208,365 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "auth":
-        if args.auth_command == "login":
-            method = "device" if getattr(args, "device", False) else "browser"
-            try:
-                provider = get_provider(args.provider)
-            except ValueError as e:
-                print(str(e))
-                sys.exit(1)
-            if args.provider == "chatgpt":
-                provider.login(method)
-                ts = auth.get("chatgpt")
-                if ts:
-                    email = ts.get("email") or ts.get("account_id", "")
-                    print(f"Logged in as: {email}" if email else "Logged in to chatgpt.")
-                else:
-                    print("Logged in to chatgpt.")
-            else:
-                provider.login()
+    handlers = {
+        "auth": lambda: _handle_auth(args, auth_p),
+        "login": lambda: _handle_legacy_login(args),
+        "logout": _handle_legacy_logout,
+        "models": lambda: _handle_models(args),
+        "status": _handle_status,
+        "run": lambda: _handle_run(args),
+        "discover": lambda: _handle_discover(args),
+        "planning": lambda: _handle_planning(args, planning_p),
+    }
 
-        elif args.auth_command == "logout":
-            from maestro.providers.registry import list_providers
-
-            # Validate provider exists (discovered or has stored credentials)
-            discovered = set(list_providers())
-            stored = set(auth.all_providers())
-            known = discovered | stored
-
-            if args.provider not in known:
-                print(f"Unknown provider: '{args.provider}'")
-                print(
-                    "Available providers: "
-                    f"{', '.join(sorted(known)) or '(none installed)'}"
-                )
-                sys.exit(1)
-
-            if auth.remove(args.provider):
-                print(f"Logged out of {args.provider}.")
-            else:
-                print(f"Not logged in to {args.provider}.")
-                sys.exit(1)
-
-        elif args.auth_command == "status":
-            from maestro.providers.registry import list_providers
-
-            discovered = list_providers()
-            stored = set(auth.all_providers())
-
-            # Union: show discovered providers + any stored-but-undiscoverable
-            all_known = sorted(set(discovered) | stored)
-
-            if not all_known:
-                print("No providers installed.")
-                sys.exit(0)
-
-            print("Provider Status:")
-            for pid in all_known:
-                if pid in discovered:
-                    try:
-                        provider = get_provider(pid)
-                        if provider.is_authenticated():
-                            print(f"  {pid}: authenticated")
-                        else:
-                            print(f"  {pid}: not authenticated")
-                    except Exception:
-                        print(f"  {pid}: error loading provider")
-                else:
-                    # Stored credentials but provider not installed
-                    print(f"  {pid}: credentials stored (provider not installed)")
-
-        else:
-            auth_p.print_help()
-
-    elif args.command == "login":
-        print(
-            "'maestro login' is deprecated. Use 'maestro auth login chatgpt' instead.",
-            file=sys.stderr,
-        )
-        warnings.warn(
-            "'maestro login' is deprecated. Use 'maestro auth login chatgpt' instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        method = "device" if args.device else "browser"
-        ts = auth.login(method)
-        print(f"Logged in as: {ts.email or ts.account_id}")
-
-    elif args.command == "logout":
-        print(
-            (
-                "'maestro logout' is deprecated. "
-                "Use 'maestro auth logout chatgpt' instead."
-            ),
-            file=sys.stderr,
-        )
-        warnings.warn(
-            (
-                "'maestro logout' is deprecated. "
-                "Use 'maestro auth logout chatgpt' instead."
-            ),
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if auth.remove("chatgpt"):
-            print("Logged out of chatgpt.")
-        else:
-            print("Not logged in to chatgpt.")
-
-    elif args.command == "models":
-        from maestro.models import get_available_models, format_model_list
-        from maestro.providers.registry import list_providers
-        from maestro.providers.chatgpt import fetch_models, probe_available_models
-
-        if args.refresh:
-            print("Refreshing models from models.dev...")
-            fetch_models(force=True)
-
-        if args.provider and args.check:
-            print("Error: --check cannot be combined with --provider.")
-            sys.exit(1)
-
-        if args.check:
-            # Announce which provider's probe is being used. By default we
-            # use the ChatGPT/Responses API probe. (If provider-specific
-            # probing is later added, this printed label should reflect that.)
-            provider_label = getattr(args, "provider", None) or "chatgpt"
-            print(
-                "Probing models for provider: "
-                f"{provider_label} (this may take a moment)..."
-            )
-
-            ts = auth.load()
-            if not ts:
-                print("Not logged in to ChatGPT.")
-                sys.exit(1)
-            ts = auth.ensure_valid(ts)
-            available = probe_available_models(ts, force=True)
-            all_models = fetch_models()
-            for m in all_models:
-                if m in available:
-                    print(f"  chatgpt/{m}  [available]")
-                else:
-                    print(f"  chatgpt/{m}  [not available]")
-            print(f"\n{len(available)}/{len(all_models)} models available.")
-            return
-
-        # Multi-provider listing
-        models_by_provider = get_available_models()
-
-        if args.provider:
-            # Filter to single provider
-            provider_models = models_by_provider.get(args.provider)
-            if provider_models is None or not provider_models:
-                # Provider not in dict or has empty list
-                discovered = list_providers()
-                if args.provider in discovered:
-                    print(f"Provider '{args.provider}' has no available models.")
-                    print(
-                        "(Provider may require authentication: "
-                        f"maestro auth login {args.provider})"
-                    )
-                else:
-                    print(f"Unknown provider: '{args.provider}'")
-                    available = (
-                        ", ".join(sorted(discovered))
-                        if discovered
-                        else "(none installed)"
-                    )
-                    print(f"Available providers: {available}")
-                sys.exit(1)
-            models_by_provider = {args.provider: provider_models}
-
-        # Filter out providers with empty model lists
-        models_by_provider = {
-            provider_id: models
-            for provider_id, models in models_by_provider.items()
-            if models
-        }
-
-        if not models_by_provider:
-            print("No models available. Authenticate a provider first:")
-            print("  maestro auth login chatgpt")
-            sys.exit(0)
-
-        print(format_model_list(models_by_provider))
-
-    elif args.command == "status":
-        ts = auth.load()
-        if not ts:
-            print("Not logged in.")
-            sys.exit(1)
-        print(f"Email:      {ts.email or '(unknown)'}")
-        print(f"Account ID: {ts.account_id}")
-        remaining = ts.expires - time.time()
-        if remaining > 0:
-            print(f"Token:      valid ({int(remaining)}s remaining)")
-        else:
-            print("Token:      expired (will refresh on next use)")
-
-    elif args.command == "run":
-        import os
-        from pathlib import Path
-
-        from maestro.models import resolve_model
-        from maestro.config import load as load_config
-
-        wd = Path(args.workdir).resolve() if args.workdir else Path.cwd()
-
-        try:
-            # Resolve model using Phase 4 resolution chain
-            # (flag > env > config > default)
-            provider, model_id = resolve_model(model_flag=args.model)
-
-            if args.model is not None:
-                selected_explicitly = True
-            elif os.environ.get("MAESTRO_MODEL") is not None:
-                selected_explicitly = True
-            else:
-                cfg = load_config()
-                selected_explicitly = cfg.model is not None
-
-            # Phase 5 will wire alternate providers; for now,
-            # pin to ChatGPT unless explicitly requested.
-            if provider.id != "chatgpt" and not selected_explicitly:
-                # Default resolution picked a non-ChatGPT provider,
-                # but user didn't explicitly request it.
-                # Fall back to ChatGPT to maintain backward compatibility
-                # until Phase 5.
-                provider = get_provider("chatgpt")
-                model_id = DEFAULT_MODEL
-
-            if args.multi:
-                # Multi-agent DAG mode
-                # Only pass False when --no-aggregate is present; otherwise pass None
-                # so runtime config can decide (config.aggregator.enabled)
-                aggregate = False if args.no_aggregate else None
-
-                import os
-                from maestro.dashboard.emitter import DashboardEmitter
-                from maestro.dashboard.server import start_dashboard_server
-
-                dashboard_emitter = DashboardEmitter()
-                dashboard_port = int(os.environ.get("MAESTRO_DASHBOARD_PORT", "4040"))
-                start_dashboard_server(dashboard_emitter, port=dashboard_port)
-                print(f"[maestro] dashboard → http://localhost:{dashboard_port}")
-
-                result = run_multi_agent(
-                    task=args.prompt,
-                    workdir=wd,
-                    auto=args.auto,
-                    depth=0,  # CLI starts at depth 0
-                    max_depth=2,  # Default max_depth
-                    provider=provider,
-                    model=model_id,
-                    aggregate=aggregate,
-                    emitter=dashboard_emitter,
-                )
-
-                # Extract outputs and failure metadata from structured result
-                outputs = result.get("outputs", {})
-                failed = result.get("failed", [])
-                errors = result.get("errors", [])
-
-                # Always surface worker errors first (even when all workers fail)
-                if errors:
-                    print("\n--- Worker Errors ---", file=sys.stderr)
-                    for err in errors:
-                        print(err, file=sys.stderr)
-
-                if not outputs:
-                    print("Error: No workers completed successfully.", file=sys.stderr)
-                    sys.exit(1)
-
-                # Print summary if available
-                if "summary" in result:
-                    print("\n--- Final Summary ---")
-                    print(result["summary"])
-                else:
-                    # Aggregation was skipped, print outputs
-                    print("\n--- Worker Outputs ---")
-                    for task_id, output in outputs.items():
-                        print(f"\n[{task_id}]:\n{output}")
-
-                # Give the SSE server time to flush final events to the browser
-                # before the daemon thread is killed by process exit
-                import time as _time
-                _time.sleep(2)
-
-                # Surface worker failures after outputs
-                if failed:
-                    sys.exit(1)
-            else:
-                # Single-agent mode (original behavior)
-                streamed: list[bool] = []
-                spinner = _Spinner()
-                spinner.start()
-
-                def _stream_print(chunk: str) -> None:
-                    spinner.stop()
-                    print(chunk, end="", flush=True)
-                    streamed.append(True)
-
-                def _on_tool_start() -> None:
-                    spinner.stop()
-
-                result = run(
-                    model_id,
-                    args.prompt,
-                    args.system,
-                    workdir=wd,
-                    auto=args.auto,
-                    provider=provider,
-                    stream_callback=_stream_print,
-                    on_tool_start=_on_tool_start,
-                )
-                spinner.stop()  # ensure stopped if no text/tools were seen
-                if not streamed:
-                    # No streaming chunks received — print the full result at once
-                    print(result)
-                else:
-                    # Streaming already printed the content; just end with a newline
-                    print()
-        except (RuntimeError, ValueError) as e:
-            msg = str(e)
-            if "not supported" in msg:
-                print(f"Error: model '{model_id}' is not available for your account.")
-                print("Run 'maestro models --check' to see which models work for you.")
-            else:
-                print(f"Error: {msg}")
-            sys.exit(1)
-
-    elif args.command == "discover":
-        _handle_discover(args)
-
-    elif args.command == "planning":
-        if args.planning_command == "check":
-            _handle_planning_check(args)
-        else:
-            planning_p.print_help()
-            sys.exit(1)
-
+    handler = handlers.get(args.command)
+    if handler:
+        handler()
     else:
         parser.print_help()
+
+
+def _auth_login(args) -> None:
+    """Handle `maestro auth login <provider>`."""
+    method = "device" if getattr(args, "device", False) else "browser"
+    try:
+        provider = get_provider(args.provider)
+    except ValueError as e:
+        print(str(e))
+        sys.exit(1)
+    if args.provider == "chatgpt":
+        provider.login(method)
+        ts = auth.get("chatgpt")
+        if ts:
+            email = ts.get("email") or ts.get("account_id", "")
+            print(f"Logged in as: {email}" if email else "Logged in to chatgpt.")
+        else:
+            print("Logged in to chatgpt.")
+    else:
+        provider.login()
+
+
+def _auth_logout(args) -> None:
+    """Handle `maestro auth logout <provider>`."""
+    from maestro.providers.registry import list_providers
+
+    discovered = set(list_providers())
+    stored = set(auth.all_providers())
+    known = discovered | stored
+
+    if args.provider not in known:
+        print(f"Unknown provider: '{args.provider}'")
+        print(
+            "Available providers: "
+            f"{', '.join(sorted(known)) or '(none installed)'}"
+        )
+        sys.exit(1)
+
+    if auth.remove(args.provider):
+        print(f"Logged out of {args.provider}.")
+    else:
+        print(f"Not logged in to {args.provider}.")
+        sys.exit(1)
+
+
+def _auth_status() -> None:
+    """Handle `maestro auth status`."""
+    from maestro.providers.registry import list_providers
+
+    discovered = list_providers()
+    stored = set(auth.all_providers())
+    all_known = sorted(set(discovered) | stored)
+
+    if not all_known:
+        print("No providers installed.")
+        sys.exit(0)
+
+    print("Provider Status:")
+    for pid in all_known:
+        if pid in discovered:
+            try:
+                provider = get_provider(pid)
+                if provider.is_authenticated():
+                    print(f"  {pid}: authenticated")
+                else:
+                    print(f"  {pid}: not authenticated")
+            except Exception:
+                print(f"  {pid}: error loading provider")
+        else:
+            print(f"  {pid}: credentials stored (provider not installed)")
+
+
+def _handle_auth(args, auth_p) -> None:
+    """Handle `maestro auth` subcommands (login / logout / status)."""
+    if args.auth_command == "login":
+        _auth_login(args)
+    elif args.auth_command == "logout":
+        _auth_logout(args)
+    elif args.auth_command == "status":
+        _auth_status()
+    else:
+        auth_p.print_help()
+
+
+def _handle_legacy_login(args) -> None:
+    """Handle deprecated `maestro login` command."""
+    print(
+        "'maestro login' is deprecated. Use 'maestro auth login chatgpt' instead.",
+        file=sys.stderr,
+    )
+    warnings.warn(
+        "'maestro login' is deprecated. Use 'maestro auth login chatgpt' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    method = "device" if args.device else "browser"
+    ts = auth.login(method)
+    print(f"Logged in as: {ts.email or ts.account_id}")
+
+
+def _handle_legacy_logout() -> None:
+    """Handle deprecated `maestro logout` command."""
+    print(
+        "'maestro logout' is deprecated. Use 'maestro auth logout chatgpt' instead.",
+        file=sys.stderr,
+    )
+    warnings.warn(
+        "'maestro logout' is deprecated. Use 'maestro auth logout chatgpt' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    if auth.remove("chatgpt"):
+        print("Logged out of chatgpt.")
+    else:
+        print("Not logged in to chatgpt.")
+
+
+def _models_probe_mode(args) -> None:
+    """Handle `maestro models --check` probe path."""
+    from maestro.providers.chatgpt import fetch_models, probe_available_models
+
+    provider_label = getattr(args, "provider", None) or "chatgpt"
+    print(
+        "Probing models for provider: "
+        f"{provider_label} (this may take a moment)..."
+    )
+    ts = auth.load()
+    if not ts:
+        print("Not logged in to ChatGPT.")
+        sys.exit(1)
+    ts = auth.ensure_valid(ts)
+    available = probe_available_models(ts, force=True)
+    all_models = fetch_models()
+    for m in all_models:
+        if m in available:
+            print(f"  chatgpt/{m}  [available]")
+        else:
+            print(f"  chatgpt/{m}  [not available]")
+    print(f"\n{len(available)}/{len(all_models)} models available.")
+
+
+def _models_filter_provider(args, models_by_provider: dict) -> dict:
+    """Filter models_by_provider to a single provider, or exit on error."""
+    from maestro.providers.registry import list_providers
+
+    provider_models = models_by_provider.get(args.provider)
+    if provider_models:
+        return {args.provider: provider_models}
+
+    discovered = list_providers()
+    if args.provider in discovered:
+        print(f"Provider '{args.provider}' has no available models.")
+        print(
+            "(Provider may require authentication: "
+            f"maestro auth login {args.provider})"
+        )
+    else:
+        print(f"Unknown provider: '{args.provider}'")
+        available = (
+            ", ".join(sorted(discovered)) if discovered else "(none installed)"
+        )
+        print(f"Available providers: {available}")
+    sys.exit(1)
+
+
+def _handle_models(args) -> None:
+    """Handle `maestro models` command."""
+    from maestro.models import get_available_models, format_model_list
+    from maestro.providers.chatgpt import fetch_models
+
+    if args.refresh:
+        print("Refreshing models from models.dev...")
+        fetch_models(force=True)
+
+    if args.provider and args.check:
+        print("Error: --check cannot be combined with --provider.")
+        sys.exit(1)
+
+    if args.check:
+        _models_probe_mode(args)
+        return
+
+    models_by_provider = get_available_models()
+
+    if args.provider:
+        models_by_provider = _models_filter_provider(args, models_by_provider)
+
+    models_by_provider = {
+        provider_id: models
+        for provider_id, models in models_by_provider.items()
+        if models
+    }
+
+    if not models_by_provider:
+        print("No models available. Authenticate a provider first:")
+        print("  maestro auth login chatgpt")
+        sys.exit(0)
+
+    print(format_model_list(models_by_provider))
+
+
+def _handle_status() -> None:
+    """Handle `maestro status` command."""
+    ts = auth.load()
+    if not ts:
+        print("Not logged in.")
+        sys.exit(1)
+    print(f"Email:      {ts.email or '(unknown)'}")
+    print(f"Account ID: {ts.account_id}")
+    remaining = ts.expires - time.time()
+    if remaining > 0:
+        print(f"Token:      valid ({int(remaining)}s remaining)")
+    else:
+        print("Token:      expired (will refresh on next use)")
+
+
+def _handle_run(args) -> None:
+    """Handle `maestro run` command (single-agent and multi-agent modes)."""
+    import os
+
+    from maestro.models import resolve_model
+    from maestro.config import load as load_config
+
+    wd = Path(args.workdir).resolve() if args.workdir else Path.cwd()
+
+    model_id: str | None = None
+    try:
+        provider, model_id = resolve_model(model_flag=args.model)
+
+        if args.model is not None:
+            selected_explicitly = True
+        elif os.environ.get("MAESTRO_MODEL") is not None:
+            selected_explicitly = True
+        else:
+            cfg = load_config()
+            selected_explicitly = cfg.model is not None
+
+        if provider.id != "chatgpt" and not selected_explicitly:
+            provider = get_provider("chatgpt")
+            model_id = DEFAULT_MODEL
+
+        if args.multi:
+            _handle_run_multi(args, wd, provider, model_id)
+        else:
+            _handle_run_single(args, wd, provider, model_id)
+
+    except (RuntimeError, ValueError) as e:
+        msg = str(e)
+        if "not supported" in msg and model_id is not None:
+            print(f"Error: model '{model_id}' is not available for your account.")
+            print("Run 'maestro models --check' to see which models work for you.")
+        else:
+            print(f"Error: {msg}")
+        sys.exit(1)
+
+
+def _handle_run_multi(args, wd, provider, model_id) -> None:
+    """Handle `maestro run --multi` DAG execution."""
+    import os
+    import time as _time
+    from maestro.dashboard.emitter import DashboardEmitter
+    from maestro.dashboard.server import start_dashboard_server
+
+    aggregate = False if args.no_aggregate else None
+
+    dashboard_emitter = DashboardEmitter()
+    dashboard_port = int(os.environ.get("MAESTRO_DASHBOARD_PORT", "4040"))
+    server = start_dashboard_server(dashboard_emitter, port=dashboard_port)
+    print(f"[maestro] dashboard → http://localhost:{dashboard_port}")
+
+    try:
+        result = run_multi_agent(
+            task=args.prompt,
+            workdir=wd,
+            auto=args.auto,
+            depth=0,
+            max_depth=2,
+            provider=provider,
+            model=model_id,
+            aggregate=aggregate,
+            emitter=dashboard_emitter,
+        )
+    finally:
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+
+    outputs = result.get("outputs", {})
+    failed = result.get("failed", [])
+    errors = result.get("errors", [])
+
+    if errors:
+        print("\n--- Worker Errors ---", file=sys.stderr)
+        for err in errors:
+            print(err, file=sys.stderr)
+
+    if not outputs:
+        print("Error: No workers completed successfully.", file=sys.stderr)
+        sys.exit(1)
+
+    if "summary" in result:
+        print("\n--- Final Summary ---")
+        print(result["summary"])
+    else:
+        print("\n--- Worker Outputs ---")
+        for task_id, output in outputs.items():
+            print(f"\n[{task_id}]:\n{output}")
+
+    _time.sleep(2)
+
+    if failed:
+        sys.exit(1)
+
+
+def _handle_run_single(args, wd, provider, model_id) -> None:
+    """Handle `maestro run` single-agent mode."""
+    streamed: list[bool] = []
+    spinner = _Spinner()
+    spinner.start()
+
+    def _stream_print(chunk: str) -> None:
+        spinner.stop()
+        print(chunk, end="", flush=True)
+        streamed.append(True)
+
+    def _on_tool_start() -> None:
+        spinner.stop()
+
+    result = run(
+        model_id,
+        args.prompt,
+        args.system,
+        workdir=wd,
+        auto=args.auto,
+        provider=provider,
+        stream_callback=_stream_print,
+        on_tool_start=_on_tool_start,
+    )
+    spinner.stop()
+    if not streamed:
+        print(result)
+    else:
+        print()
 
 
 def _handle_discover(args) -> None:
@@ -610,6 +627,15 @@ def _handle_planning_check(args) -> None:
         f"Planning consistency check passed for {Path(getattr(args, 'root', '.planning')).resolve()}"
     )
     sys.exit(0)
+
+
+def _handle_planning(args, planning_p) -> None:
+    """Route `maestro planning` subcommands."""
+    if args.planning_command == "check":
+        _handle_planning_check(args)
+    else:
+        planning_p.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

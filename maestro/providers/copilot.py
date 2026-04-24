@@ -117,6 +117,7 @@ class CopilotProvider:
         messages: list[Message],
         model: str,
         tools: list[Tool] | None = None,
+        **kwargs: object,
     ) -> AsyncIterator[str | Message]:
         """Stream completion from GitHub Copilot Chat Completions API.
 
@@ -135,50 +136,25 @@ class CopilotProvider:
         Raises:
             RuntimeError: If not authenticated or API returns error.
         """
-        # Check authentication
-        creds = auth.get("github-copilot")
-        if not creds:
-            raise RuntimeError(
-                "Not authenticated. Run: maestro auth login github-copilot"
-            )
+        token = self._require_token()
+        extra = kwargs.get("extra")
+        payload = self._build_payload(messages, model, tools, extra=extra if isinstance(extra, dict) else None)
 
-        token = creds.get("access_token", "")
-        if not token:
-            raise RuntimeError(
-                "Invalid credentials. Run: maestro auth login github-copilot"
-            )
+        text_parts: list[str] = []
+        tool_calls_buffer: dict[str, dict] = {}
 
-        # Convert neutral messages to OpenAI chat completions format
-        converted_messages = _convert_messages_to_wire(messages)
-
-        # Convert neutral tools to OpenAI function format
-        converted_tools = _convert_tools_to_wire(tools) if tools else []
-
-        # Build request payload
-        payload: dict = {
-            "model": model,
-            "messages": converted_messages,
-            "stream": True,
-        }
-        if converted_tools:
-            payload["tools"] = converted_tools
-
-        # Required headers per D-02
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "x-initiator": "user",
-            "Openai-Intent": "conversation-edits",
-            "Content-Type": "application/json",
-        }
-
-        # Stream request
         async with httpx.AsyncClient() as client:
             async with aconnect_sse(
                 client,
                 "POST",
                 f"{COPILOT_API_BASE}/chat/completions",
                 json=payload,
-                headers=headers,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "x-initiator": "user",
+                    "Openai-Intent": "conversation-edits",
+                    "Content-Type": "application/json",
+                },
                 timeout=120,
             ) as event_source:
                 response = event_source.response
@@ -188,81 +164,67 @@ class CopilotProvider:
                         f"API error {response.status_code}: {body[:800].decode()}"
                     )
 
-                text_parts: list[str] = []
-                tool_calls_buffer: dict[str, dict] = {}  # id -> {id, name, arguments}
-
                 async for sse in event_source.aiter_sse():
                     if sse.data == "[DONE]":
                         break
 
-                    try:
-                        event = json.loads(sse.data)
-                    except json.JSONDecodeError:
+                    event = _parse_sse_event(sse.data)
+                    if event is None:
                         continue
 
-                    # Handle chat completion chunks
                     choices = event.get("choices", [])
                     if not choices:
                         continue
 
                     delta = choices[0].get("delta", {})
 
-                    # Handle text content deltas
                     content = delta.get("content")
                     if content:
                         text_parts.append(content)
                         yield content
 
-                    # Handle tool call deltas
-                    delta_tool_calls = delta.get("tool_calls", [])
-                    for tc_delta in delta_tool_calls:
-                        tc_id = tc_delta.get("index", 0)
-                        tc_index = str(tc_id)
+                    _accumulate_tool_call_deltas(delta.get("tool_calls", []), tool_calls_buffer)
 
-                        if tc_index not in tool_calls_buffer:
-                            tool_calls_buffer[tc_index] = {
-                                "id": "",
-                                "name": "",
-                                "arguments": "",
-                            }
-
-                        tc_buf = tool_calls_buffer[tc_index]
-
-                        if "id" in tc_delta:
-                            tc_buf["id"] = tc_delta["id"]
-                        if tc_delta.get("function", {}).get("name"):
-                            tc_buf["name"] = tc_delta["function"]["name"]
-                        if tc_delta.get("function", {}).get("arguments"):
-                            tc_buf["arguments"] += tc_delta["function"]["arguments"]
-
-                    # Check for finish_reason to determine completion
                     finish_reason = choices[0].get("finish_reason")
                     if finish_reason in ("tool_calls", "stop", "length"):
                         break
 
-        # Yield final Message with complete content and tool calls
-        content = "".join(text_parts)
-        tool_calls = []
+        yield _build_final_message(text_parts, tool_calls_buffer)
 
-        for tc_buf in tool_calls_buffer.values():
-            if tc_buf["id"] and tc_buf["name"]:
-                try:
-                    args = json.loads(tc_buf["arguments"]) if tc_buf["arguments"] else {}
-                except json.JSONDecodeError:
-                    args = {}
-                tool_calls.append(
-                    ToolCall(
-                        id=tc_buf["id"],
-                        name=tc_buf["name"],
-                        arguments=args,
-                    )
-                )
+    def _require_token(self) -> str:
+        """Return the Copilot access token or raise RuntimeError if missing."""
+        creds = auth.get("github-copilot")
+        if not creds:
+            raise RuntimeError(
+                "Not authenticated. Run: maestro auth login github-copilot"
+            )
+        token = creds.get("access_token", "")
+        if not token:
+            raise RuntimeError(
+                "Invalid credentials. Run: maestro auth login github-copilot"
+            )
+        return token
 
-        yield Message(
-            role="assistant",
-            content=content,
-            tool_calls=tool_calls,
-        )
+    def _build_payload(
+        self,
+        messages: list[Message],
+        model: str,
+        tools: list[Tool] | None,
+        extra: dict | None = None,
+    ) -> dict:
+        """Build the JSON payload for the Copilot chat completions request."""
+        payload: dict = {
+            "model": model,
+            "messages": _convert_messages_to_wire(messages),
+            "stream": True,
+        }
+        converted_tools = _convert_tools_to_wire(tools) if tools else []
+        if converted_tools:
+            payload["tools"] = converted_tools
+        # Merge supported extra kwargs (e.g. response_format for structured output)
+        if extra and "response_format" in extra:
+            payload["response_format"] = extra["response_format"]
+        return payload
 
     def auth_required(self) -> bool:
         """Return True if this provider requires authentication."""
@@ -358,6 +320,54 @@ class CopilotProvider:
 # ---------------------------------------------------------------------------
 # Wire format helpers (OpenAI Chat Completions API)
 # ---------------------------------------------------------------------------
+
+
+def _parse_sse_event(data: str) -> dict | None:
+    """Parse a single SSE data string into a dict, or None on failure."""
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError:
+        return None
+
+
+def _accumulate_tool_call_deltas(
+    delta_tool_calls: list[dict],
+    tool_calls_buffer: dict[str, dict],
+) -> None:
+    """Merge streaming tool-call delta fragments into the buffer."""
+    for tc_delta in delta_tool_calls:
+        tc_index = str(tc_delta.get("index", 0))
+        if tc_index not in tool_calls_buffer:
+            tool_calls_buffer[tc_index] = {"id": "", "name": "", "arguments": ""}
+        tc_buf = tool_calls_buffer[tc_index]
+        if "id" in tc_delta:
+            tc_buf["id"] = tc_delta["id"]
+        if tc_delta.get("function", {}).get("name"):
+            tc_buf["name"] = tc_delta["function"]["name"]
+        if tc_delta.get("function", {}).get("arguments"):
+            tc_buf["arguments"] += tc_delta["function"]["arguments"]
+
+
+def _build_final_message(
+    text_parts: list[str],
+    tool_calls_buffer: dict[str, dict],
+) -> Message:
+    """Construct the final assistant Message from accumulated stream data."""
+    tool_calls = []
+    for tc_buf in tool_calls_buffer.values():
+        if tc_buf["id"] and tc_buf["name"]:
+            try:
+                args = json.loads(tc_buf["arguments"]) if tc_buf["arguments"] else {}
+            except json.JSONDecodeError:
+                args = {}
+            tool_calls.append(
+                ToolCall(id=tc_buf["id"], name=tc_buf["name"], arguments=args)
+            )
+    return Message(
+        role="assistant",
+        content="".join(text_parts),
+        tool_calls=tool_calls,
+    )
 
 
 def _convert_messages_to_wire(messages: list[Message]) -> list[dict]:

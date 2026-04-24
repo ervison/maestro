@@ -28,7 +28,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 14: Planning Consistency Gate** - Enforce automated alignment checks across roadmap, state, and milestone artifacts ✅ COMPLETE (2026-04-23)
 - [x] **Phase 15: External Provider Install Smoke Test** - Verify third-party `maestro.providers` packages in an isolated install path ✅ COMPLETE (2026-04-24)
 - [x] **Phase 16: Copilot Release Smoke Gate** - Add a release-grade real-auth smoke check for GitHub Copilot ✅ COMPLETE (2026-04-24)
-- [ ] **Phase 17: Aggregator Guardrails** - Bound optional aggregator spend and rate behavior in unattended runs
+- [x] **Phase 17: Aggregator Guardrails** - Bound optional aggregator spend and rate behavior in unattended runs ✅ COMPLETE (2026-04-24)
 
 ## Phase Details
 
@@ -332,7 +332,10 @@ Plans:
   2. Repeated aggregation attempts are bounded during unattended usage.
   3. The CLI explains when aggregation is blocked or skipped by policy.
   4. Automated tests cover the allow, block, and skip paths.
-**Plans**: 0 plans (ready for planning)
+**Plans**: 1 plan
+
+Plans:
+- [x] 17-01-PLAN.md — AggregatorGuardrail dataclass, check function, scheduler_route enforcement, config validation, and tests
 
 ## Progress
 
@@ -357,4 +360,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 14. Planning Consistency Gate | 2/2 | Complete | 2026-04-23 |
 | 15. External Provider Install Smoke Test | 1/1 | Complete | 2026-04-24 |
 | 16. Copilot Release Smoke Gate | 1/1 | Complete | 2026-04-24 |
-| 17. Aggregator Guardrails | 0/0 | Planned | - |
+| 17. Aggregator Guardrails | 1/1 | Complete | 2026-04-24 |

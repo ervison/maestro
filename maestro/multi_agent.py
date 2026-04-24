@@ -14,6 +14,7 @@ import asyncio
 import concurrent.futures
 import logging
 import time as _time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,16 +22,56 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 
 from maestro import agent as agent_module
-from maestro.planner.schemas import AgentState, AgentPlan
-from maestro.planner.node import planner_node
-from maestro.planner.validator import validate_dag
-from maestro.domains import get_domain_prompt
-from maestro.providers.registry import get_default_provider
 from maestro.config import load as load_config
+from maestro.domains import get_domain_prompt
+from maestro.planner.node import planner_node
+from maestro.planner.schemas import AgentState, AgentPlan, AggregatorGuardrail
+from maestro.planner.validator import validate_dag
 from maestro.models import resolve_model
-from langchain_core.messages import BaseMessage, HumanMessage
+from maestro.providers.registry import get_default_provider
+
+try:
+    from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+except ImportError:  # pragma: no cover
+    BaseMessage = Any  # type: ignore[assignment,misc]
+    HumanMessage = None  # type: ignore[assignment]
+    AIMessage = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+
+def check_aggregator_guardrail(
+    guardrail: AggregatorGuardrail,
+    calls_this_run: int,
+    outputs: dict[str, str],
+) -> tuple[bool, str | None]:
+    """Check whether the aggregator is allowed to run under the given policy.
+
+    Args:
+        guardrail: Policy configuration.
+        calls_this_run: How many times aggregator has already run this invocation.
+        outputs: Worker outputs dict (used for token estimation).
+
+    Returns:
+        (allowed, reason) — reason is None when allowed is True.
+    """
+    # max_calls=0 means aggregation is explicitly disabled
+    if guardrail.max_calls is not None and guardrail.max_calls == 0:
+        return False, "aggregation disabled (max_calls=0)"
+
+    # Call-count ceiling
+    if guardrail.max_calls is not None and calls_this_run >= guardrail.max_calls:
+        return False, f"call limit reached ({calls_this_run}/{guardrail.max_calls})"
+
+    # Token budget: rough estimate (characters / 4 ≈ tokens)
+    if guardrail.max_tokens_per_run is not None:
+        estimated = sum(len(v) // 4 for v in outputs.values())
+        if estimated > guardrail.max_tokens_per_run:
+            return False, (
+                f"token budget exceeded (estimated {estimated} > max {guardrail.max_tokens_per_run})"
+            )
+
+    return True, None
 
 
 def _print_lifecycle(component: str, event: str) -> None:
@@ -53,6 +94,55 @@ def _materialize_plan(dag_dict: dict) -> AgentPlan:
     return AgentPlan.model_validate(dag_dict)
 
 
+def _validate_plan(plan: AgentPlan) -> str | None:
+    """Validate the DAG plan; return an error message string or None if valid."""
+    try:
+        validate_dag(plan)
+    except ValueError as e:
+        return f"DAG validation failed: {e}"
+    return None
+
+
+def _collect_ready_tasks(
+    plan: AgentPlan,
+    completed: set[str],
+    in_progress: set[str],
+    terminal: set[str],
+) -> list[dict[str, Any]]:
+    """Return task payloads for tasks whose dependencies are all completed."""
+    deps_map = {t.id: set(t.deps) for t in plan.tasks}
+    task_map = {t.id: t for t in plan.tasks}
+    ready_tasks: list[dict[str, Any]] = []
+    for tid, deps in deps_map.items():
+        if tid in terminal or tid in in_progress:
+            continue
+        if deps.issubset(completed):
+            task = task_map[tid]
+            ready_tasks.append(
+                {"id": task.id, "domain": task.domain, "prompt": task.prompt}
+            )
+    return ready_tasks
+
+
+def _collect_blocked_tasks(
+    plan: AgentPlan,
+    ready_ids: set[str],
+    terminal: set[str],
+    failed: set[str],
+) -> list[str]:
+    """Return IDs of tasks that are permanently blocked by failed dependencies."""
+    blocked: list[str] = []
+    all_task_ids = {t.id for t in plan.tasks}
+    unfinished = all_task_ids - terminal
+    task_map = {t.id: t for t in plan.tasks}
+    for tid in unfinished:
+        if tid not in ready_ids:
+            task = task_map.get(tid)
+            if task and any(d in failed for d in task.deps):
+                blocked.append(tid)
+    return blocked
+
+
 def scheduler_node(state: AgentState) -> dict:
     """Compute ready tasks from DAG dependencies.
 
@@ -73,80 +163,39 @@ def scheduler_node(state: AgentState) -> dict:
         emitter.emit({"type": "node_update", "id": "scheduler", "status": "active"})
 
     plan = _materialize_plan(state["dag"])
-    # Validate the DAG to catch duplicate IDs, invalid refs, etc.
-    try:
-        validate_dag(plan)
-    except ValueError as e:
-        error_msg = f"DAG validation failed: {e}"
+
+    error_msg = _validate_plan(plan)
+    if error_msg:
         logger.error(error_msg)
         return {"ready_tasks": [], "errors": [error_msg]}
+
     completed = set(state.get("completed", []))
     failed = set(state.get("failed", []))
+    dispatched = set(state.get("dispatched", []))
     terminal = completed | failed
+    in_progress = dispatched - terminal
 
-    # Build dependency graph: task_id -> set of dependency task_ids
-    deps_map = {t.id: set(t.deps) for t in plan.tasks}
-    all_task_ids = set(deps_map.keys())
+    ready_tasks = _collect_ready_tasks(plan, completed, in_progress, terminal)
+    ready_ids = {t["id"] for t in ready_tasks}
+    blocked_tasks = _collect_blocked_tasks(plan, ready_ids, terminal, failed)
 
-    # Find ready tasks: not terminal AND all deps are completed
-    # A task is blocked (not ready) if any of its dependencies failed
-    ready_ids = set()
-    for tid, deps in deps_map.items():
-        if tid not in terminal:
-            # Check if all deps are completed (none failed)
-            deps_all_completed = deps.issubset(completed)
-            if deps_all_completed:
-                ready_ids.add(tid)
-
-    # Build ready task payloads
-    task_map = {t.id: t for t in plan.tasks}
-    ready_tasks = []
-    for tid in ready_ids:
-        task = task_map.get(tid)
-        if task:
-            ready_tasks.append(
-                {
-                    "id": task.id,
-                    "domain": task.domain,
-                    "prompt": task.prompt,
-                }
-            )
-
-    # Detect end states
+    all_task_ids = {t.id for t in plan.tasks}
     unfinished = all_task_ids - terminal
-    blocked_tasks = []
 
-    # Check for tasks that are permanently blocked by failed dependencies
-    for tid in unfinished:
-        if tid not in ready_ids:
-            # Task has unmet deps - check if any dep failed
-            task = task_map.get(tid)
-            if task:
-                deps_failed = any(d in failed for d in task.deps)
-                if deps_failed:
-                    blocked_tasks.append(tid)
+    errors: list[str] = []
+    if not ready_tasks and unfinished and blocked_tasks:
+        error_msg = (
+            "Scheduler ending: "
+            f"{len(blocked_tasks)} task(s) blocked by failed dependencies: "
+            f"{blocked_tasks}"
+        )
+        logger.warning(error_msg)
+        errors.append(error_msg)
 
-    # End state detection:
-    # 1. All tasks terminal (completed + failed covers all tasks)
-    # 2. No ready tasks and no unfinished tasks
-    # 3. No ready tasks, unfinished tasks remain, but all are blocked by failures
-    errors = []
-    if not ready_tasks and unfinished:
-        if blocked_tasks:
-            # All remaining tasks are blocked by failures - report and end
-            error_msg = (
-                "Scheduler ending: "
-                f"{len(blocked_tasks)} task(s) blocked by failed dependencies: "
-                f"{blocked_tasks}"
-            )
-            logger.warning(error_msg)
-            errors.append(error_msg)
-        # If there are unfinished tasks that aren't blocked,
-        # that's an unexpected state
-        # but we'll let the graph continue and eventually time out,
-        # or be handled elsewhere.
-
-    result: dict[str, Any] = {"ready_tasks": list(ready_tasks)}
+    result: dict[str, Any] = {
+        "ready_tasks": list(ready_tasks),
+        "dispatched": [task["id"] for task in ready_tasks],
+    }
     if errors:
         result["errors"] = errors
 
@@ -158,7 +207,6 @@ def scheduler_node(state: AgentState) -> dict:
         len(unfinished),
     )
 
-    # Emit scheduler done when no more ready tasks (all workers dispatched or finished)
     if emitter is not None and not ready_tasks:
         emitter.emit({"type": "node_update", "id": "scheduler", "status": "done"})
 
@@ -195,14 +243,32 @@ def scheduler_route(state: AgentState) -> str:
         # Check if aggregation is disabled
         if not state.get("aggregate", True):
             return END
+        # Guardrail check
+        guardrail = state.get("agg_guardrail") or AggregatorGuardrail()
+        calls_done = state.get("agg_calls_done", 0)
+        allowed, reason = check_aggregator_guardrail(
+            guardrail, calls_done, state.get("outputs", {})
+        )
+        if not allowed:
+            _print_lifecycle("aggregator", f"skipped — {reason}")
+            return END
         return "aggregator"
 
-    # Safety: if we're here with no ready tasks but unfinished work,
-    # there may be a problem - but scheduler_node would have added errors
-    # Check if aggregation is disabled before routing to aggregator
-    if not state.get("aggregate", True):
-        return END
-    return "aggregator"
+    # Check if any dispatched tasks are still in-progress (running workers).
+    # Workers loop back to scheduler when they finish, so we must NOT route to
+    # END or aggregator while dispatched tasks are still executing.
+    dispatched = set(state.get("dispatched", []))
+    in_progress = dispatched - terminal
+
+    if in_progress:
+        # At least one worker is still running; return to scheduler to wait.
+        return "scheduler"
+
+    # Safety: if we're here with no ready tasks and no in-progress work,
+    # but unfinished tasks remain, they are permanently blocked by failed deps.
+    # End the run so the caller can inspect errors instead of producing a
+    # misleading summary.
+    return END
 
 
 def dispatch_node(state: AgentState) -> dict:
@@ -422,6 +488,115 @@ Be concise but thorough.
 """
 
 
+def _build_aggregator_prompt(
+    task: str, outputs: dict[str, str], failed: list, errors: list
+) -> str:
+    """Build the user message for the aggregator LLM call.
+
+    Args:
+        task: Original user task string.
+        outputs: Mapping of task_id -> output text from workers.
+        failed: List of failed task IDs.
+        errors: List of error message strings.
+
+    Returns:
+        Formatted user message string.
+    """
+    outputs_text = "\n\n".join(
+        f"=== {task_id} ===\n{output}" for task_id, output in outputs.items()
+    )
+
+    if failed:
+        failed_text = "\n".join(f"- {tid}" for tid in failed)
+        outputs_text += f"\n\n=== Failed Tasks ===\n{failed_text}"
+
+    if errors:
+        errors_text = "\n".join(f"- {err}" for err in errors)
+        outputs_text += f"\n\n=== Errors ===\n{errors_text}"
+
+    return f"Original task: {task}\n\nWorker outputs:\n\n{outputs_text}"
+
+
+def _resolve_aggregator_provider(state: AgentState):
+    """Resolve the provider and model to use for the aggregator LLM call.
+
+    Reuses the caller-injected provider only when it matches the provider
+    ID selected by resolve_model; otherwise falls back to the resolved provider.
+
+    Args:
+        state: AgentState (reads ``provider`` key).
+
+    Returns:
+        Tuple of (provider, model_string).
+    """
+    resolved_provider, aggregator_model = resolve_model(agent_name="aggregator")
+    runtime_provider = state.get("provider")
+
+    if runtime_provider is not None and runtime_provider.id == resolved_provider.id:
+        provider = runtime_provider
+    else:
+        provider = resolved_provider
+
+    return provider, aggregator_model
+
+
+async def _run_aggregator_stream(provider, model: str, user_message: str, task: str) -> str:
+    """Run the aggregator LLM stream and return the full response text.
+
+    Args:
+        provider: ProviderPlugin instance to call.
+        model: Model identifier string.
+        user_message: User message content.
+        task: Original user task (used in the system prompt).
+
+    Returns:
+        Aggregated text from the stream.
+    """
+    from maestro.providers.base import Message
+
+    system_prompt = AGGREGATOR_SYSTEM_PROMPT.format(task=task)
+    messages = [
+        Message(role="system", content=system_prompt),
+        Message(role="user", content=user_message),
+    ]
+    chunks: list[str] = []
+    async for chunk in provider.stream(messages, model=model):
+        if isinstance(chunk, str):
+            chunks.append(chunk)
+        elif isinstance(chunk, Message) and chunk.content:
+            chunks = [chunk.content]
+    return "".join(chunks)
+
+
+def _run_aggregator_sync(provider, model: str, user_message: str, task: str) -> str:
+    """Run _run_aggregator_stream synchronously, bridging existing event loops.
+
+    Args:
+        provider: ProviderPlugin instance.
+        model: Model identifier.
+        user_message: Formatted user message.
+        task: Original user task.
+
+    Returns:
+        Aggregated text from the stream, or a fallback error string.
+    """
+    async def _aggregate():
+        return await _run_aggregator_stream(provider, model, user_message, task)
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(_aggregate())).result()
+    elif loop is not None:
+        return loop.run_until_complete(_aggregate())
+    else:
+        return asyncio.run(_aggregate())
+
+
 def aggregator_node(state: AgentState) -> dict:
     """Produce final summary from all worker outputs.
 
@@ -452,79 +627,23 @@ def aggregator_node(state: AgentState) -> dict:
         _print_lifecycle("aggregator", "done")
         return {"summary": "No worker outputs to summarize."}
 
-    # Build the prompt for the aggregator
-    outputs_text = "\n\n".join(
-        f"=== {task_id} ===\n{output}" for task_id, output in outputs.items()
-    )
-
-    if failed:
-        failed_text = "\n".join(f"- {tid}" for tid in failed)
-        outputs_text += f"\n\n=== Failed Tasks ===\n{failed_text}"
-
-    if errors:
-        errors_text = "\n".join(f"- {err}" for err in errors)
-        outputs_text += f"\n\n=== Errors ===\n{errors_text}"
-
-    user_message = f"Original task: {task}\n\nWorker outputs:\n\n{outputs_text}"
-
-    # Resolve provider and model via shared priority chain.
-    # Always use resolve_model(agent_name="aggregator") so config.agent.aggregator.model
-    # is honoured. If a provider was injected by the caller, use it for auth context
-    # but still let resolve_model determine the model string.
-    runtime_provider = state.get("provider")
-
-    resolved_provider, aggregator_model = resolve_model(agent_name="aggregator")
-    # Prefer the caller-supplied provider (has live auth credentials) over the
-    # freshly-resolved one, but keep the model from resolve_model.
-    provider = runtime_provider if runtime_provider is not None else resolved_provider
-
-    # Use asyncio to run the async provider stream
-    async def _aggregate():
-        from maestro.providers.base import Message
-
-        system_prompt = AGGREGATOR_SYSTEM_PROMPT.format(task=task)
-        messages = [
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=user_message),
-        ]
-        chunks: list[str] = []
-        async for chunk in provider.stream(messages, model=aggregator_model):
-            if isinstance(chunk, str):
-                chunks.append(chunk)
-            elif isinstance(chunk, Message) and chunk.content:
-                chunks = [chunk.content]
-        return "".join(chunks)
-
-    # Separate loop detection from aggregation execution to properly handle
-    # provider-side RuntimeError without confusing it with "no running loop" case
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
+    user_message = _build_aggregator_prompt(task, outputs, failed, errors)
+    provider, aggregator_model = _resolve_aggregator_provider(state)
 
     try:
-        if loop and loop.is_running():
-            # Called from an already running event loop (e.g., async test)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                summary = pool.submit(lambda: asyncio.run(_aggregate())).result()
-        elif loop is not None:
-            # Loop exists but isn't running
-            summary = loop.run_until_complete(_aggregate())
-        else:
-            # No running loop - safe to use asyncio.run()
-            summary = asyncio.run(_aggregate())
+        summary = _run_aggregator_sync(provider, aggregator_model, user_message, task)
     except Exception as e:
         logger.exception("Aggregator failed: %s", e)
         summary = f"Failed to generate summary: {e}"
     else:
-        # No exception - check if summary is empty
         if not summary.strip():
             summary = "Aggregation completed but produced no output."
 
     _agg_emit({"type": "node_update", "id": "aggregator", "status": "done"})
     _agg_emit({"type": "node_log", "id": "aggregator", "kind": "text", "text": summary})
     _print_lifecycle("aggregator", "done")
-    return {"summary": summary}
+    calls_done = state.get("agg_calls_done", 0)
+    return {"summary": summary, "agg_calls_done": calls_done + 1}
 
 
 # Build and compile the StateGraph
@@ -535,7 +654,7 @@ _builder.add_node("worker", worker_node)
 _builder.add_node("aggregator", aggregator_node)
 
 _builder.add_edge(START, "scheduler")
-_builder.add_conditional_edges("scheduler", scheduler_route, ["dispatch", "aggregator", END])
+_builder.add_conditional_edges("scheduler", scheduler_route, ["dispatch", "aggregator", "scheduler", END])
 _builder.add_conditional_edges("dispatch", dispatch_route, ["worker"])
 _builder.add_edge("worker", "scheduler")
 _builder.add_edge("aggregator", END)
@@ -598,9 +717,14 @@ def run_multi_agent(
             emitter.emit(event)
 
     # Determine if we should aggregate
+    cfg = load_config()
     if aggregate is None:
-        cfg = load_config()
         aggregate = cfg.get("aggregator.enabled", True)
+
+    agg_guardrail = AggregatorGuardrail(
+        max_calls=cfg.get("aggregator.max_calls"),           # None if not set
+        max_tokens_per_run=cfg.get("aggregator.max_tokens_per_run"),  # None if not set
+    )
 
     # Call planner to generate the DAG
     # Only inject provider into planner state (for auth context).
@@ -675,10 +799,13 @@ def run_multi_agent(
         "workdir": str(workdir),
         "auto": auto,
         "ready_tasks": [],
+        "dispatched": [],
         "provider": provider,
         "model": model,  # workers only — aggregator resolves its own model
         "aggregate": aggregate,
         "emitter": emitter,
+        "agg_guardrail": agg_guardrail,
+        "agg_calls_done": 0,
     }
 
     # Run the graph

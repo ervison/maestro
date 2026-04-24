@@ -44,63 +44,68 @@ def _is_usable(provider: ProviderPlugin) -> bool:
     return not provider.auth_required() or provider.is_authenticated()
 
 
-def _is_valid_provider(instance: object) -> bool:
-    """Check whether an instance satisfies the runtime provider contract."""
-    if not isinstance(instance, ProviderPlugin):
-        return False
+def _validate_simple_method(instance: object, method_name: str, required_args: int) -> bool:
+    """Check that a no-extra-arg method exists and has the right signature.
 
-    method_requirements = {
-        "list_models": 0,
-        "auth_required": 0,
-        "login": 0,
-        "is_authenticated": 0,
-    }
+    Args:
+        instance: Provider instance to inspect.
+        method_name: Name of the method to check.
+        required_args: Number of required positional args *after* ``self``.
 
-    for method_name, required_args in method_requirements.items():
-        method = getattr(type(instance), method_name, None)
-        if method is None or not callable(method):
-            return False
-
-        try:
-            params = list(signature(method).parameters.values())
-        except (TypeError, ValueError):
-            return False
-
-        if len(params) < required_args + 1:
-            return False
-
-        if params[0].kind not in {
-            Parameter.POSITIONAL_ONLY,
-            Parameter.POSITIONAL_OR_KEYWORD,
-        }:
-            return False
-
-        extra_params = params[1:]
-
-        required_positional = [
-            param
-            for param in extra_params
-            if param.default is Signature.empty
-            and param.kind in {Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD}
-        ]
-        if len(required_positional) != required_args:
-            return False
-
-        required_keyword_only = [
-            param
-            for param in extra_params
-            if param.kind is Parameter.KEYWORD_ONLY
-            and param.default is Signature.empty
-        ]
-        if required_keyword_only:
-            return False
-
-    stream_attr = getattr(type(instance), "stream", None)
-    if stream_attr is None or not callable(stream_attr):
+    Returns:
+        True if the method satisfies the contract, False otherwise.
+    """
+    method = getattr(type(instance), method_name, None)
+    if method is None or not callable(method):
         return False
 
     try:
-        params = list(signature(stream_attr).parameters.values())
+        params = list(signature(method).parameters.values())
+    except (TypeError, ValueError):
+        return False
+
+    if len(params) < required_args + 1:
+        return False
+
+    if params[0].kind not in {
+        Parameter.POSITIONAL_ONLY,
+        Parameter.POSITIONAL_OR_KEYWORD,
+    }:
+        return False
+
+    extra_params = params[1:]
+
+    required_positional = [
+        param
+        for param in extra_params
+        if param.default is Signature.empty
+        and param.kind in {Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD}
+    ]
+    if len(required_positional) != required_args:
+        return False
+
+    required_keyword_only = [
+        param
+        for param in extra_params
+        if param.kind is Parameter.KEYWORD_ONLY and param.default is Signature.empty
+    ]
+    return not required_keyword_only
+
+
+def _validate_stream_signature(stream_attr: object) -> bool:
+    """Check that the ``stream`` method has the required positional signature.
+
+    Expects ``stream(self, messages, model, ...)`` — exactly two required
+    positional parameters after ``self``.
+
+    Args:
+        stream_attr: The ``stream`` callable retrieved from the provider class.
+
+    Returns:
+        True if the signature is valid, False otherwise.
+    """
+    try:
+        params = list(signature(stream_attr).parameters.values())  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return False
 
@@ -117,8 +122,7 @@ def _is_valid_provider(instance: object) -> bool:
         param
         for param in params[1:]
         if param.default is Signature.empty
-        and param.kind
-        in {Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD}
+        and param.kind in {Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD}
     ]
     if len(required_after_self) != 2:
         return False
@@ -128,9 +132,22 @@ def _is_valid_provider(instance: object) -> bool:
         for param in params[1:]
         if param.default is Signature.empty and param.kind is Parameter.KEYWORD_ONLY
     ]
-    if required_keyword_only:
-        return False
+    return not required_keyword_only
 
+
+def _validate_stream_return_type(stream_attr: object) -> bool:
+    """Check that ``stream`` returns an ``AsyncIterator`` (or has no annotation).
+
+    An async-generator function always satisfies the contract.  A plain
+    coroutine never does.  For other callables the return annotation is
+    inspected when available.
+
+    Args:
+        stream_attr: The ``stream`` callable retrieved from the provider class.
+
+    Returns:
+        True if the return type is compatible, False otherwise.
+    """
     if isasyncgenfunction(stream_attr):
         return True
 
@@ -138,9 +155,9 @@ def _is_valid_provider(instance: object) -> bool:
         return False
 
     try:
-        module = modules.get(stream_attr.__module__)
+        module = modules.get(stream_attr.__module__)  # type: ignore[union-attr]
         globalns = vars(module) if module is not None else None
-        return_annotation = get_type_hints(stream_attr, globalns=globalns).get("return")
+        return_annotation = get_type_hints(stream_attr, globalns=globalns).get("return")  # type: ignore[arg-type]
     except (NameError, TypeError):
         return True
 
@@ -149,6 +166,37 @@ def _is_valid_provider(instance: object) -> bool:
 
     origin = get_origin(return_annotation)
     return return_annotation is ABCAsyncIterator or origin is ABCAsyncIterator
+
+
+def _is_valid_provider(instance: object) -> bool:
+    """Check whether an instance satisfies the runtime provider contract.
+
+    Delegates to focused helpers:
+    - :func:`_validate_simple_method` — zero-arg interface methods
+    - :func:`_validate_stream_signature` — ``stream`` positional signature
+    - :func:`_validate_stream_return_type` — ``stream`` async-iterator return type
+    """
+    if not isinstance(instance, ProviderPlugin):
+        return False
+
+    simple_methods = {
+        "list_models": 0,
+        "auth_required": 0,
+        "login": 0,
+        "is_authenticated": 0,
+    }
+    for method_name, required_args in simple_methods.items():
+        if not _validate_simple_method(instance, method_name, required_args):
+            return False
+
+    stream_attr = getattr(type(instance), "stream", None)
+    if stream_attr is None or not callable(stream_attr):
+        return False
+
+    if not _validate_stream_signature(stream_attr):
+        return False
+
+    return _validate_stream_return_type(stream_attr)
 
 
 @lru_cache(maxsize=1)
