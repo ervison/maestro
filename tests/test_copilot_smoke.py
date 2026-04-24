@@ -106,7 +106,9 @@ def test_copilot_smoke_login_and_api_call(
         nonlocal final_content
         async for chunk in provider.stream(messages=messages, model=model):
             if isinstance(chunk, Message) and chunk.role == "assistant" and chunk.content:
-                # Capture the final complete Message content (per ProviderPlugin contract).
+                # The ProviderPlugin contract guarantees exactly one final Message
+                # per stream call. Overwrite (not append) to guard against any
+                # future provider that emits a trailing empty sentinel Message.
                 final_content = chunk.content
 
     asyncio.run(_run_stream())
