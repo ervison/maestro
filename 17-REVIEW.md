@@ -1,12 +1,9 @@
 ---
 phase: 17
-reviewed: 2026-04-24T16:04:05Z
+reviewed: 2026-04-24T17:29:41Z
 depth: standard
-files_reviewed: 53
+files_reviewed: 52
 files_reviewed_list:
-  - .opencode/opencode.json
-  - .opencode/plugins/graphify.js
-  - AGENTS.md
   - maestro/__init__.py
   - maestro/agent.py
   - maestro/auth.py
@@ -35,6 +32,7 @@ files_reviewed_list:
   - maestro/sdlc/prompts.py
   - maestro/sdlc/reflect.py
   - maestro/sdlc/schemas.py
+  - maestro/sdlc/static/gaps.html
   - maestro/sdlc/writer.py
   - maestro/tools.py
   - pyproject.toml
@@ -57,94 +55,78 @@ files_reviewed_list:
   - tests/test_sdlc_reflect.py
   - tests/test_sdlc_schemas.py
   - tests/test_sdlc_writer.py
+  - tmp/gaps-snapshot.txt
 findings:
-  critical: 1
+  critical: 0
   warning: 3
   info: 0
-  total: 4
+  total: 3
 status: issues_found
 ---
 
 # Phase 17: Code Review Report
 
-**Reviewed:** 2026-04-24T16:04:05Z
+**Reviewed:** 2026-04-24T17:29:41Z
 **Depth:** standard
-**Files Reviewed:** 53
+**Files Reviewed:** 52
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the phase scope with emphasis on provider streaming, CLI error handling, dashboard/SDLC flows, and test reliability. Most of the earlier Phase 17 findings are fixed, but four issues remain: one critical cyclomatic-complexity hotspot, two runtime correctness problems, and one failing test expectation that now disagrees with the implementation.
+Reviewed the listed Maestro source and supporting test files at standard depth, with focus on provider/plugin compatibility, CLI error handling, concurrency, and dashboard/SDLC flows. I found three warning-level issues: one plugin-contract break across multiple call sites, one dashboard event-order race, and one uncaught runtime failure path in `maestro discover`.
 
-## Critical Issues
-
-### CR-01: `CopilotProvider.stream()` is untestably complex
-
-**File:** `maestro/providers/copilot.py:115-265`
-**Issue:** `CopilotProvider.stream()` has **CC=22** (static AST count), driven by nested auth checks, SSE parsing, tool-call buffering, finish-reason handling, and post-processing in one method. At this size the function is brittle: small protocol changes in Copilot chunks are easy to break and hard to cover exhaustively.
-**Fix:** Extract the major branches into helpers such as credential validation, SSE event parsing, tool-call delta accumulation, and final tool-call materialization.
-
-```python
-async def stream(...):
-    token = self._require_token()
-    payload = self._build_payload(messages, model, tools)
-    text_parts, tool_buffers = await self._consume_sse(token, payload)
-    return self._final_message(text_parts, tool_buffers)
-```
+Note: three files listed in the review request were not present in this worktree and therefore could not be reviewed: `tests/test_agent_loop.py`, `tests/test_provider_protocol.py`, and `tests/test_tools.py`.
 
 ## Warnings
 
-### WR-01: CLI error path can mask the real model-resolution failure
+### WR-01: Structurally valid third-party providers can still fail at runtime
 
-**File:** `maestro/cli.py:426-450`
-**Issue:** `_handle_run()` references `model_id` inside the `except` block even when `resolve_model()` fails before `model_id` is assigned. Reproducing with `maestro.models.resolve_model` patched to raise `RuntimeError("model not supported for account")` raises `UnboundLocalError` instead of the original user-facing error.
-**Fix:** Initialize `model_id` before the `try`, or avoid referencing it when resolution failed.
+**File:** `maestro/planner/node.py:127-129`
+**Issue:** The registry explicitly validates provider `stream()` by positional shape, not parameter names (`maestro/providers/registry.py:171-199`), but several call sites invoke `provider.stream(...)` with keyword arguments such as `messages=`, `model=`, and `tools=` (`maestro/planner/node.py:127-129`, `maestro/sdlc/generators.py:53`, `maestro/sdlc/reflect.py:179`, `maestro/sdlc/gaps_server.py:231`, `maestro/multi_agent.py:563`). A third-party provider with a structurally compatible signature like `stream(self, msgs, mdl, tools=None, **kwargs)` passes discovery and then fails with `TypeError: got an unexpected keyword argument 'messages'` at runtime. That breaks the advertised entry-point plugin contract.
+**Fix:** Call `stream()` positionally everywhere unless the registry also enforces exact parameter names.
 
 ```python
-model_id: str | None = None
-try:
-    provider, model_id = resolve_model(model_flag=args.model)
+stream = provider.stream(messages, model, [])
+
+async for msg in provider.stream(messages, model, None):
     ...
-except (RuntimeError, ValueError) as e:
-    if "not supported" in str(e) and model_id is not None:
-        ...
 ```
 
-### WR-02: Gap answer endpoint accepts empty answers as `"unknown"`
+### WR-02: New dashboard subscribers can receive events out of order
 
-**File:** `maestro/sdlc/gaps_server.py:396-413`
-**Issue:** `_receive_answers()` falls back to `[item.get("chosen_option", "unknown")]` when `selected_options` is missing. A malformed POST like `[{"question": "Q?"}]` returns HTTP 200 and stores `GapAnswer(question='Q?', selected_options=['unknown'])`, letting the discovery flow continue with fabricated answers.
-**Fix:** Reject items that provide neither `selected_options` nor a non-empty legacy `chosen_option`.
+**File:** `maestro/dashboard/emitter.py:35-42`
+**Issue:** `subscribe()` snapshots `_history`, immediately appends the handler to `_subscribers`, then replays history outside the lock. If a new event is emitted between registration and replay completion, the subscriber can observe a newer live event before older replayed events. For SSE consumers this can produce non-monotonic state updates and inconsistent UI reconstruction.
+**Fix:** Finish replay before exposing the handler to live delivery, or buffer live events for that subscriber until replay completes.
 
 ```python
-selected = item.get("selected_options")
-legacy = item.get("chosen_option")
-if selected:
-    selected_options = selected
-elif legacy:
-    selected_options = [legacy]
-else:
-    raise ValueError("answer requires at least one selected option")
+with self._lock:
+    past = list(self._history)
+
+for event in past:
+    handler(event)
+
+with self._lock:
+    self._subscribers.append(handler)
 ```
 
-### WR-03: Config validation test now asserts an unsupported setting
+If replay must remain outside the lock, wrap the handler with a temporary queue so live events are drained only after replay finishes.
 
-**File:** `tests/test_aggregator_guardrails.py:257-271`
-**Issue:** `test_load_accepts_valid_config()` treats `aggregator.max_calls=5` as valid, but `maestro/config.py:144-149` deliberately rejects any value outside `None`, `0`, or `1`. Running `PYTHONPATH=. pytest tests/test_aggregator_guardrails.py::TestConfigValidation::test_load_accepts_valid_config -q` fails with that runtime error, so this test currently produces a false negative.
-**Fix:** Align the test with the supported range, or widen the implementation and graph semantics in the same change.
+### WR-03: `maestro discover` misses `RuntimeError` from model resolution
+
+**File:** `maestro/cli.py:587-591`
+**Issue:** `_handle_discover()` only catches `ValueError` around `resolve_model(...)`, but `resolve_model()` can also raise `RuntimeError` when the selected/default provider has no models or cannot produce a usable default (`maestro/models.py:126-130`). In that case the CLI will exit with a traceback instead of a clean user-facing error, unlike `_handle_run()` which already handles both exception types.
+**Fix:** Match `_handle_run()` and catch both `RuntimeError` and `ValueError`.
 
 ```python
-mock_json_loads.return_value = {
-    "aggregator": {
-        "enabled": True,
-        "max_calls": 1,
-        "max_tokens_per_run": 1000,
-    }
-}
+try:
+    provider, model_id = resolve_model(model_flag=getattr(args, "model", None))
+except (RuntimeError, ValueError) as exc:
+    print(f"Error: {exc}", file=sys.stderr)
+    sys.exit(1)
 ```
 
 ---
 
-_Reviewed: 2026-04-24T16:04:05Z_
+_Reviewed: 2026-04-24T17:29:41Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
