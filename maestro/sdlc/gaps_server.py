@@ -398,17 +398,23 @@ class GapsServer:
                 raw = self.rfile.read(length)
                 try:
                     data: list[dict] = json.loads(raw)
-                    answers = [
-                        GapAnswer(
-                            question=item["question"],
-                            selected_options=(
-                                item.get("selected_options")
-                                or [item.get("chosen_option", "unknown")]
-                            ),
-                            free_text=item.get("free_text", ""),
+                    answers = []
+                    for item in data:
+                        selected = item.get("selected_options")
+                        legacy = item.get("chosen_option")
+                        if selected:
+                            selected_options = selected
+                        elif legacy:
+                            selected_options = [legacy]
+                        else:
+                            raise ValueError("answer requires at least one selected option")
+                        answers.append(
+                            GapAnswer(
+                                question=item["question"],
+                                selected_options=selected_options,
+                                free_text=item.get("free_text", ""),
+                            )
                         )
-                        for item in data
-                    ]
                 except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                     self.send_error(400, "Invalid JSON")
                     return
