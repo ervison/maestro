@@ -94,6 +94,55 @@ def _materialize_plan(dag_dict: dict) -> AgentPlan:
     return AgentPlan.model_validate(dag_dict)
 
 
+def _validate_plan(plan: AgentPlan) -> str | None:
+    """Validate the DAG plan; return an error message string or None if valid."""
+    try:
+        validate_dag(plan)
+    except ValueError as e:
+        return f"DAG validation failed: {e}"
+    return None
+
+
+def _collect_ready_tasks(
+    plan: AgentPlan,
+    completed: set[str],
+    in_progress: set[str],
+    terminal: set[str],
+) -> list[dict[str, Any]]:
+    """Return task payloads for tasks whose dependencies are all completed."""
+    deps_map = {t.id: set(t.deps) for t in plan.tasks}
+    task_map = {t.id: t for t in plan.tasks}
+    ready_tasks: list[dict[str, Any]] = []
+    for tid, deps in deps_map.items():
+        if tid in terminal or tid in in_progress:
+            continue
+        if deps.issubset(completed):
+            task = task_map[tid]
+            ready_tasks.append(
+                {"id": task.id, "domain": task.domain, "prompt": task.prompt}
+            )
+    return ready_tasks
+
+
+def _collect_blocked_tasks(
+    plan: AgentPlan,
+    ready_ids: set[str],
+    terminal: set[str],
+    failed: set[str],
+) -> list[str]:
+    """Return IDs of tasks that are permanently blocked by failed dependencies."""
+    blocked: list[str] = []
+    all_task_ids = {t.id for t in plan.tasks}
+    unfinished = all_task_ids - terminal
+    task_map = {t.id: t for t in plan.tasks}
+    for tid in unfinished:
+        if tid not in ready_ids:
+            task = task_map.get(tid)
+            if task and any(d in failed for d in task.deps):
+                blocked.append(tid)
+    return blocked
+
+
 def scheduler_node(state: AgentState) -> dict:
     """Compute ready tasks from DAG dependencies.
 
@@ -114,80 +163,34 @@ def scheduler_node(state: AgentState) -> dict:
         emitter.emit({"type": "node_update", "id": "scheduler", "status": "active"})
 
     plan = _materialize_plan(state["dag"])
-    # Validate the DAG to catch duplicate IDs, invalid refs, etc.
-    try:
-        validate_dag(plan)
-    except ValueError as e:
-        error_msg = f"DAG validation failed: {e}"
+
+    error_msg = _validate_plan(plan)
+    if error_msg:
         logger.error(error_msg)
         return {"ready_tasks": [], "errors": [error_msg]}
+
     completed = set(state.get("completed", []))
     failed = set(state.get("failed", []))
     dispatched = set(state.get("dispatched", []))
     terminal = completed | failed
     in_progress = dispatched - terminal
 
-    # Build dependency graph: task_id -> set of dependency task_ids
-    deps_map = {t.id: set(t.deps) for t in plan.tasks}
-    all_task_ids = set(deps_map.keys())
+    ready_tasks = _collect_ready_tasks(plan, completed, in_progress, terminal)
+    ready_ids = {t["id"] for t in ready_tasks}
+    blocked_tasks = _collect_blocked_tasks(plan, ready_ids, terminal, failed)
 
-    # Find ready tasks: not terminal, not in-flight, AND all deps are completed
-    # A task is blocked (not ready) if any of its dependencies failed
-    ready_ids = set()
-    for tid, deps in deps_map.items():
-        if tid not in terminal and tid not in in_progress:
-            # Check if all deps are completed (none failed)
-            deps_all_completed = deps.issubset(completed)
-            if deps_all_completed:
-                ready_ids.add(tid)
-
-    # Build ready task payloads
-    task_map = {t.id: t for t in plan.tasks}
-    ready_tasks = []
-    for tid in ready_ids:
-        task = task_map.get(tid)
-        if task:
-            ready_tasks.append(
-                {
-                    "id": task.id,
-                    "domain": task.domain,
-                    "prompt": task.prompt,
-                }
-            )
-
-    # Detect end states
+    all_task_ids = {t.id for t in plan.tasks}
     unfinished = all_task_ids - terminal
-    blocked_tasks = []
 
-    # Check for tasks that are permanently blocked by failed dependencies
-    for tid in unfinished:
-        if tid not in ready_ids:
-            # Task has unmet deps - check if any dep failed
-            task = task_map.get(tid)
-            if task:
-                deps_failed = any(d in failed for d in task.deps)
-                if deps_failed:
-                    blocked_tasks.append(tid)
-
-    # End state detection:
-    # 1. All tasks terminal (completed + failed covers all tasks)
-    # 2. No ready tasks and no unfinished tasks
-    # 3. No ready tasks, unfinished tasks remain, but all are blocked by failures
-    errors = []
-    if not ready_tasks and unfinished:
-        if blocked_tasks:
-            # All remaining tasks are blocked by failures - report and end
-            error_msg = (
-                "Scheduler ending: "
-                f"{len(blocked_tasks)} task(s) blocked by failed dependencies: "
-                f"{blocked_tasks}"
-            )
-            logger.warning(error_msg)
-            errors.append(error_msg)
-        # If there are unfinished tasks that aren't blocked,
-        # that's an unexpected state
-        # but we'll let the graph continue and eventually time out,
-        # or be handled elsewhere.
+    errors: list[str] = []
+    if not ready_tasks and unfinished and blocked_tasks:
+        error_msg = (
+            "Scheduler ending: "
+            f"{len(blocked_tasks)} task(s) blocked by failed dependencies: "
+            f"{blocked_tasks}"
+        )
+        logger.warning(error_msg)
+        errors.append(error_msg)
 
     result: dict[str, Any] = {
         "ready_tasks": list(ready_tasks),
@@ -204,7 +207,6 @@ def scheduler_node(state: AgentState) -> dict:
         len(unfinished),
     )
 
-    # Emit scheduler done when no more ready tasks (all workers dispatched or finished)
     if emitter is not None and not ready_tasks:
         emitter.emit({"type": "node_update", "id": "scheduler", "status": "done"})
 
