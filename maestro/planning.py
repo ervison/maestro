@@ -130,11 +130,15 @@ def check_planning_consistency(planning_root: str | Path) -> ConsistencyCheckRes
     if not requirements_path.exists():
         errors.append("Missing REQUIREMENTS.md — cannot validate milestone scope alignment.")
     else:
-        req_milestone = _parse_requirements(requirements_path)
-        if req_milestone != state.milestone:
-            errors.append(
-                f"REQUIREMENTS.md is scoped to `{req_milestone}` but STATE.md milestone is `{state.milestone}`."
-            )
+        try:
+            req_milestone = _parse_requirements(requirements_path)
+        except ValueError as exc:
+            errors.append(f"Invalid REQUIREMENTS.md milestone scope declaration: {exc}")
+        else:
+            if req_milestone != state.milestone:
+                errors.append(
+                    f"REQUIREMENTS.md is scoped to `{req_milestone}` but STATE.md milestone is `{state.milestone}`."
+                )
 
     return ConsistencyCheckResult(errors)
 

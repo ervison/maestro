@@ -35,14 +35,6 @@ class HelloProvider:
 
     async def stream(self, messages, model, tools=None, **kwargs) -> AsyncIterator:
         # Minimal async generator satisfying the Protocol
-        from dataclasses import dataclass, field
-        from typing import Literal
+        from maestro.providers.base import Message
 
-        @dataclass
-        class _Message:
-            role: Literal["user", "assistant", "system", "tool"]
-            content: str
-            tool_calls: list = field(default_factory=list)
-            tool_call_id: str | None = None
-
-        yield _Message(role="assistant", content="hello")
+        yield Message(role="assistant", content="hello")

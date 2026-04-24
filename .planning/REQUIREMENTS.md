@@ -15,21 +15,15 @@ This file is scoped to milestone `v1.2`. It tracks the hardening work selected f
 
 ### Planning Integrity (META)
 
-- [x] **META-01
-**: A repository-level planning consistency check validates alignment between `.planning/ROADMAP.md`, `.planning/STATE.md`, the active milestone summary, and phase evidence references.
-- [x] **META-02
-**: The consistency check runs in automated verification for the repository so planning drift fails fast instead of being discovered during milestone closeout.
-- [x] **META-03
-**: New-milestone and milestone-close documentation paths reference the consistency gate so future planning updates keep the artifact set synchronized.
+- [x] **META-01**: A repository-level planning consistency check validates alignment between `.planning/ROADMAP.md`, `.planning/STATE.md`, the active milestone summary, and phase evidence references.
+- [x] **META-02**: The consistency check runs in automated verification for the repository so planning drift fails fast instead of being discovered during milestone closeout.
+- [x] **META-03**: New-milestone and milestone-close documentation paths reference the consistency gate so future planning updates keep the artifact set synchronized.
 
 ### External Provider Contract (PLUGIN)
 
-- [x] **PLUGIN-01
-**: A smoke test creates or installs a minimal third-party provider package in an isolated environment and exposes it through the `maestro.providers` entry-point group.
-- [x] **PLUGIN-02
-**: After installation, Maestro discovers the third-party provider through its runtime registry without any source edits inside the main repository.
-- [x] **PLUGIN-03
-**: The smoke path is repeatable in automation and does not depend on mutating a developer's global Python environment.
+- [x] **PLUGIN-01**: A smoke test creates or installs a minimal third-party provider package in an isolated environment and exposes it through the `maestro.providers` entry-point group.
+- [x] **PLUGIN-02**: After installation, Maestro discovers the third-party provider through its runtime registry without any source edits inside the main repository.
+- [x] **PLUGIN-03**: The smoke path is repeatable in automation and does not depend on mutating a developer's global Python environment.
 
 ### Copilot Release Gate (COP-SMOKE)
 
