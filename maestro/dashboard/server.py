@@ -53,7 +53,10 @@ def _make_handler(emitter: DashboardEmitter) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            # Do NOT set Access-Control-Allow-Origin: * — the UI is served by
+            # this same process, so cross-origin access is not needed and
+            # a wildcard would allow any page in the browser to read
+            # planner output and worker logs from the local server.
             self.end_headers()
 
             client_queue: queue.Queue[dict[str, Any]] = queue.Queue()
