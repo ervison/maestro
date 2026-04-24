@@ -91,7 +91,7 @@ def start_dashboard_server(emitter: DashboardEmitter, port: int = 4040) -> Threa
     """Start the dashboard server in a daemon thread."""
 
     ThreadingHTTPServer.allow_reuse_address = True
-    server = ThreadingHTTPServer(("0.0.0.0", port), _make_handler(emitter))
+    server = ThreadingHTTPServer(("127.0.0.1", port), _make_handler(emitter))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server
