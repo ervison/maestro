@@ -318,7 +318,10 @@ Plans:
   1. The smoke gate exercises the real GitHub Copilot device-code login path.
   2. The same path verifies at least one live authenticated Copilot API request.
   3. The gate is explicitly skippable when credentials, a real account, or network access are unavailable.
-**Plans**: 0 plans (ready for planning)
+**Plans**: 1 plan
+
+Plans:
+- [ ] 16-01-PLAN.md — Copilot smoke gate test (device-code login + live API call + safe-skip guard)
 
 ### Phase 17: Aggregator Guardrails
 **Goal**: Optional aggregator LLM calls stay bounded by explicit runtime policy
@@ -353,5 +356,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. SDLC Discovery Planner | 4/4 | Complete | 2026-04-22 |
 | 14. Planning Consistency Gate | 2/2 | Complete | 2026-04-23 |
 | 15. External Provider Install Smoke Test | 1/1 | Complete | 2026-04-24 |
-| 16. Copilot Release Smoke Gate | 0/0 | Planned | - |
+| 16. Copilot Release Smoke Gate | 0/1 | Ready to execute | - |
 | 17. Aggregator Guardrails | 0/0 | Planned | - |
