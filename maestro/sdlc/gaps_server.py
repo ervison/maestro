@@ -402,12 +402,12 @@ class GapsServer:
                     for item in data:
                         selected = item.get("selected_options")
                         legacy = item.get("chosen_option")
-                        if selected:
+                        if isinstance(selected, list) and selected and all(isinstance(opt, str) and opt for opt in selected):
                             selected_options = selected
-                        elif legacy:
+                        elif isinstance(legacy, str) and legacy:
                             selected_options = [legacy]
                         else:
-                            raise ValueError("answer requires at least one selected option")
+                            raise ValueError("answer requires selected_options: list[str]")
                         answers.append(
                             GapAnswer(
                                 question=item["question"],
