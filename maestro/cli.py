@@ -208,26 +208,20 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "auth":
-        _handle_auth(args, auth_p)
-    elif args.command == "login":
-        _handle_legacy_login(args)
-    elif args.command == "logout":
-        _handle_legacy_logout()
-    elif args.command == "models":
-        _handle_models(args)
-    elif args.command == "status":
-        _handle_status()
-    elif args.command == "run":
-        _handle_run(args)
-    elif args.command == "discover":
-        _handle_discover(args)
-    elif args.command == "planning":
-        if args.planning_command == "check":
-            _handle_planning_check(args)
-        else:
-            planning_p.print_help()
-            sys.exit(1)
+    handlers = {
+        "auth": lambda: _handle_auth(args, auth_p),
+        "login": lambda: _handle_legacy_login(args),
+        "logout": _handle_legacy_logout,
+        "models": lambda: _handle_models(args),
+        "status": _handle_status,
+        "run": lambda: _handle_run(args),
+        "discover": lambda: _handle_discover(args),
+        "planning": lambda: _handle_planning(args, planning_p),
+    }
+
+    handler = handlers.get(args.command)
+    if handler:
+        handler()
     else:
         parser.print_help()
 
@@ -601,6 +595,15 @@ def _handle_planning_check(args) -> None:
         f"Planning consistency check passed for {Path(getattr(args, 'root', '.planning')).resolve()}"
     )
     sys.exit(0)
+
+
+def _handle_planning(args, planning_p) -> None:
+    """Route `maestro planning` subcommands."""
+    if args.planning_command == "check":
+        _handle_planning_check(args)
+    else:
+        planning_p.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
