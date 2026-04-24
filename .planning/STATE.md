@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: milestone
-status: ready_for_planning
+status: phase_shipped_pending_pr
 stopped_at: Completed 16-01-PLAN.md
-last_updated: "2026-04-24T00:00:00.000Z"
+last_updated: "2026-04-24T14:30:00.000Z"
 last_activity: 2026-04-24 - Phase 16 complete — Copilot release smoke gate implemented
 progress:
   total_phases: 17
@@ -30,9 +30,9 @@ See:
 ## Current Position
 
 Milestone: `v1.2` - Operational Hardening and Release Gates
-Status: READY FOR PLANNING
-Stopped at: Completed 15-01-PLAN.md
-Last activity: 2026-04-23 - Opened milestone v1.2 scoped to TD-03, TD-04, TD-05, and TD-06
+Status: PHASE 16 COMPLETE
+Stopped at: Completed 16-01-PLAN.md
+Last activity: 2026-04-24 - Phase 16 complete — Copilot release smoke gate implemented
 
 Progress: [█████████░] 88%
 
@@ -44,7 +44,7 @@ Progress: [█████████░] 88%
 |------|--------|----------|
 | 14 - Planning Consistency Gate | Complete | `.planning/ROADMAP.md` |
 | 15 - External Provider Install Smoke Test | Complete | `.planning/REQUIREMENTS.md` |
-| 16 - Copilot Release Smoke Gate | Planned | `.planning/TECH-DEBT-REGISTER.md` |
+| 16 - Copilot Release Smoke Gate | Complete | `.planning/phases/16-copilot-release-smoke-gate/16-01-SUMMARY.md` |
 | 17 - Aggregator Guardrails | Planned | `.planning/v1.2-MILESTONE-SUMMARY.md` |
 
 ### Milestone goals
@@ -77,7 +77,7 @@ Progress: [█████████░] 88%
 | Roadmap phases 1-13 | Complete | Already shipped and summarized in prior milestone artifacts |
 | Phase 14 / TD-03 planning consistency automation | Planned | First phase for `v1.2` |
 | Phase 15 / TD-04 external provider install smoke test | Planned | Follows planning-integrity gate |
-| Phase 16 / TD-05 Copilot live smoke gate | Planned | Depends on provider verification baseline |
+| Phase 16 / TD-05 Copilot live smoke gate | Complete | Real-auth smoke gate implemented and documented |
 | Phase 17 / TD-06 aggregator spend/rate guard | Planned | Runtime hardening follow-up from security review |
 | TD-02 recursive sub-planner | Deferred | Optional per `.planning/v1.0-MILESTONE-AUDIT.md` |
 
@@ -91,4 +91,4 @@ Resume from:
 - `.planning/TECH-DEBT-REGISTER.md`
 - `tests/test_planning_consistency.py`
 
-If work resumes, start with `/gsd-plan-phase` for Phase 14 using the scoped `v1.2` requirements and roadmap entries.
+If work resumes, start with `/gsd-plan-phase` for Phase 17 using the scoped `v1.2` requirements and roadmap entries.
