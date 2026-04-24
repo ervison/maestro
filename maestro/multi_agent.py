@@ -642,7 +642,8 @@ def aggregator_node(state: AgentState) -> dict:
     _agg_emit({"type": "node_update", "id": "aggregator", "status": "done"})
     _agg_emit({"type": "node_log", "id": "aggregator", "kind": "text", "text": summary})
     _print_lifecycle("aggregator", "done")
-    return {"summary": summary}
+    calls_done = state.get("agg_calls_done", 0)
+    return {"summary": summary, "agg_calls_done": calls_done + 1}
 
 
 # Build and compile the StateGraph
