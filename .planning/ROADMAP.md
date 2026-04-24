@@ -321,7 +321,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 16-01-PLAN.md — Copilot smoke gate test (device-code login + live API call + safe-skip guard)
+- [x] 16-01-PLAN.md — Copilot smoke gate test (device-code login + live API call + safe-skip guard)
 
 ### Phase 17: Aggregator Guardrails
 **Goal**: Optional aggregator LLM calls stay bounded by explicit runtime policy
@@ -356,5 +356,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. SDLC Discovery Planner | 4/4 | Complete | 2026-04-22 |
 | 14. Planning Consistency Gate | 2/2 | Complete | 2026-04-23 |
 | 15. External Provider Install Smoke Test | 1/1 | Complete | 2026-04-24 |
-| 16. Copilot Release Smoke Gate | 0/1 | Ready to execute | - |
+| 16. Copilot Release Smoke Gate | 1/1 | Complete | 2026-04-24 |
 | 17. Aggregator Guardrails | 0/0 | Planned | - |
