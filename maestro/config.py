@@ -136,6 +136,17 @@ def load() -> Config:
             f"Invalid config file at {CONFIG_FILE}; expected 'aggregator' to be an object"
         )
 
+    max_calls = aggregator.get("max_calls")
+    if max_calls is not None and not isinstance(max_calls, int):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_calls' to be an int"
+        )
+    max_tokens = aggregator.get("max_tokens_per_run")
+    if max_tokens is not None and not isinstance(max_tokens, int):
+        raise RuntimeError(
+            f"Invalid config file at {CONFIG_FILE}; expected 'aggregator.max_tokens_per_run' to be an int"
+        )
+
     return Config(
         model=model,
         agent=agent,

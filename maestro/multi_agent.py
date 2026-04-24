@@ -14,6 +14,7 @@ import asyncio
 import concurrent.futures
 import logging
 import time as _time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,16 +22,55 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 
 from maestro import agent as agent_module
-from maestro.planner.schemas import AgentState, AgentPlan
-from maestro.planner.node import planner_node
-from maestro.planner.validator import validate_dag
-from maestro.domains import get_domain_prompt
-from maestro.providers.registry import get_default_provider
 from maestro.config import load as load_config
-from maestro.models import resolve_model
-from langchain_core.messages import BaseMessage, HumanMessage
+from maestro.domains import get_domain_prompt
+from maestro.planner.node import planner_node
+from maestro.planner.schemas import AgentState, AgentPlan, AggregatorGuardrail
+from maestro.planner.validator import validate_dag
+from maestro.providers.registry import get_default_provider
+
+try:
+    from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+except ImportError:  # pragma: no cover
+    BaseMessage = Any  # type: ignore[assignment,misc]
+    HumanMessage = None  # type: ignore[assignment]
+    AIMessage = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+
+def check_aggregator_guardrail(
+    guardrail: AggregatorGuardrail,
+    calls_this_run: int,
+    outputs: dict[str, str],
+) -> tuple[bool, str | None]:
+    """Check whether the aggregator is allowed to run under the given policy.
+
+    Args:
+        guardrail: Policy configuration.
+        calls_this_run: How many times aggregator has already run this invocation.
+        outputs: Worker outputs dict (used for token estimation).
+
+    Returns:
+        (allowed, reason) — reason is None when allowed is True.
+    """
+    # max_calls=0 means aggregation is explicitly disabled
+    if guardrail.max_calls is not None and guardrail.max_calls == 0:
+        return False, "aggregation disabled (max_calls=0)"
+
+    # Call-count ceiling
+    if guardrail.max_calls is not None and calls_this_run >= guardrail.max_calls:
+        return False, f"call limit reached ({calls_this_run}/{guardrail.max_calls})"
+
+    # Token budget: rough estimate (characters / 4 ≈ tokens)
+    if guardrail.max_tokens_per_run is not None:
+        estimated = sum(len(v) // 4 for v in outputs.values())
+        if estimated > guardrail.max_tokens_per_run:
+            return False, (
+                f"token budget exceeded (estimated {estimated} > max {guardrail.max_tokens_per_run})"
+            )
+
+    return True, None
 
 
 def _print_lifecycle(component: str, event: str) -> None:
@@ -194,6 +234,15 @@ def scheduler_route(state: AgentState) -> str:
     if not unfinished:
         # Check if aggregation is disabled
         if not state.get("aggregate", True):
+            return END
+        # Guardrail check
+        guardrail = state.get("agg_guardrail") or AggregatorGuardrail()
+        calls_done = state.get("agg_calls_done", 0)
+        allowed, reason = check_aggregator_guardrail(
+            guardrail, calls_done, state.get("outputs", {})
+        )
+        if not allowed:
+            _print_lifecycle("aggregator", f"skipped — {reason}")
             return END
         return "aggregator"
 
@@ -598,9 +647,14 @@ def run_multi_agent(
             emitter.emit(event)
 
     # Determine if we should aggregate
+    cfg = load_config()
     if aggregate is None:
-        cfg = load_config()
         aggregate = cfg.get("aggregator.enabled", True)
+
+    agg_guardrail = AggregatorGuardrail(
+        max_calls=cfg.get("aggregator.max_calls"),           # None if not set
+        max_tokens_per_run=cfg.get("aggregator.max_tokens_per_run"),  # None if not set
+    )
 
     # Call planner to generate the DAG
     # Only inject provider into planner state (for auth context).
@@ -679,6 +733,8 @@ def run_multi_agent(
         "model": model,  # workers only — aggregator resolves its own model
         "aggregate": aggregate,
         "emitter": emitter,
+        "agg_guardrail": agg_guardrail,
+        "agg_calls_done": 0,
     }
 
     # Run the graph

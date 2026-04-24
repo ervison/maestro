@@ -7,9 +7,27 @@ Defines the type foundation for the multi-agent DAG engine:
 
 from typing import TypedDict, Annotated, Literal, NotRequired, Any
 import operator
+from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, ConfigDict
 from maestro.providers.base import ProviderPlugin
+
+
+@dataclass
+class AggregatorGuardrail:
+    """Policy for bounding optional aggregator LLM calls.
+
+    Fields:
+        max_calls: Maximum number of aggregator calls allowed per run.
+                   0 = aggregation explicitly disabled.
+                   None = no call-count limit.
+        max_tokens_per_run: If set, aggregation is skipped when the
+                            estimated prompt token count exceeds this value.
+                            Estimate = sum(len(output) // 4 for output in outputs.values()).
+                            None = no token budget limit.
+    """
+    max_calls: int | None = None
+    max_tokens_per_run: int | None = None
 
 
 def _merge_dicts(a: dict, b: dict) -> dict:
@@ -51,6 +69,8 @@ class AgentState(TypedDict):
     aggregate: NotRequired[bool]  # Whether to run aggregator (default: True)
     summary: NotRequired[str]  # Final aggregated summary (written by aggregator_node)
     emitter: NotRequired[Any]  # DashboardEmitter instance or None (not serialized)
+    agg_guardrail: NotRequired[AggregatorGuardrail]  # guardrail policy; None = no limits
+    agg_calls_done: NotRequired[int]  # tracks calls this run (default 0)
 
 
 DomainName = Literal[
