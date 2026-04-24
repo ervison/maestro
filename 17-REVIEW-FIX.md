@@ -1,8 +1,8 @@
 ---
 phase: 17
-fixed_at: 2026-04-24T17:10:00Z
-review_path: /home/ervison/Documents/PROJETOS/labs/timeIA/worktrees/phase-17/17-REVIEW.md
-iteration: 3
+fixed_at: 2026-04-24T17:30:00Z
+review_path: 17-REVIEW.md
+iteration: 4
 findings_in_scope: 5
 fixed: 5
 skipped: 0
@@ -11,9 +11,9 @@ status: all_fixed
 
 # Phase 17: Code Review Fix Report
 
-**Fixed at:** 2026-04-24T17:10:00Z
+**Fixed at:** 2026-04-24T17:30:00Z
 **Source review:** 17-REVIEW.md
-**Iteration:** 3
+**Iteration:** 4
 
 **Summary:**
 - Findings in scope: 5
@@ -22,11 +22,13 @@ status: all_fixed
 
 ## Fixed Issues
 
+All 5 in-scope findings (CR-01, CR-02, CR-03, WR-01, WR-02) were already fixed and committed in a prior fixer run (iteration 3). Code inspection and `git log` confirm the fixes are present in the codebase.
+
 ### CR-01: Scheduler can terminate while parallel workers are still running
 
 **Files modified:** `maestro/multi_agent.py`
 **Commit:** `0104c84`
-**Applied fix:** Added `in_progress = dispatched - terminal` check in `scheduler_route()`. When dispatched workers haven't yet completed or failed, the function now returns `"scheduler"` (loop-back) instead of `END`. Also updated `add_conditional_edges` to declare `"scheduler"` as a reachable target so LangGraph does not reject the self-loop at compile time.
+**Applied fix:** Added `in_progress = dispatched - terminal` check in `scheduler_route()`. When dispatched workers haven't yet completed or failed, the function returns `"scheduler"` (loop-back) instead of `END`. `add_conditional_edges` also declares `"scheduler"` as a reachable target so LangGraph does not reject the self-loop at compile time.
 
 ### CR-02: Provider contract validator is untestably complex
 
@@ -43,7 +45,7 @@ status: all_fixed
 
 **Files modified:** `maestro/agent.py`
 **Commit:** `df7e76c`
-**Applied fix:** Extracted three focused helpers from `_run_httpx_stream_sync()`:
+**Applied fix:** Extracted four focused helpers from `_run_httpx_stream_sync()`:
 - `_convert_messages_to_input(messages)` — converts neutral Message list to ChatGPT Responses API wire format
 - `_convert_tools_to_chatgpt(tools)` — converts neutral Tool list to ChatGPT tool format
 - `_parse_sse_events(response)` — parses SSE lines, accumulating text deltas and ToolCall objects
@@ -70,6 +72,6 @@ The main function is now a thin coordinator of ~20 lines.
 
 ---
 
-_Fixed: 2026-04-24T17:10:00Z_
+_Fixed: 2026-04-24T17:30:00Z_
 _Fixer: the agent (gsd-code-fixer)_
-_Iteration: 3_
+_Iteration: 4_
