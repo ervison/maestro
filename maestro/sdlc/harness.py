@@ -1,4 +1,4 @@
-"""SDLC Discovery Harness — orchestrates 13-artifact specification generation."""
+"""SDLC Discovery Harness — orchestrates 14-artifact specification generation with sprint-based DAG."""
 from __future__ import annotations
 
 import asyncio
@@ -12,13 +12,15 @@ from maestro.sdlc.schemas import (
     ARTIFACT_FILENAMES,
     ARTIFACT_ORDER,
     DiscoveryResult,
+    GateResult,
     SDLCArtifact,
     SDLCRequest,
+    SprintResult,
 )
 
 
 class DiscoveryHarness:
-    """Orchestrates the 13-artifact SDLC discovery pipeline."""
+    """Orchestrates the 14-artifact SDLC discovery pipeline."""
 
     def __init__(
         self,
@@ -29,6 +31,8 @@ class DiscoveryHarness:
         open_browser: bool = True,
         reflect: bool = True,
         reflect_max_cycles: int = 5,
+        use_sprints: bool = False,
+        reviewer=None,
     ) -> None:
         self._provider = provider
         self._model = model
@@ -37,14 +41,21 @@ class DiscoveryHarness:
         self._open_browser = open_browser
         self.reflect = reflect
         self.reflect_max_cycles = reflect_max_cycles
+        self.use_sprints = use_sprints
+        self._gate_failures: list[GateResult] = []
+
+        if reviewer is not None:
+            self._reviewer = reviewer
+        else:
+            from maestro.sdlc.reviewer import Reviewer
+            self._reviewer = Reviewer()
 
     def run(self, request: SDLCRequest) -> DiscoveryResult:
         """Synchronous entry point — wraps async run."""
         return asyncio.run(self.arun(request))
 
     async def arun(self, request: SDLCRequest) -> DiscoveryResult:
-        """Generate all 13 artifacts and write them to spec/."""
-        # Brownfield: optionally enrich prompt with codebase scan
+        """Generate all 14 artifacts and write them to spec/."""
         effective_prompt = request.prompt
         if request.brownfield:
             scan = self._scan_codebase(request.workdir)
@@ -68,58 +79,18 @@ class DiscoveryHarness:
 
         from maestro.sdlc.writer import write_artifact
 
-        total = len(ARTIFACT_ORDER)
-        artifacts: list[SDLCArtifact] = []
-        gaps_index = ARTIFACT_ORDER.index(ArtifactType.GAPS)
-        for i, artifact_type in enumerate(ARTIFACT_ORDER, start=1):
-            print(
-                f"[{i}/{total}] Generating {artifact_type.value}...",
-                file=sys.stderr,
-                flush=True,
-            )
-            artifact = await self._generate_artifact(effective_request, artifact_type)
-            artifact = self._normalize_artifact(artifact)
-            if self._provider is not None and i > gaps_index + 1:
-                self._ensure_no_open_markers(artifact)
-            artifacts.append(artifact)
-            # Write immediately so progress is visible on disk
-            write_artifact(spec_dir, artifact)
-            if artifact_type == ArtifactType.GAPS and self._provider is not None:
-                answers = await resolve_gaps(
-                    artifact.content,
-                    provider=self._provider,
-                    model=self._model,
-                    port=self._gaps_port,
-                    open_browser=self._open_browser,
-                )
-                if answers:
-                    answers_lines = []
-                    for answer in answers:
-                        opts_str = ", ".join(answer.selected_options)
-                        line = f"- {answer.question} → {opts_str}"
-                        if answer.free_text:
-                            line += f" (note: {answer.free_text})"
-                        answers_lines.append(line)
-                    answers_text = "\n".join(answers_lines)
-                    effective_request = SDLCRequest(
-                        prompt=f"{effective_request.prompt}\n\n## Gap Answers\n{answers_text}",
-                        language=effective_request.language,
-                        brownfield=effective_request.brownfield,
-                        workdir=effective_request.workdir,
-                    )
-            print(
-                f"[{i}/{total}] ✓ {artifact.filename}",
-                file=sys.stderr,
-                flush=True,
-            )
+        if self.use_sprints and self._provider is not None:
+            artifacts = await self._run_with_sprints(effective_request, spec_dir)
+        else:
+            artifacts = await self._run_sequential(effective_request, spec_dir)
 
         result = DiscoveryResult(
             request=request,
             artifacts=artifacts,
             spec_dir=str(spec_dir),
+            gate_failures=list(self._gate_failures),
         )
 
-        # Reflect loop — iterative quality evaluation and correction
         if self._provider is not None and self.reflect and hasattr(self._provider, "stream"):
             from maestro.sdlc.reflect import ReflectLoop
 
@@ -135,9 +106,174 @@ class DiscoveryHarness:
                 artifacts=artifacts,
                 spec_dir=str(spec_dir),
                 reflect_report=reflect_report,
+                gate_failures=list(self._gate_failures),
             )
 
         return result
+
+    async def _run_sequential(
+        self,
+        request: SDLCRequest,
+        spec_dir: Path,
+    ) -> list[SDLCArtifact]:
+        """Legacy sequential generation (backward compatible)."""
+        from maestro.sdlc.writer import write_artifact
+
+        total = len(ARTIFACT_ORDER)
+        artifacts: list[SDLCArtifact] = []
+        gaps_index = ARTIFACT_ORDER.index(ArtifactType.GAPS)
+        for i, artifact_type in enumerate(ARTIFACT_ORDER, start=1):
+            print(
+                f"[{i}/{total}] Generating {artifact_type.value}...",
+                file=sys.stderr,
+                flush=True,
+            )
+            artifact = await self._generate_artifact(request, artifact_type)
+            artifact = self._normalize_artifact(artifact)
+            if self._provider is not None and i > gaps_index + 1:
+                self._ensure_no_open_markers(artifact)
+            artifacts.append(artifact)
+            write_artifact(spec_dir, artifact)
+            if artifact_type == ArtifactType.GAPS and self._provider is not None:
+                request = await self._resolve_gaps(request, artifact)
+            print(
+                f"[{i}/{total}] ✓ {artifact.filename}",
+                file=sys.stderr,
+                flush=True,
+            )
+        return artifacts
+
+    async def _run_with_sprints(
+        self,
+        request: SDLCRequest,
+        spec_dir: Path,
+    ) -> list[SDLCArtifact]:
+        """Sprint-based DAG generation with gate reviews."""
+        from maestro.sdlc.sprints import SPRINTS, get_ready_artifacts
+        from maestro.sdlc.writer import write_artifact
+
+        artifacts: list[SDLCArtifact] = []
+        completed: set[ArtifactType] = set()
+        sprint_results: list[SprintResult] = []
+        current_request = request
+
+        for sprint in SPRINTS:
+            print(
+                f"\n=== Sprint {sprint.sprint_id}: {sprint.name} ===",
+                file=sys.stderr,
+                flush=True,
+            )
+
+            sprint_artifacts: list[SDLCArtifact] = []
+            waves = get_ready_artifacts(sprint, completed.copy())
+
+            for wave_idx, wave in enumerate(waves):
+                if len(wave) > 1:
+                    print(
+                        f"  Wave {wave_idx + 1}: {', '.join(a.value for a in wave)} (parallel)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    tasks = [
+                        self._generate_artifact(current_request, artifact_type)
+                        for artifact_type in wave
+                    ]
+                    wave_artifacts = list(await asyncio.gather(*tasks))
+                else:
+                    artifact_type = wave[0]
+                    print(
+                        f"  Wave {wave_idx + 1}: {artifact_type.value}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    artifact = await self._generate_artifact(current_request, artifact_type)
+                    wave_artifacts = [artifact]
+
+                for artifact in wave_artifacts:
+                    artifact = self._normalize_artifact(artifact)
+                    self._ensure_no_open_markers(artifact)
+                    sprint_artifacts.append(artifact)
+                    artifacts.append(artifact)
+                    completed.add(artifact.artifact_type)
+                    write_artifact(spec_dir, artifact)
+                    print(
+                        f"  ✓ {artifact.filename}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+
+                for artifact in wave_artifacts:
+                    if artifact.artifact_type == ArtifactType.GAPS:
+                        current_request = await self._resolve_gaps(current_request, artifact)
+
+            gate = await self._run_gate(sprint.sprint_id, sprint_artifacts, artifacts)
+            sprint_results.append(SprintResult(
+                sprint_id=sprint.sprint_id,
+                name=sprint.name,
+                artifacts=sprint_artifacts,
+                gate=gate,
+            ))
+
+            if not gate.passed:
+                print(
+                    f"\n  [discover] ⚠ Sprint {sprint.sprint_id} ({sprint.name}) gate FAILED: {gate.notes}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                for issue in gate.issues:
+                    print(f"[discover]   - {issue}", file=sys.stderr)
+                self._gate_failures.append(gate)
+
+        return artifacts
+
+    async def _run_gate(
+        self,
+        sprint_id: int,
+        sprint_artifacts: list[SDLCArtifact],
+        all_artifacts: list[SDLCArtifact],
+    ) -> GateResult:
+        """Run gate review for a sprint. Returns auto-pass if no provider."""
+        if self._provider is None:
+            return GateResult(sprint_id=sprint_id, passed=True)
+
+        prior = [a for a in all_artifacts if a not in sprint_artifacts]
+        return await self._reviewer.review(
+            provider=self._provider,
+            model=self._model,
+            sprint_id=sprint_id,
+            artifacts=sprint_artifacts,
+            prior_artifacts=prior,
+        )
+
+    async def _resolve_gaps(
+        self,
+        request: SDLCRequest,
+        gaps_artifact: SDLCArtifact,
+    ) -> SDLCRequest:
+        """Resolve gap questions via the gaps server."""
+        answers = await resolve_gaps(
+            gaps_artifact.content,
+            provider=self._provider,
+            model=self._model,
+            port=self._gaps_port,
+            open_browser=self._open_browser,
+        )
+        if answers:
+            answers_lines = []
+            for answer in answers:
+                opts_str = ", ".join(answer.selected_options)
+                line = f"- {answer.question} → {opts_str}"
+                if answer.free_text:
+                    line += f" (note: {answer.free_text})"
+                answers_lines.append(line)
+            answers_text = "\n".join(answers_lines)
+            return SDLCRequest(
+                prompt=f"{request.prompt}\n\n## Gap Answers\n{answers_text}",
+                language=request.language,
+                brownfield=request.brownfield,
+                workdir=request.workdir,
+            )
+        return request
 
     @staticmethod
     def _ensure_no_open_markers(artifact: SDLCArtifact) -> None:
@@ -184,7 +320,6 @@ class DiscoveryHarness:
     ) -> SDLCArtifact:
         """Generate a single artifact. Uses real generators if provider set, stub otherwise."""
         if self._provider is None:
-            # Stub mode — placeholder content
             filename = ARTIFACT_FILENAMES[artifact_type]
             content = (
                 f"# {artifact_type.value.replace('_', ' ').title()}\n\n{request.prompt}\n"

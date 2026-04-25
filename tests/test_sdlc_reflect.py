@@ -26,6 +26,7 @@ DIMENSIONS = [
     "Qualidade individual",
     "Rastreabilidade (gaps → decisões)",
     "Integridade dos artefatos",
+    "Cobertura de requisitos não-funcionais",
 ]
 
 

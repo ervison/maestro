@@ -25,6 +25,7 @@ DIMENSIONS = [
     "Qualidade individual",
     "Rastreabilidade (gaps → decisões)",
     "Integridade dos artefatos",
+    "Cobertura de requisitos não-funcionais",
 ]
 
 TARGET_MEAN = 8.0
@@ -67,7 +68,7 @@ class ReflectLoop:
         )
         return f"""You are a senior software architect reviewing a set of SDLC specification artifacts.
 
-Evaluate the following spec files across 10 quality dimensions, then identify the top-3 most important problems to fix.
+Evaluate the following spec files across {len(DIMENSIONS)} quality dimensions, then identify the top-3 most important problems to fix.
 
 ## Dimensions (score 0-10 each)
 {dimensions_list}
@@ -87,7 +88,7 @@ Respond ONLY with a JSON object in this exact format:
   ]
 }}
 ```
-The "scores" array must contain exactly 10 entries, one per dimension.
+The "scores" array must contain exactly {len(DIMENSIONS)} entries, one per dimension.
 The "problems" array must contain at most 3 entries focusing on the most impactful issues.
 Do not include any text outside the JSON block."""
 

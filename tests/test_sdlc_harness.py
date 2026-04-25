@@ -10,6 +10,7 @@ from maestro.sdlc.schemas import (
     ARTIFACT_ORDER,
     ArtifactType,
     DiscoveryResult,
+    GateResult,
     SDLCRequest,
 )
 
@@ -278,3 +279,109 @@ def test_harness_deduplicates_repeated_artifact_content(tmp_path: Path) -> None:
 
     prd = next(artifact for artifact in result.artifacts if artifact.artifact_type == ArtifactType.PRD)
     assert prd.content == repeated
+
+
+@pytest.mark.asyncio
+async def test_harness_sprint_mode_produces_14_artifacts(tmp_path) -> None:
+    from unittest.mock import patch, AsyncMock
+    from maestro.sdlc.schemas import SDLCArtifact
+
+    call_order: list[str] = []
+
+    async def fake_generate(self_ref, request, artifact_type):
+        call_order.append(artifact_type.value)
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content="# content",
+        )
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+            with patch.object(DiscoveryHarness, "_run_gate", new=AsyncMock(return_value=GateResult(sprint_id=1, passed=True))):
+                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False, use_sprints=True, reflect=False)
+                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                result = await harness.arun(request)
+
+    assert result.artifact_count == 14
+    assert call_order[0] == "briefing"
+
+
+@pytest.mark.asyncio
+async def test_harness_sprint_mode_runs_gate_reviews(tmp_path) -> None:
+    from unittest.mock import patch, AsyncMock
+    from maestro.sdlc.schemas import SDLCArtifact
+
+    async def fake_generate(self_ref, request, artifact_type):
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content="# content",
+        )
+
+    gate_calls: list[int] = []
+
+    async def tracking_gate(self_ref, sprint_id, sprint_artifacts, all_artifacts):
+        gate_calls.append(sprint_id)
+        return GateResult(sprint_id=sprint_id, passed=True)
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch.object(DiscoveryHarness, "_run_gate", new=tracking_gate):
+            with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False, use_sprints=True, reflect=False)
+                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                await harness.arun(request)
+
+    assert gate_calls == [1, 2, 3, 4, 5, 6]
+
+
+class StubReviewer:
+    """Stub matching Reviewer.review() async signature for tests."""
+
+    def __init__(self, *, always_fail: bool = False) -> None:
+        self.always_fail = always_fail
+        self.calls: list[int] = []
+
+    async def review(
+        self, provider, model, sprint_id, artifacts, prior_artifacts=None
+    ) -> GateResult:
+        self.calls.append(sprint_id)
+        return GateResult(
+            sprint_id=sprint_id,
+            passed=not self.always_fail,
+            notes="stub-fail" if self.always_fail else "stub-ok",
+            issues=[f"stub issue for sprint {sprint_id}"] if self.always_fail else [],
+        )
+
+
+@pytest.mark.asyncio
+async def test_sprint_mode_continues_after_gate_failure(tmp_path) -> None:
+    """Gate failure must not abort the run; all sprints must execute."""
+    from unittest.mock import patch, AsyncMock
+    from maestro.sdlc.schemas import SDLCArtifact
+
+    failing_reviewer = StubReviewer(always_fail=True)
+
+    async def fake_generate(self_ref, request, artifact_type):
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content="# content",
+        )
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+            harness = DiscoveryHarness(
+                provider=object(),
+                model="stub/model",
+                workdir=str(tmp_path),
+                use_sprints=True,
+                reviewer=failing_reviewer,
+                reflect=False,
+                open_browser=False,
+            )
+            result = await harness.arun(SDLCRequest(prompt="x", workdir=str(tmp_path)))
+
+    assert result.artifact_count == 14, "all artifacts must be generated despite gate failure"
+    assert len(result.gate_failures) == 6, "all 6 sprint gates failed and were recorded"
+    assert failing_reviewer.calls == [1, 2, 3, 4, 5, 6], "all sprints must invoke the gate"

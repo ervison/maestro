@@ -130,6 +130,7 @@ class DiscoveryResult:
     artifacts: list[SDLCArtifact] = field(default_factory=list)
     spec_dir: str = ""
     reflect_report: ReflectReport | None = None
+    gate_failures: list[GateResult] = field(default_factory=list)
 
     @property
     def artifact_count(self) -> int:
