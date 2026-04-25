@@ -67,17 +67,27 @@ code-review() {
   | sort
 )"
 
-      if [ -z "$REVIEW_FILE" ]; then
+      if [ -z "$REVIEW_FILES" ]; then
         echo "Erro: arquivo de review não encontrado após gsd-code-review"
         exit 1
       fi
 
-      echo "==> Review encontrado: $REVIEW_FILE"
+      echo "==> Review encontrado: $REVIEW_FILES"
 
-      if grep -Eiq "status: clean|status: all_fixed" "$REVIEW_FILE"; then
-        echo "==> Review aprovado"
-        REVIEW_APPROVED="true"
-        break
+      while IFS= read -r REVIEW_FILE; do
+          echo "==> Verificando review: $REVIEW_FILE"
+
+          if grep -Eiq "status: *(clean|all_fixed)" "$REVIEW_FILE"; then
+            echo "==> OK: $REVIEW_FILE"
+          else
+            echo "==> Ainda não aprovado: $REVIEW_FILE"
+            REVIEW_APPROVED="false"
+          fi
+      done <<< "$REVIEW_FILES"
+
+      if [ "$REVIEW_APPROVED" = "true" ]; then
+          echo "==> Todos os arquivos de review estão aprovados"
+          break
       fi
 
       if [ "$REVIEW_ROUND" -eq "$MAX_REVIEW_ROUNDS" ]; then

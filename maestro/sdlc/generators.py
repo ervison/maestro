@@ -14,19 +14,48 @@ from maestro.sdlc.prompts import PROMPTS
 _TRANSIENT_STREAM_ERRORS = (RuntimeError,)
 
 
+def _build_user_message(
+    request: SDLCRequest,
+    prior_artifacts: list["SDLCArtifact"] | None,
+) -> str:
+    """Compose the user message, optionally prepending upstream artifact context."""
+    if not prior_artifacts:
+        return request.prompt
+
+    sections = "\n\n".join(
+        f"### {a.filename}\n{a.content}" for a in prior_artifacts
+    )
+    return (
+        f"{request.prompt}\n\n"
+        "## Prior Artifacts (use as authoritative source — do not contradict)\n\n"
+        f"{sections}"
+    )
+
+
 async def generate_artifact(
     provider,
     model: str | None,
     request: SDLCRequest,
     artifact_type: ArtifactType,
+    prior_artifacts: list["SDLCArtifact"] | None = None,
 ) -> SDLCArtifact:
-    """Call the provider to generate a single SDLC artifact."""
+    """Call the provider to generate a single SDLC artifact.
+
+    Args:
+        provider: LLM provider with stream() method.
+        model: Model name to use.
+        request: The discovery request (prompt + metadata).
+        artifact_type: Which artifact to generate.
+        prior_artifacts: Already-generated upstream artifacts to inject as
+            context so the LLM can copy values verbatim instead of inventing them.
+    """
     from maestro.providers.base import Message
 
     system_prompt = PROMPTS[artifact_type]
+    user_message = _build_user_message(request, prior_artifacts)
     messages = [
         Message(role="system", content=system_prompt),
-        Message(role="user", content=request.prompt),
+        Message(role="user", content=user_message),
     ]
     content = ""
     for attempt in range(2):

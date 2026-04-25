@@ -1,3 +1,4 @@
+README.md
 pyproject.toml
 maestro/__init__.py
 maestro/agent.py
@@ -34,10 +35,13 @@ maestro/sdlc/generators.py
 maestro/sdlc/harness.py
 maestro/sdlc/prompts.py
 maestro/sdlc/reflect.py
+maestro/sdlc/reviewer.py
 maestro/sdlc/schemas.py
+maestro/sdlc/sprints.py
 maestro/sdlc/writer.py
 maestro/sdlc/static/gaps.html
 tests/test_aggregator_guardrails.py
+tests/test_cli.py
 tests/test_cli_discover.py
 tests/test_cli_planning.py
 tests/test_copilot_smoke.py
@@ -50,5 +54,7 @@ tests/test_sdlc_gaps_server.py
 tests/test_sdlc_generators.py
 tests/test_sdlc_harness.py
 tests/test_sdlc_reflect.py
+tests/test_sdlc_reviewer.py
 tests/test_sdlc_schemas.py
+tests/test_sdlc_sprints.py
 tests/test_sdlc_writer.py

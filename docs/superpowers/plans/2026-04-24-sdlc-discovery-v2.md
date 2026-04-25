@@ -8,6 +8,56 @@
 
 **Tech Stack:** Python 3.12, asyncio, graphlib.TopologicalSorter (stdlib), existing providers/httpx, Pydantic dataclasses for sprint/gate models.
 
+**Source of Truth:** All sprint definitions and dependency edges in this plan derive from `docs/Matriz_formal_de_dependência_v2.md`. Any discrepancy between plan and matrix is a bug in the plan; matrix wins.
+
+**Out of Scope:**
+- Replacing sequential mode as default — `--sprints` is opt-in; default `maestro discover` keeps sequential behavior.
+- Multi-project / cross-repo orchestration.
+- Persisting sprint state across invocations (each run is fresh).
+- Gate failure remediation loops (auto-retry, human-in-the-loop). Gate failures are warned but do not halt; a follow-up plan will add `--strict-gates`.
+- ADR continuous emission across sprints 3–5 (modeled as single sprint-3 artifact for v2; future iteration adds backlog mode).
+- Editing the existing reflect loop algorithm (only DIMENSIONS list grows by one).
+
+## DAG Overview
+
+```mermaid
+flowchart TD
+    BRIEFING --> HYPOTHESES
+    BRIEFING --> GAPS
+    BRIEFING --> PRD
+    HYPOTHESES --> PRD
+    GAPS --> PRD
+    PRD --> FUNCTIONAL_SPEC
+    PRD --> BUSINESS_RULES
+    PRD --> NFR
+    PRD --> ADRS
+    PRD --> UX_SPEC
+    FUNCTIONAL_SPEC --> BUSINESS_RULES
+    FUNCTIONAL_SPEC --> UX_SPEC
+    FUNCTIONAL_SPEC --> AUTH_MATRIX
+    BUSINESS_RULES --> AUTH_MATRIX
+    UX_SPEC --> AUTH_MATRIX
+    FUNCTIONAL_SPEC --> DATA_MODEL
+    BUSINESS_RULES --> DATA_MODEL
+    AUTH_MATRIX --> DATA_MODEL
+    ADRS --> DATA_MODEL
+    NFR --> DATA_MODEL
+    DATA_MODEL --> API_CONTRACTS
+    AUTH_MATRIX --> API_CONTRACTS
+    UX_SPEC --> API_CONTRACTS
+    ADRS --> API_CONTRACTS
+    NFR --> API_CONTRACTS
+    PRD --> ACCEPTANCE_CRITERIA
+    FUNCTIONAL_SPEC --> ACCEPTANCE_CRITERIA
+    BUSINESS_RULES --> ACCEPTANCE_CRITERIA
+    UX_SPEC --> ACCEPTANCE_CRITERIA
+    ACCEPTANCE_CRITERIA --> TEST_PLAN
+    API_CONTRACTS --> TEST_PLAN
+    AUTH_MATRIX --> TEST_PLAN
+    ADRS --> TEST_PLAN
+    NFR --> TEST_PLAN
+```
+
 ---
 
 ## File Structure
@@ -86,7 +136,7 @@ Add the filename mapping to `ARTIFACT_FILENAMES`:
     ArtifactType.NFR: "14-nfr.md",
 ```
 
-Add `NFR` to `ARTIFACT_ORDER` — insert after `ADRS` and before `TEST_PLAN` to match the spec's production order (NFR is produced in sprint 3 alongside func-spec and biz-rules):
+Add `NFR` to `ARTIFACT_ORDER` at the end (slot 14) so the order matches the `ARTIFACT_FILENAMES` numeric prefixes. This list is the *file/sequential* order used by the legacy non-sprint harness; sprint mode uses `sprints.py` for the true dependency order (where NFR is produced in sprint 3):
 
 ```python
 ARTIFACT_ORDER: list[ArtifactType] = [
@@ -102,10 +152,23 @@ ARTIFACT_ORDER: list[ArtifactType] = [
     ArtifactType.DATA_MODEL,
     ArtifactType.AUTH_MATRIX,
     ArtifactType.ADRS,
-    ArtifactType.NFR,
     ArtifactType.TEST_PLAN,
+    ArtifactType.NFR,
 ]
 ```
+
+Also update the docstring at line 10 from `"""The 13 SDLC artifact types"""` to `"""The 14 SDLC artifact types"""`.
+
+- [ ] **Step 3b: Verify length invariant**
+
+Add to `tests/test_sdlc_schemas.py`:
+
+```python
+def test_artifact_filenames_and_order_have_same_size() -> None:
+    assert len(ARTIFACT_FILENAMES) == len(ArtifactType) == len(ARTIFACT_ORDER) == 14
+```
+
+This guards against future drift (e.g., adding an enum value but forgetting the filename mapping).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -291,7 +354,8 @@ SPRINTS: list[SprintDef] = [
             ArtifactType.UX_SPEC,
         ),
         deps={
-            ArtifactType.UX_SPEC: (ArtifactType.FUNCTIONAL_SPEC, ArtifactType.BUSINESS_RULES),
+            # Matrix row 08: upstream = (04 PRD, 05 FUNCTIONAL_SPEC). 06 is NOT upstream of UX.
+            ArtifactType.UX_SPEC: (ArtifactType.PRD, ArtifactType.FUNCTIONAL_SPEC),
         },
         description="UX: user experience specification",
     ),
@@ -458,6 +522,75 @@ def test_sprint_6_sequential() -> None:
 
 def test_all_sprint_artifacts_returns_14() -> None:
     assert len(all_sprint_artifacts()) == 14
+
+
+# ---------------------------------------------------------------------------
+# Matrix conformance — pinned to docs/Matriz_formal_de_dependência_v2.md
+# ---------------------------------------------------------------------------
+EXPECTED_DEPS: dict[ArtifactType, set[ArtifactType]] = {
+    ArtifactType.BRIEFING: set(),
+    ArtifactType.HYPOTHESES: {ArtifactType.BRIEFING},
+    ArtifactType.GAPS: {ArtifactType.BRIEFING},
+    ArtifactType.PRD: {ArtifactType.BRIEFING, ArtifactType.HYPOTHESES, ArtifactType.GAPS},
+    ArtifactType.FUNCTIONAL_SPEC: {ArtifactType.PRD},
+    ArtifactType.BUSINESS_RULES: {ArtifactType.PRD, ArtifactType.FUNCTIONAL_SPEC},
+    ArtifactType.NFR: {ArtifactType.PRD},
+    ArtifactType.ADRS: {ArtifactType.PRD},
+    ArtifactType.UX_SPEC: {ArtifactType.PRD, ArtifactType.FUNCTIONAL_SPEC},
+    ArtifactType.AUTH_MATRIX: {
+        ArtifactType.FUNCTIONAL_SPEC,
+        ArtifactType.BUSINESS_RULES,
+        ArtifactType.UX_SPEC,
+    },
+    ArtifactType.DATA_MODEL: {
+        ArtifactType.FUNCTIONAL_SPEC,
+        ArtifactType.BUSINESS_RULES,
+        ArtifactType.AUTH_MATRIX,
+        ArtifactType.ADRS,
+        ArtifactType.NFR,
+    },
+    ArtifactType.API_CONTRACTS: {
+        ArtifactType.FUNCTIONAL_SPEC,
+        ArtifactType.BUSINESS_RULES,
+        ArtifactType.UX_SPEC,
+        ArtifactType.AUTH_MATRIX,
+        ArtifactType.ADRS,
+        ArtifactType.NFR,
+        ArtifactType.DATA_MODEL,
+    },
+    ArtifactType.ACCEPTANCE_CRITERIA: {
+        ArtifactType.PRD,
+        ArtifactType.FUNCTIONAL_SPEC,
+        ArtifactType.BUSINESS_RULES,
+        ArtifactType.UX_SPEC,
+    },
+    ArtifactType.TEST_PLAN: {
+        ArtifactType.PRD,
+        ArtifactType.FUNCTIONAL_SPEC,
+        ArtifactType.BUSINESS_RULES,
+        ArtifactType.ACCEPTANCE_CRITERIA,
+        ArtifactType.UX_SPEC,
+        ArtifactType.API_CONTRACTS,
+        ArtifactType.AUTH_MATRIX,
+        ArtifactType.ADRS,
+        ArtifactType.NFR,
+    },
+}
+
+
+@pytest.mark.parametrize("artifact,expected", list(EXPECTED_DEPS.items()))
+def test_sprint_deps_match_formal_matrix(
+    artifact: ArtifactType, expected: set[ArtifactType]
+) -> None:
+    """Every SprintDef.deps entry must match docs/Matriz_formal_de_dependência_v2.md."""
+    actual: set[ArtifactType] = set()
+    for sprint in SPRINTS:
+        if artifact in sprint.deps:
+            actual = set(sprint.deps[artifact])
+            break
+    assert actual == expected, (
+        f"{artifact.value}: matrix expects {expected}, sprints.py declares {actual}"
+    )
 ```
 
 - [ ] **Step 3: Run tests**
@@ -654,10 +787,20 @@ _RESPONSE_FORMAT = (
 
 
 def _extract_json(text: str) -> Any:
-    fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if fence_match:
-        candidate = fence_match.group(1).strip()
-        return json.loads(candidate)
+    """Extract JSON from LLM response. Handles nested fences and trailing prose.
+
+    Strategy: prefer the *last* ```json ... ``` fence (LLMs sometimes echo the
+    request format before producing the real answer); fall back to last
+    ``` ... ``` fence; finally try the raw text.
+    """
+    # Prefer the last json-tagged fence
+    json_fences = re.findall(r"```json\s*([\s\S]*?)```", text)
+    if json_fences:
+        return json.loads(json_fences[-1].strip())
+    # Any code fence, last one
+    any_fences = re.findall(r"```\s*([\s\S]*?)```", text)
+    if any_fences:
+        return json.loads(any_fences[-1].strip())
     return json.loads(text.strip())
 
 
@@ -1305,7 +1448,17 @@ DIMENSIONS = [
 ]
 ```
 
-Note: The reflect loop already says "10 quality dimensions" in the eval prompt. We update to 11 by changing the prompt text. In `_build_eval_prompt`, update:
+Note: The reflect loop already says "10 quality dimensions" in the eval prompt. We update to 11 by changing the prompt text. The current `_build_eval_prompt` (lines 60–92 of `maestro/sdlc/reflect.py`) contains these two literal strings to replace:
+
+```python
+# BEFORE (line 70):
+"Evaluate the following spec files across 10 quality dimensions, then identify the top-3 most important problems to fix."
+
+# BEFORE (line 90):
+'The "scores" array must contain exactly 10 entries, one per dimension.'
+```
+
+Replace with `len(DIMENSIONS)` (which is 11 after Step 1). In `_build_eval_prompt`, update:
 
 ```python
         return f"""You are a senior software architect reviewing a set of SDLC specification artifacts.
@@ -1356,33 +1509,292 @@ git commit -m "feat(sdlc): add NFR coverage dimension to reflect loop"
 ### Task 9: Wire Sprint Mode into CLI
 
 **Files:**
-- Modify: `maestro/cli.py:572+`
+- Modify: `maestro/cli.py` (argparse setup at line 165, handler at line 572, banner at line 595, `DiscoveryHarness(...)` call at lines 602–610)
 
-- [ ] **Step 1: Add `--sprints` flag to discover command**
+- [ ] **Step 1: Add `--sprints` flag to discover subparser**
 
-Read the `_handle_discover` function in `maestro/cli.py` to find where `DiscoveryHarness` is instantiated. Add a `--sprints` flag to the discover command's argument parser, and pass it through:
-
-Find the `discover` subcommand definition (likely in the argparse or click setup). Add:
+In `maestro/cli.py`, locate the `discover` subparser block starting at line 165. After the `--reflect-max-cycles` argument (ends at line 207), add the new flag *before* the closing of the discover_p block (i.e., before line 208's blank line preceding `args = parser.parse_args()` at line 209):
 
 ```python
-parser.add_argument("--sprints", action="store_true", help="Use sprint-based DAG execution with gate reviews")
+    discover_p.add_argument(
+        "--sprints",
+        action="store_true",
+        default=False,
+        help="Use sprint-based DAG execution with gate reviews (opt-in, experimental).",
+    )
 ```
 
-In `_handle_discover`, pass `use_sprints=args.sprints` to `DiscoveryHarness`.
+- [ ] **Step 2: Update artifact count banner**
 
-- [ ] **Step 2: Verify CLI still works without --sprints**
+The banner at line 595 currently reads:
 
-Run: `maestro discover --help`
-Expected: shows `--sprints` flag
+```python
+        f"Starting SDLC discovery using model: {model_id or 'default'}\n"
+        "Generating 13 artifacts.\n"
+```
 
-Run: `pytest tests/test_sdlc_*.py -v`
-Expected: ALL PASS (backward compatibility — no `--sprints` flag used)
+Replace with a count derived from the schema so it cannot drift:
+
+```python
+    from maestro.sdlc.schemas import ARTIFACT_FILENAMES
+
+    print(
+        f"Starting SDLC discovery using model: {model_id or 'default'}\n"
+        f"Generating {len(ARTIFACT_FILENAMES)} artifacts"
+        f"{' (sprint mode)' if getattr(args, 'sprints', False) else ''}.\n"
+        f"  If gaps are found, a questionnaire will open at http://localhost:{getattr(args, 'gaps_port', 4041)}\n"
+        "  Answer all questions and click Submit to continue.\n",
+        file=sys.stderr,
+        flush=True,
+    )
+```
+
+- [ ] **Step 3: Pass `use_sprints` through to the harness**
+
+The `DiscoveryHarness(...)` constructor call at lines 602–610 currently ends with `reflect_max_cycles=...`. Add a new kwarg as the last argument:
+
+```python
+    harness = DiscoveryHarness(
+        provider=provider,
+        model=model_id,
+        workdir=request.workdir,
+        gaps_port=getattr(args, "gaps_port", 4041),
+        open_browser=not getattr(args, "no_browser", False),
+        reflect=not getattr(args, "no_reflect", False),
+        reflect_max_cycles=getattr(args, "reflect_max_cycles", 5),
+        use_sprints=getattr(args, "sprints", False),
+    )
+```
+
+- [ ] **Step 4: Verify CLI surface**
+
+```bash
+maestro discover --help | grep -E "sprints|reflect-max-cycles"
+```
+Expected output contains both `--sprints` and `--reflect-max-cycles` lines.
+
+```bash
+pytest tests/test_sdlc_*.py -v
+```
+Expected: ALL PASS (backward compatibility — no `--sprints` flag used by existing tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add maestro/cli.py
+git commit -m "feat(cli): add --sprints flag and dynamic artifact count to discover"
+```
+
+---
+
+### Task 9b: Gate Failure Policy (Warn-Only Default)
+
+**Files:**
+- Modify: `maestro/sdlc/harness.py` (sprint loop), `maestro/sdlc/schemas.py` (SprintResult)
+- Test: `tests/test_sdlc_harness.py`
+
+Sprint mode runs gate reviewers between sprints. The spec describes gates as "blocking", but a hard-halt mid-run leaves a partially-written `spec/` directory which is worse than a complete-but-flagged set. v2 policy: **warn-only by default, never halt; surface failures in summary and exit code.** A future `--strict-gates` flag (out of scope for v2) will add halt-on-fail.
+
+- [ ] **Step 1: Define the policy in `harness.py`**
+
+Inside the sprint loop, after each gate evaluation (the call must be `await self._reviewer.review(...)` because `Reviewer.review()` is async per Task 6):
+
+```python
+gate = await self._reviewer.review(
+    provider=self._provider,
+    model=self._model,
+    sprint_id=sprint_def.sprint_id,
+    artifacts=sprint_artifacts,
+    prior_artifacts=completed_artifacts,
+)
+if not gate.passed:
+    print(
+        f"[discover] ⚠ Sprint {sprint_def.sprint_id} ({sprint_def.name}) gate FAILED: "
+        f"{gate.notes}",
+        file=sys.stderr,
+        flush=True,
+    )
+    for issue in gate.issues:
+        print(f"[discover]   - {issue}", file=sys.stderr)
+    # Continue execution; do NOT raise. Track failures for exit code.
+    self._gate_failures.append(gate)
+sprint_results.append(SprintResult(
+    sprint_id=sprint_def.sprint_id,
+    name=sprint_def.name,
+    artifacts=list(sprint_artifacts),
+    gate=gate,
+))
+```
+
+Initialize `self._gate_failures: list[GateResult] = []` in `DiscoveryHarness.__init__`. Also accept an optional `reviewer: Reviewer | None = None` constructor kwarg defaulting to `Reviewer()` so tests can inject a stub:
+
+```python
+def __init__(
+    self,
+    *,
+    provider, model, workdir,
+    gaps_port=4041, open_browser=True,
+    reflect=True, reflect_max_cycles=5,
+    use_sprints=False,
+    reviewer: "Reviewer | None" = None,  # NEW: injectable for testing
+) -> None:
+    ...
+    self._reviewer = reviewer if reviewer is not None else Reviewer()
+    self._gate_failures: list[GateResult] = []
+```
+
+- [ ] **Step 2: Surface failures in the final summary and exit code**
+
+In `_handle_discover` (`maestro/cli.py`), after `result = harness.run(request)`:
+
+```python
+    print(f"\n✓ {result.artifact_count} artifacts written to {result.spec_dir}")
+    if getattr(result, "gate_failures", None):
+        print(
+            f"⚠ {len(result.gate_failures)} sprint gate(s) failed — review notes above.",
+            file=sys.stderr,
+        )
+        sys.exit(2)  # distinct from generation failure (exit 1)
+```
+
+Add `gate_failures: list[GateResult]` to `DiscoveryResult` in `schemas.py`:
+
+```python
+@dataclass
+class DiscoveryResult:
+    request: SDLCRequest
+    artifacts: list[SDLCArtifact]
+    spec_dir: str
+    gate_failures: list[GateResult] = field(default_factory=list)  # NEW
+
+    @property
+    def artifact_count(self) -> int:
+        return len(self.artifacts)
+```
+
+`DiscoveryHarness.run()` must populate it: `return DiscoveryResult(..., gate_failures=self._gate_failures)`.
+
+- [ ] **Step 3: Test the warn-only behavior with a stub reviewer**
+
+In `tests/test_sdlc_harness.py`, define a `StubReviewer` matching the real `Reviewer.review()` signature (async, returns `GateResult`):
+
+```python
+import pytest
+from maestro.sdlc.schemas import GateResult, SDLCRequest
+from maestro.sdlc.harness import DiscoveryHarness
+
+
+class StubReviewer:
+    """Stub matching Reviewer.review() async signature for tests."""
+
+    def __init__(self, *, always_fail: bool = False) -> None:
+        self.always_fail = always_fail
+        self.calls: list[int] = []
+
+    async def review(
+        self, *, provider, model, sprint_id, artifacts, prior_artifacts=None
+    ) -> GateResult:
+        self.calls.append(sprint_id)
+        return GateResult(
+            sprint_id=sprint_id,
+            passed=not self.always_fail,
+            notes="stub-fail" if self.always_fail else "stub-ok",
+            issues=[f"stub issue for sprint {sprint_id}"] if self.always_fail else [],
+        )
+
+
+def test_sprint_mode_continues_after_gate_failure(tmp_path, stub_provider):
+    """Gate failure must not abort the run; all sprints must execute."""
+    failing_reviewer = StubReviewer(always_fail=True)
+    harness = DiscoveryHarness(
+        provider=stub_provider,
+        model="stub/model",
+        workdir=str(tmp_path),
+        use_sprints=True,
+        reviewer=failing_reviewer,
+        reflect=False,
+        open_browser=False,
+    )
+    result = harness.run(SDLCRequest(prompt="x", workdir=str(tmp_path)))
+    assert result.artifact_count == 14, "all artifacts must be generated despite gate failure"
+    assert len(result.gate_failures) == 6, "all 6 sprint gates failed and were recorded"
+    assert failing_reviewer.calls == [1, 2, 3, 4, 5, 6], "all sprints must invoke the gate"
+```
+
+The `stub_provider` fixture is the existing one used by other harness tests (returns canned content per artifact prompt — see `tests/conftest.py`).
+
+- [ ] **Step 4: CLI exit-code-2 test**
+
+In `tests/test_cli.py` (or create if absent), add a subprocess-level test:
+
+```python
+import subprocess
+import sys
+
+
+def test_discover_sprints_gate_failure_exit_code_2(tmp_path, monkeypatch):
+    """When sprint gates fail, CLI must exit with code 2 (not 0, not 1)."""
+    # Use MAESTRO_TEST_FORCE_GATE_FAIL=1 env hook (added in harness for tests)
+    env = {"MAESTRO_TEST_FORCE_GATE_FAIL": "1", "PATH": "/usr/bin:/bin"}
+    result = subprocess.run(
+        [sys.executable, "-m", "maestro.cli", "discover", "--sprints",
+         "--no-browser", "--no-reflect", "--workdir", str(tmp_path), "test prompt"],
+        capture_output=True, env=env, timeout=120,
+    )
+    assert result.returncode == 2, f"expected exit 2, got {result.returncode}: {result.stderr}"
+```
+
+(If `MAESTRO_TEST_FORCE_GATE_FAIL` is too invasive, replace this with a unit-level test that calls `_handle_discover` with a mocked `DiscoveryHarness` whose result has populated `gate_failures` and assert `SystemExit(2)`.)
+
+- [ ] **Step 5: Run and commit**
+
+```bash
+pytest tests/test_sdlc_harness.py::test_sprint_mode_continues_after_gate_failure -v
+pytest tests/test_cli.py::test_discover_sprints_gate_failure_exit_code_2 -v
+git add maestro/sdlc/harness.py maestro/sdlc/schemas.py maestro/cli.py tests/test_sdlc_harness.py tests/test_cli.py
+git commit -m "feat(sdlc): warn-only gate policy with exit code 2 on failure"
+```
+
+---
+
+### Task 9c: Documentation Update
+
+**Files:**
+- Modify: `README.md` (or `docs/README.md` — pick whichever has the existing `maestro discover` reference)
+
+- [ ] **Step 1: Locate the discover usage section**
+
+```bash
+grep -rn "maestro discover" README.md docs/ 2>/dev/null
+```
+
+- [ ] **Step 2: Add `--sprints` documentation**
+
+Append to the discover section:
+
+```markdown
+### Sprint Mode (Experimental)
+
+`maestro discover --sprints "<prompt>"` runs the discovery DAG in 6 sprints with
+gate reviews between each. Artifacts within a sprint generate in parallel where
+the dependency graph allows. Gate failures are reported as warnings and the
+process exits with code 2; a future `--strict-gates` flag will add halt-on-fail.
+
+The 6 sprints follow `docs/Matriz_formal_de_dependência_v2.md`:
+
+1. **Iniciação**: BRIEFING → HYPOTHESES, GAPS
+2. **Visão de produto**: PRD
+3. **Especificação funcional**: FUNCTIONAL_SPEC, BUSINESS_RULES, NFR, ADRS
+4. **Experiência**: UX_SPEC
+5. **Arquitetura técnica**: AUTH_MATRIX, DATA_MODEL, API_CONTRACTS
+6. **Validação e testes**: ACCEPTANCE_CRITERIA, TEST_PLAN
+```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add maestro/cli.py
-git commit -m "feat(cli): add --sprints flag to discover command"
+git add README.md docs/
+git commit -m "docs: document --sprints discover mode"
 ```
 
 ---
@@ -1426,8 +1838,13 @@ git commit -m "fix(sdlc): integration fixes for v2 sprint system"
 - [x] Sprint 3 co-evolution (05↔06 precedence) — Task 4 (deps show BIZ_RULES depends on FUNC_SPEC within sprint)
 - [x] Sprint 5 auth→data+api ordering — Task 4 (deps show DATA_MODEL and API_CONTRACTS depend on AUTH_MATRIX)
 - [x] Sprint 6 sequential 07→13 — Task 4 (deps show TEST_PLAN depends on ACCEPTANCE_CRITERIA)
-- [x] ADRs continuous (sprints 3-5) — Task 4 (ADRS in sprint 3 artifacts, referenced in sprint 5 gate)
+- [x] ADRs continuous (sprints 3-5) — Task 4 simplifies to single-sprint emission; multi-sprint ADR backlog deferred (see Out of Scope)
 - [x] Backward compatibility — Task 7 (sequential mode preserved, `--sprints` flag is opt-in)
+- [x] Matrix conformance pinned in CI — Task 4 (`test_sprint_deps_match_formal_matrix` parametric test)
+- [x] Gate failure policy explicit — Task 9b (warn-only, exit code 2)
+- [x] Mermaid DAG diagram — header section
+- [x] Out of Scope section — header section
+- [x] User-facing docs updated — Task 9c
 
 **2. Placeholder Scan:**
 - [x] No TBD, TODO, "implement later", "fill in details"

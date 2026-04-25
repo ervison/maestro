@@ -153,10 +153,17 @@ class DiscoveryHarness:
         from maestro.sdlc.writer import write_artifact
 
         artifacts: list[SDLCArtifact] = []
+        # Map from ArtifactType → generated SDLCArtifact for upstream context injection
+        artifact_map: dict[ArtifactType, SDLCArtifact] = {}
         completed: set[ArtifactType] = set()
         sprint_results: list[SprintResult] = []
         current_request = request
         gaps_resolved = False  # becomes True after GAPS artifact is processed
+
+        # Build a full deps lookup from all sprints for context injection
+        all_deps: dict[ArtifactType, tuple[ArtifactType, ...]] = {}
+        for sprint in SPRINTS:
+            all_deps.update(sprint.deps)
 
         for sprint in SPRINTS:
             print(
@@ -176,7 +183,11 @@ class DiscoveryHarness:
                         flush=True,
                     )
                     tasks = [
-                        self._generate_artifact(current_request, artifact_type)
+                        self._generate_artifact(
+                            current_request,
+                            artifact_type,
+                            self._get_prior_artifacts(artifact_type, artifact_map, all_deps),
+                        )
                         for artifact_type in wave
                     ]
                     wave_artifacts = list(await asyncio.gather(*tasks))
@@ -187,7 +198,11 @@ class DiscoveryHarness:
                         file=sys.stderr,
                         flush=True,
                     )
-                    artifact = await self._generate_artifact(current_request, artifact_type)
+                    artifact = await self._generate_artifact(
+                        current_request,
+                        artifact_type,
+                        self._get_prior_artifacts(artifact_type, artifact_map, all_deps),
+                    )
                     wave_artifacts = [artifact]
 
                 for artifact in wave_artifacts:
@@ -196,6 +211,7 @@ class DiscoveryHarness:
                         self._ensure_no_open_markers(artifact)
                     sprint_artifacts.append(artifact)
                     artifacts.append(artifact)
+                    artifact_map[artifact.artifact_type] = artifact
                     completed.add(artifact.artifact_type)
                     write_artifact(spec_dir, artifact)
                     print(
@@ -228,6 +244,19 @@ class DiscoveryHarness:
                 self._gate_failures.append(gate)
 
         return artifacts
+
+    @staticmethod
+    def _get_prior_artifacts(
+        artifact_type: ArtifactType,
+        artifact_map: dict[ArtifactType, SDLCArtifact],
+        all_deps: dict[ArtifactType, tuple[ArtifactType, ...]],
+    ) -> list[SDLCArtifact] | None:
+        """Return the upstream artifacts declared as deps for artifact_type, if any."""
+        dep_types = all_deps.get(artifact_type, ())
+        if not dep_types:
+            return None
+        prior = [artifact_map[d] for d in dep_types if d in artifact_map]
+        return prior if prior else None
 
     async def _run_gate(
         self,
@@ -320,6 +349,7 @@ class DiscoveryHarness:
         self,
         request: SDLCRequest,
         artifact_type: ArtifactType,
+        prior_artifacts: list[SDLCArtifact] | None = None,
     ) -> SDLCArtifact:
         """Generate a single artifact. Uses real generators if provider set, stub otherwise."""
         if self._provider is None:
@@ -334,7 +364,7 @@ class DiscoveryHarness:
             )
         from maestro.sdlc.generators import generate_artifact
 
-        return await generate_artifact(self._provider, self._model, request, artifact_type)
+        return await generate_artifact(self._provider, self._model, request, artifact_type, prior_artifacts)
 
     def _scan_codebase(self, workdir: str) -> str:
         """Stub: list top-level .py files for brownfield context (max 20)."""

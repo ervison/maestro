@@ -34,31 +34,45 @@ GATE_PROMPTS: dict[int, str] = {
         "consistent with each other and the PRD. "
         "Check: (1) func-spec covers all PRD features; "
         "(2) biz-rules constrain but don't create new behavior; "
-        "(3) NFR defines measurable targets; "
-        "(4) no contradictions between the three. "
+        "(3) NFR defines measurable targets with explicit numeric values; "
+        "(4) CROSS-CHECK: every numeric threshold in business-rules (file sizes, limits, quotas) "
+        "must exactly match the corresponding value in NFR — list any discrepancies as issues; "
+        "(5) no contradictions between the three documents. "
     ),
     4: (
         "You are a senior UX designer reviewing UX specification. "
         "Evaluate whether the UX-spec aligns with func-spec and biz-rules. "
         "Check: screens, flows, key interactions, usability requirements "
         "match the functional behavior defined in func-spec. "
+        "CROSS-CHECK: role-based UI behavior (what each user role sees/can do) must be "
+        "consistent with the role permissions defined in func-spec. "
     ),
     5: (
         "You are a senior software architect reviewing technical artifacts. "
         "Evaluate whether auth-matrix, data-model, api-contracts, and ADRs "
         "are consistent and complete. "
-        "Check: (1) auth permissions reflected in API operations; "
-        "(2) data model entities match API contracts; "
-        "(3) ADRs document key decisions; "
-        "(4) NFR targets are addressed in API and data design. "
+        "Check: (1) CROSS-CHECK: every role in auth-matrix must match what func-spec defines — "
+        "if func-spec says 'authenticated users can create records', auth-matrix must allow CREATE "
+        "for that role. List every role/permission discrepancy as a separate issue; "
+        "(2) CROSS-CHECK: every POST/PUT/PATCH/DELETE endpoint in api-contracts must enforce the "
+        "role permissions defined in auth-matrix — endpoints that allow any authenticated user to "
+        "mutate data when auth-matrix restricts it are an issue; "
+        "(3) CROSS-CHECK: data-model must have a 'role' field (or equivalent) on the User entity "
+        "if auth-matrix defines multiple roles; "
+        "(4) CROSS-CHECK: all numeric limits in api-contracts (file sizes, pagination, timeouts) "
+        "must exactly match NFR values — list every discrepancy; "
+        "(5) data model entities match API contracts; "
+        "(6) ADRs document key technology stack decisions. "
     ),
     6: (
         "You are a senior QA engineer reviewing validation artifacts. "
         "Evaluate whether the test plan covers all acceptance criteria, "
         "including functional, contract, E2E, and NFR tests. "
         "Check: (1) each acceptance criterion has at least one test case; "
-        "(2) NFR test coverage exists; "
-        "(3) test strategy matches the project scope. "
+        "(2) NFR test coverage exists for every measurable threshold; "
+        "(3) CROSS-CHECK: there must be at least one acceptance criterion and test case per role "
+        "defined in the auth-matrix that validates access control behavior; "
+        "(4) test strategy matches the project scope. "
     ),
 }
 
