@@ -8,8 +8,10 @@ from maestro.sdlc.schemas import (
     DiscoveryResult,
     GapAnswer,
     GapItem,
+    GateResult,
     SDLCArtifact,
     SDLCRequest,
+    SprintResult,
 )
 
 
@@ -109,3 +111,38 @@ def test_gap_answer_rejects_empty_selected() -> None:
 
 def test_artifact_filenames_and_order_have_same_size() -> None:
     assert len(ARTIFACT_FILENAMES) == len(ArtifactType) == len(ARTIFACT_ORDER) == 14
+
+
+def test_gate_result_dataclass() -> None:
+    gate = GateResult(sprint_id=1, passed=True, notes="All artifacts approved")
+    assert gate.passed is True
+    assert gate.sprint_id == 1
+
+
+def test_gate_result_defaults() -> None:
+    gate = GateResult(sprint_id=2, passed=False)
+    assert gate.notes == ""
+    assert gate.issues == []
+
+
+def test_sprint_result_dataclass() -> None:
+    sprint = SprintResult(
+        sprint_id=1,
+        name="Descoberta",
+        artifacts=[
+            SDLCArtifact(ArtifactType.BRIEFING, "01-briefing.md", "# Briefing"),
+        ],
+        gate=GateResult(sprint_id=1, passed=True),
+    )
+    assert sprint.sprint_id == 1
+    assert len(sprint.artifacts) == 1
+    assert sprint.gate.passed is True
+
+
+def test_sprint_result_optional_gate() -> None:
+    sprint = SprintResult(
+        sprint_id=1,
+        name="Descoberta",
+        artifacts=[],
+    )
+    assert sprint.gate is None

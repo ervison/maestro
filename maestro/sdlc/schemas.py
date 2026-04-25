@@ -160,3 +160,23 @@ class GapAnswer:
     def __post_init__(self) -> None:
         if not self.selected_options:
             raise ValueError("selected_options must have at least one item")
+
+
+@dataclass
+class GateResult:
+    """Result of a sprint gate review."""
+
+    sprint_id: int
+    passed: bool
+    notes: str = ""
+    issues: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SprintResult:
+    """Result of a single sprint execution."""
+
+    sprint_id: int
+    name: str
+    artifacts: list[SDLCArtifact] = field(default_factory=list)
+    gate: GateResult | None = None
