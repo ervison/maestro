@@ -144,15 +144,20 @@ def all_sprint_artifacts() -> set[ArtifactType]:
     return result
 
 
-def validate_sprint_coverage() -> None:
-    """Assert that every ArtifactType is covered by exactly one sprint."""
+def validate_sprint_coverage() -> list[str]:
+    """Validate that every ArtifactType is covered by exactly one sprint.
+
+    Returns a list of error strings (empty list means coverage is complete).
+    """
     from maestro.sdlc.schemas import ArtifactType as AT
 
     covered = all_sprint_artifacts()
     all_types = set(AT)
+    errors: list[str] = []
     missing = all_types - covered
     if missing:
-        raise ValueError(f"ArtifactTypes not covered by any sprint: {missing}")
+        errors.append(f"ArtifactTypes not covered by any sprint: {missing}")
     extra = covered - all_types
     if extra:
-        raise ValueError(f"Sprint artifacts not in ArtifactType: {extra}")
+        errors.append(f"Sprint artifacts not in ArtifactType: {extra}")
+    return errors

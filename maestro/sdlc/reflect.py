@@ -25,7 +25,7 @@ DIMENSIONS = [
     "Qualidade individual",
     "Rastreabilidade (gaps → decisões)",
     "Integridade dos artefatos",
-    "Cobertura de requisitos não-funcionais",
+    "Cobertura de requisitos não-funcionais (NFR)",
 ]
 
 TARGET_MEAN = 8.0
