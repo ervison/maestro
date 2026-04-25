@@ -156,6 +156,7 @@ class DiscoveryHarness:
         completed: set[ArtifactType] = set()
         sprint_results: list[SprintResult] = []
         current_request = request
+        gaps_resolved = False  # becomes True after GAPS artifact is processed
 
         for sprint in SPRINTS:
             print(
@@ -191,7 +192,8 @@ class DiscoveryHarness:
 
                 for artifact in wave_artifacts:
                     artifact = self._normalize_artifact(artifact)
-                    self._ensure_no_open_markers(artifact)
+                    if gaps_resolved:
+                        self._ensure_no_open_markers(artifact)
                     sprint_artifacts.append(artifact)
                     artifacts.append(artifact)
                     completed.add(artifact.artifact_type)
@@ -205,6 +207,7 @@ class DiscoveryHarness:
                 for artifact in wave_artifacts:
                     if artifact.artifact_type == ArtifactType.GAPS:
                         current_request = await self._resolve_gaps(current_request, artifact)
+                        gaps_resolved = True
 
             gate = await self._run_gate(sprint.sprint_id, sprint_artifacts, artifacts)
             sprint_results.append(SprintResult(
