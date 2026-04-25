@@ -25,10 +25,10 @@ def test_harness_run_returns_discovery_result(tmp_path: Path) -> None:
     assert isinstance(result, DiscoveryResult)
 
 
-def test_harness_run_produces_13_artifacts(tmp_path: Path) -> None:
+def test_harness_run_produces_14_artifacts(tmp_path: Path) -> None:
     harness = DiscoveryHarness(workdir=str(tmp_path))
     result = harness.run(SDLCRequest("Build X", workdir=str(tmp_path)))
-    assert result.artifact_count == 13
+    assert result.artifact_count == 14
 
 
 def test_harness_creates_spec_directory(tmp_path: Path) -> None:
@@ -37,11 +37,11 @@ def test_harness_creates_spec_directory(tmp_path: Path) -> None:
     assert (tmp_path / "spec").is_dir()
 
 
-def test_harness_writes_13_files(tmp_path: Path) -> None:
+def test_harness_writes_14_files(tmp_path: Path) -> None:
     harness = DiscoveryHarness(workdir=str(tmp_path))
     harness.run(SDLCRequest("Build X", workdir=str(tmp_path)))
     written = list((tmp_path / "spec").glob("*.md"))
-    assert len(written) == 13
+    assert len(written) == 14
 
 
 def test_harness_artifact_filenames_match_schema(tmp_path: Path) -> None:
@@ -112,8 +112,8 @@ def test_harness_writes_each_artifact_incrementally(tmp_path: Path) -> None:
     with patch.object(writer_mod, "write_artifact", side_effect=recording_write):
         harness.run(SDLCRequest("Build X", workdir=str(tmp_path)))
 
-    # Should have 13 write calls, one per artifact
-    assert len(written_counts) == 13
+    # Should have 14 write calls, one per artifact
+    assert len(written_counts) == 14
     # Each write call should have produced exactly one more file than the previous
     for i, count in enumerate(written_counts, start=1):
         assert count == i, f"Expected {i} files after artifact {i}, got {count}"

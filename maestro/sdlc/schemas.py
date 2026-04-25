@@ -7,7 +7,7 @@ from typing import Literal
 
 
 class ArtifactType(enum.Enum):
-    """The 13 SDLC artifact types produced by the discovery planner."""
+    """The 14 SDLC artifact types produced by the discovery planner."""
 
     BRIEFING = "briefing"
     HYPOTHESES = "hypotheses"
@@ -22,6 +22,7 @@ class ArtifactType(enum.Enum):
     AUTH_MATRIX = "auth_matrix"
     ADRS = "adrs"
     TEST_PLAN = "test_plan"
+    NFR = "nfr"
 
 
 ARTIFACT_FILENAMES: dict[ArtifactType, str] = {
@@ -38,6 +39,7 @@ ARTIFACT_FILENAMES: dict[ArtifactType, str] = {
     ArtifactType.AUTH_MATRIX: "11-auth-matrix.md",
     ArtifactType.ADRS: "12-adrs.md",
     ArtifactType.TEST_PLAN: "13-test-plan.md",
+    ArtifactType.NFR: "14-nfr.md",
 }
 
 ARTIFACT_ORDER: list[ArtifactType] = [
@@ -54,6 +56,7 @@ ARTIFACT_ORDER: list[ArtifactType] = [
     ArtifactType.AUTH_MATRIX,
     ArtifactType.ADRS,
     ArtifactType.TEST_PLAN,
+    ArtifactType.NFR,
 ]
 
 

@@ -137,12 +137,12 @@ async def test_harness_with_provider_calls_generators(tmp_path) -> None:
     provider = MockProvider()
     harness = DiscoveryHarness(provider=provider, workdir=str(tmp_path), reflect=False)
     result = await harness.arun(SDLCRequest("Build a CRM", workdir=str(tmp_path)))
-    # 13 artifacts = 13 stream calls
-    assert len(provider.calls) == 13
-    assert result.artifact_count == 13
+    # 14 artifacts = 14 stream calls
+    assert len(provider.calls) == 14
+    assert result.artifact_count == 14
 
 
 def test_prompts_cover_all_artifact_types() -> None:
-    assert len(PROMPTS) == 13
+    assert len(PROMPTS) == 14
     missing = set(ArtifactType) - set(PROMPTS)
     assert not missing, f"Missing prompts for: {missing}"

@@ -13,8 +13,8 @@ from maestro.sdlc.schemas import (
 )
 
 
-def test_artifact_type_has_13_members() -> None:
-    assert len(ArtifactType) == 13
+def test_artifact_type_has_14_members() -> None:
+    assert len(ArtifactType) == 14
 
 
 def test_artifact_filenames_has_all_types() -> None:
@@ -26,11 +26,11 @@ def test_artifact_order_has_all_types() -> None:
     assert set(ARTIFACT_ORDER) == set(ArtifactType)
 
 
-def test_artifact_filenames_numbered_01_to_13() -> None:
+def test_artifact_filenames_numbered_01_to_14() -> None:
     numbers = sorted(
         int(v.split("-")[0]) for v in ARTIFACT_FILENAMES.values()
     )
-    assert numbers == list(range(1, 14))
+    assert numbers == list(range(1, 15))
 
 
 def test_sdlc_request_valid() -> None:
@@ -65,7 +65,7 @@ def test_discovery_result_artifact_count() -> None:
         for t in ArtifactType
     ]
     result = DiscoveryResult(request=req, artifacts=arts, spec_dir="/tmp/spec")
-    assert result.artifact_count == 13
+    assert result.artifact_count == 14
 
 
 def test_gap_item_dataclass() -> None:
@@ -105,3 +105,7 @@ def test_gap_answer_new_fields() -> None:
 def test_gap_answer_rejects_empty_selected() -> None:
     with pytest.raises(ValueError):
         GapAnswer(question="q", selected_options=[])
+
+
+def test_artifact_filenames_and_order_have_same_size() -> None:
+    assert len(ARTIFACT_FILENAMES) == len(ArtifactType) == len(ARTIFACT_ORDER) == 14

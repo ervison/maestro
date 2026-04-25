@@ -89,4 +89,12 @@ PROMPTS: dict[ArtifactType, str] = {
         "Write a test plan: test strategy, test types (unit, integration, e2e), coverage goals, and entry/exit criteria. "
         + _BASE_RESOLVED
     ),
+    ArtifactType.NFR: (
+        "You are a senior performance and reliability engineer. "
+        "Write the Non-Functional Requirements (NFR) document: performance targets, "
+        "availability SLAs, scalability constraints, security requirements, "
+        "compliance obligations, and operational thresholds. "
+        "Include measurable criteria for each requirement. "
+        + _BASE_RESOLVED
+    ),
 }

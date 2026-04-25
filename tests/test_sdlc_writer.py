@@ -35,7 +35,7 @@ def test_write_artifacts_writes_all_files(tmp_path: Path) -> None:
     result = _make_result(str(spec_dir))
     write_artifacts(result)
     written = list(spec_dir.glob("*.md"))
-    assert len(written) == 13
+    assert len(written) == 14
 
 
 def test_write_artifacts_content_correct(tmp_path: Path) -> None:
