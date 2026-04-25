@@ -83,7 +83,7 @@ EXPECTED_DEPS: dict[ArtifactType, set[ArtifactType]] = {
     ArtifactType.GAPS: {ArtifactType.BRIEFING},
     ArtifactType.PRD: {ArtifactType.BRIEFING, ArtifactType.HYPOTHESES, ArtifactType.GAPS},
     ArtifactType.FUNCTIONAL_SPEC: {ArtifactType.PRD},
-    ArtifactType.BUSINESS_RULES: {ArtifactType.PRD, ArtifactType.FUNCTIONAL_SPEC},
+    ArtifactType.BUSINESS_RULES: {ArtifactType.PRD},  # co-evolves with 05; not blocked by it (matriz v2)
     ArtifactType.NFR: {ArtifactType.PRD},
     ArtifactType.ADRS: {ArtifactType.PRD},
     ArtifactType.UX_SPEC: {ArtifactType.PRD, ArtifactType.FUNCTIONAL_SPEC},

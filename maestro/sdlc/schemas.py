@@ -43,20 +43,26 @@ ARTIFACT_FILENAMES: dict[ArtifactType, str] = {
 }
 
 ARTIFACT_ORDER: list[ArtifactType] = [
+    # Sprint 1 — Descoberta
     ArtifactType.BRIEFING,
     ArtifactType.HYPOTHESES,
     ArtifactType.GAPS,
+    # Sprint 2 — Definição
     ArtifactType.PRD,
+    # Sprint 3 — Especificação (co-evolução: 05/06/14 paralelos; 12 contínuo)
     ArtifactType.FUNCTIONAL_SPEC,
     ArtifactType.BUSINESS_RULES,
-    ArtifactType.ACCEPTANCE_CRITERIA,
-    ArtifactType.UX_SPEC,
-    ArtifactType.API_CONTRACTS,
-    ArtifactType.DATA_MODEL,
-    ArtifactType.AUTH_MATRIX,
-    ArtifactType.ADRS,
-    ArtifactType.TEST_PLAN,
     ArtifactType.NFR,
+    ArtifactType.ADRS,
+    # Sprint 4 — Experiência
+    ArtifactType.UX_SPEC,
+    # Sprint 5 — Realização técnica (11 → 10 ∥ 09)
+    ArtifactType.AUTH_MATRIX,
+    ArtifactType.DATA_MODEL,
+    ArtifactType.API_CONTRACTS,
+    # Sprint 6 — Validação (07 → 13)
+    ArtifactType.ACCEPTANCE_CRITERIA,
+    ArtifactType.TEST_PLAN,
 ]
 
 

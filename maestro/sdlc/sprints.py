@@ -57,7 +57,7 @@ SPRINTS: list[SprintDef] = [
         ),
         deps={
             ArtifactType.FUNCTIONAL_SPEC: (ArtifactType.PRD,),
-            ArtifactType.BUSINESS_RULES: (ArtifactType.PRD, ArtifactType.FUNCTIONAL_SPEC),
+            ArtifactType.BUSINESS_RULES: (ArtifactType.PRD,),  # co-evolves with FUNCTIONAL_SPEC; PRD only, not blocked by 05
             ArtifactType.NFR: (ArtifactType.PRD,),
             ArtifactType.ADRS: (ArtifactType.PRD,),
         },
