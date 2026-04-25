@@ -30,6 +30,7 @@ maestro/providers/chatgpt.py
 maestro/providers/copilot.py
 maestro/providers/registry.py
 maestro/sdlc/__init__.py
+maestro/sdlc/defaults.py
 maestro/sdlc/gaps_server.py
 maestro/sdlc/generators.py
 maestro/sdlc/harness.py

@@ -208,6 +208,7 @@ async def enrich_gap_items(
     context: str,
     *,
     max_concurrent: int = 3,
+    on_progress: Any = None,
 ) -> list[GapItem]:
     """Enrich gap items with LLM-generated options and UI metadata.
 
@@ -224,13 +225,19 @@ async def enrich_gap_items(
         return [_heuristic_enrich(item) for item in items]
 
     sem = asyncio.Semaphore(max_concurrent)
+    completed_count = 0
 
     async def _enrich_one(item: GapItem) -> GapItem:
+        nonlocal completed_count
         async with sem:
             try:
-                return await _llm_enrich(item, provider, model, context)
+                enriched = await _llm_enrich(item, provider, model, context)
             except Exception:
-                return _heuristic_enrich(item)
+                enriched = _heuristic_enrich(item)
+        completed_count += 1
+        if on_progress is not None:
+            on_progress(completed_count)
+        return enriched
 
     return list(await asyncio.gather(*(_enrich_one(item) for item in items)))
 
@@ -253,18 +260,46 @@ async def _llm_enrich(
         if isinstance(msg, str):
             collected_parts.append(msg)
         elif hasattr(msg, "content") and msg.content:
-            collected_parts = [msg.content]
+            collected_parts.append(msg.content)
     collected = "".join(collected_parts)
 
     data = _json.loads(collected.strip())
+    selection_mode = data.get("selection_mode")
+    options = data.get("options")
+    recommended_options = data.get("recommended_options", [])
+    allow_free_text = data.get("allow_free_text", False)
+    free_text_placeholder = data.get("free_text_placeholder", "")
+
+    if selection_mode not in {"single", "multiple"}:
+        raise ValueError("invalid selection_mode")
+    if (
+        not isinstance(options, list)
+        or len(options) < 3
+        or len(options) > 6
+        or not all(isinstance(o, str) and o for o in options)
+    ):
+        raise ValueError("invalid options")
+    if (
+        not isinstance(recommended_options, list)
+        or len(recommended_options) > 2
+        or not all(isinstance(o, str) and o in options for o in recommended_options)
+    ):
+        raise ValueError("invalid recommended_options")
+    if not isinstance(allow_free_text, bool):
+        raise ValueError("invalid allow_free_text")
+    if not isinstance(free_text_placeholder, str):
+        raise ValueError("invalid free_text_placeholder")
+    if not allow_free_text and free_text_placeholder:
+        raise ValueError("invalid free_text_placeholder")
+
     return GapItem(
         question=item.question,
-        options=[str(o) for o in data.get("options", [])],
-        selection_mode=data.get("selection_mode", "single"),
+        options=options,
+        selection_mode=selection_mode,
         recommended_index=0,
-        recommended_options=[str(o) for o in data.get("recommended_options", [])],
-        allow_free_text=bool(data.get("allow_free_text", False)),
-        free_text_placeholder=str(data.get("free_text_placeholder", "")),
+        recommended_options=recommended_options,
+        allow_free_text=allow_free_text,
+        free_text_placeholder=free_text_placeholder,
     )
 
 
@@ -519,25 +554,14 @@ async def resolve_gaps(
     # Run LLM enrichment in the background.  When done, push updated items
     # back into the server so the frontend can pick them up via polling.
     async def _background_enrich() -> None:
-        if provider is None:
-            server.update_items(heuristic_items)
-            return
-        sem = asyncio.Semaphore(3)
-        completed_count = 0
-
-        async def _one(idx: int, item: GapItem) -> tuple[int, GapItem]:
-            nonlocal completed_count
-            async with sem:
-                try:
-                    enriched = await _llm_enrich(item, provider, model, gaps_content[:500])
-                except Exception:
-                    enriched = _heuristic_enrich(item)
-            completed_count += 1
-            server.update_enriched_count(completed_count)
-            return idx, enriched
-
-        results = await asyncio.gather(*(_one(i, it) for i, it in enumerate(items)))
-        enriched_items = [item for _, item in sorted(results)]
+        enriched_items = await enrich_gap_items(
+            items,
+            provider=provider,
+            model=model,
+            context=gaps_content,
+            max_concurrent=3,
+            on_progress=server.update_enriched_count,
+        )
         server.update_items(enriched_items)
 
     enrich_task = asyncio.ensure_future(_background_enrich())
