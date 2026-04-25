@@ -205,6 +205,12 @@ def main():
         metavar="INT",
         help="Maximum reflect loop iterations (default: 5).",
     )
+    discover_p.add_argument(
+        "--sprints",
+        action="store_true",
+        default=False,
+        help="Use sprint-based DAG execution with gate reviews (opt-in, experimental).",
+    )
 
     args = parser.parse_args()
 
@@ -572,6 +578,7 @@ def _handle_run_single(args, wd, provider, model_id) -> None:
 def _handle_discover(args) -> None:
     """Handle the `maestro discover` subcommand."""
     from maestro.sdlc import DiscoveryHarness, SDLCRequest
+    from maestro.sdlc.schemas import ARTIFACT_FILENAMES
     from maestro.models import resolve_model
 
     try:
@@ -592,7 +599,8 @@ def _handle_discover(args) -> None:
 
     print(
         f"Starting SDLC discovery using model: {model_id or 'default'}\n"
-        "Generating 13 artifacts.\n"
+        f"Generating {len(ARTIFACT_FILENAMES)} artifacts"
+        f"{' (sprint mode)' if getattr(args, 'sprints', False) else ''}.\n"
         f"  If gaps are found, a questionnaire will open at http://localhost:{getattr(args, 'gaps_port', 4041)}\n"
         "  Answer all questions and click Submit to continue.\n",
         file=sys.stderr,
@@ -607,9 +615,17 @@ def _handle_discover(args) -> None:
         open_browser=not getattr(args, "no_browser", False),
         reflect=not getattr(args, "no_reflect", False),
         reflect_max_cycles=getattr(args, "reflect_max_cycles", 5),
+        use_sprints=getattr(args, "sprints", False),
     )
     result = harness.run(request)
     print(f"\n✓ {result.artifact_count} artifacts written to {result.spec_dir}")
+
+    if getattr(result, "gate_failures", None):
+        print(
+            f"⚠ {len(result.gate_failures)} sprint gate(s) failed — review notes above.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
 
 def _handle_planning_check(args) -> None:
