@@ -14,17 +14,26 @@ from maestro.sdlc.schemas import (
     ReflectReport,
 )
 
+_REFLECT_SYSTEM = (
+    "You are a senior software architect performing a MANDATORY quality evaluation. "
+    "Your assessments are authoritative and binding. "
+    "MANDATE: Do NOT rationalize a high score for a weak artifact. "
+    "Forbidden rationalizations:\n"
+    "- 'The intent is clear' → score the artifact as written, not as intended\n"
+    "- 'Close enough to the threshold' → 7.9 is NOT 8.0; score precisely\n"
+    "- 'This can be fixed later' → every unfixed problem lowers the score NOW\n"
+    "- 'The other artifacts compensate' → score each artifact on its own merits\n"
+    "You MUST respond with valid JSON only. No preamble. No explanation outside the JSON block."
+)
+
 DIMENSIONS = [
-    "Cobertura de domínio",
-    "Consistência de nomenclatura",
-    "Alinhamento modelo ↔ API",
-    "Cobertura de RN em ACs",
-    "Coerência PRD ↔ técnico",
-    "Qualidade dos ADRs",
+    "Cobertura de domínio e requisitos",
+    "Consistência entre artefatos",
+    "Completude dos artefatos",
+    "Correção técnica e factual",
+    "Alinhamento modelo ↔ API ↔ dados",
     "Plano de testes vs. escopo",
-    "Qualidade individual",
-    "Rastreabilidade (gaps → decisões)",
-    "Integridade dos artefatos",
+    "Rastreabilidade (fonte → requisito → artefato → decisão)",
     "Cobertura de requisitos não-funcionais (NFR)",
 ]
 
@@ -44,6 +53,9 @@ def _extract_json(text: str) -> Any:
 
 class ReflectLoop:
     """Iterative quality evaluation loop for generated SDLC artifacts."""
+
+    def __init__(self, target_mean: float = TARGET_MEAN) -> None:
+        self._target_mean = target_mean
 
     def _read_spec_files(self, spec_dir: Path) -> dict[str, str]:
         """Read all *.md files from spec_dir. Returns {filename: content}."""
@@ -66,9 +78,7 @@ class ReflectLoop:
         dimensions_list = "\n".join(
             f"{i + 1}. {d}" for i, d in enumerate(DIMENSIONS)
         )
-        return f"""You are a senior software architect reviewing a set of SDLC specification artifacts.
-
-Evaluate the following spec files across {len(DIMENSIONS)} quality dimensions, then identify the top-3 most important problems to fix.
+        return f"""Evaluate the following spec files across {len(DIMENSIONS)} quality dimensions, then identify the top-3 most important problems to fix.
 
 ## Dimensions (score 0-10 each)
 {dimensions_list}
@@ -77,6 +87,8 @@ Evaluate the following spec files across {len(DIMENSIONS)} quality dimensions, t
 {files_section}
 
 ## Instructions
+MANDATE: Score each dimension independently. A score of 8+ requires explicit evidence in the artifact — not inference or intent. A score below 8 MUST be listed in problems if it is in the top-3 most impactful issues.
+
 Respond ONLY with a JSON object in this exact format:
 ```json
 {{
@@ -103,9 +115,7 @@ Do not include any text outside the JSON block."""
         files_section = "\n\n".join(
             f"=== {fname} ===\n{content}" for fname, content in spec_contents.items()
         )
-        return f"""You are a senior software architect making targeted corrections to SDLC specification files.
-
-## Problems to fix
+        return f"""## Problems to fix
 {problems_text}
 
 ## Current Spec Files
@@ -128,6 +138,8 @@ Rules:
 - "old" must be an EXACT substring found verbatim in the file (copy-paste from the file content above).
 - Keep patches minimal — change only what is necessary.
 - Do not include patches for files not listed in the problems.
+- MANDATE: Each patch MUST address exactly one problem from the list above. Do NOT bundle multiple problems into one patch.
+- Do NOT rationalize skipping a problem with 'the change would be too large' — make the minimal surgical patch that fixes the root issue.
 - Do not include any text outside the JSON block."""
 
     def _apply_patches(
@@ -174,6 +186,7 @@ Rules:
         from maestro.providers.base import Message
 
         messages = [
+            Message(role="system", content=_REFLECT_SYSTEM),
             Message(role="user", content=prompt),
         ]
         parts: list[str] = []
@@ -237,7 +250,7 @@ Rules:
             cycle = ReflectCycle(cycle=cycle_num, scores=dim_scores, mean=mean)
             cycles.append(cycle)
 
-            if mean >= TARGET_MEAN:
+            if mean >= self._target_mean:
                 return ReflectReport(cycles=cycles, final_mean=mean, passed=True)
 
             # Step 3: Apply corrections if not last cycle
@@ -282,7 +295,8 @@ async def run_reflect_loop(
     model: str | None,
     spec_dir: Path,
     max_cycles: int = 5,
+    target_mean: float = TARGET_MEAN,
 ) -> ReflectReport:
     """Convenience entry point for running the reflect loop."""
-    loop = ReflectLoop()
+    loop = ReflectLoop(target_mean=target_mean)
     return await loop.run(provider=provider, model=model, spec_dir=spec_dir, max_cycles=max_cycles)

@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 
+from maestro.sdlc.defaults import TECHNICAL_DEFAULTS
 from maestro.sdlc.gaps_server import resolve_gaps
 from maestro.sdlc.schemas import (
     ArtifactType,
@@ -31,6 +32,7 @@ class DiscoveryHarness:
         open_browser: bool = True,
         reflect: bool = True,
         reflect_max_cycles: int = 5,
+        reflect_target_mean: float = 8.0,
         use_sprints: bool = False,
         reviewer=None,
     ) -> None:
@@ -41,6 +43,7 @@ class DiscoveryHarness:
         self._open_browser = open_browser
         self.reflect = reflect
         self.reflect_max_cycles = reflect_max_cycles
+        self.reflect_target_mean = reflect_target_mean
         self.use_sprints = use_sprints
         self._gate_failures: list[GateResult] = []
 
@@ -59,7 +62,21 @@ class DiscoveryHarness:
         effective_prompt = request.prompt
         if request.brownfield:
             scan = self._scan_codebase(request.workdir)
-            effective_prompt = f"{request.prompt}\n\n## Existing Codebase\n{scan}"
+            effective_prompt = (
+                f"{request.prompt}\n\n"
+                "## Existing Codebase (AUTHORITATIVE — do not contradict or ignore)\n\n"
+                "The following codebase scan represents the CURRENT STATE of the system. "
+                "Every artifact you generate MUST be consistent with this existing implementation. "
+                "Do NOT propose patterns, libraries, or architectures that contradict what is already in place "
+                "unless you explicitly flag the contradiction as a [GAP] or architectural decision.\n\n"
+                f"{scan}"
+            )
+
+        # Prepend technical defaults so every artifact generator sees them as
+        # authoritative constraints unless the user explicitly overrides them.
+        effective_prompt = (
+            f"{TECHNICAL_DEFAULTS}\n\n## User Request\n\n{effective_prompt}"
+        )
 
         effective_request = SDLCRequest(
             prompt=effective_prompt,
@@ -94,7 +111,7 @@ class DiscoveryHarness:
         if self._provider is not None and self.reflect and hasattr(self._provider, "stream"):
             from maestro.sdlc.reflect import ReflectLoop
 
-            loop = ReflectLoop()
+            loop = ReflectLoop(target_mean=self.reflect_target_mean)
             reflect_report = await loop.run(
                 provider=self._provider,
                 model=self._model,
@@ -135,7 +152,7 @@ class DiscoveryHarness:
             artifacts.append(artifact)
             write_artifact(spec_dir, artifact)
             if artifact_type == ArtifactType.GAPS and self._provider is not None:
-                request = await self._resolve_gaps(request, artifact)
+                request = await self._resolve_gaps(request, artifact, spec_dir)
             print(
                 f"[{i}/{total}] ✓ {artifact.filename}",
                 file=sys.stderr,
@@ -222,7 +239,7 @@ class DiscoveryHarness:
 
                 for artifact in wave_artifacts:
                     if artifact.artifact_type == ArtifactType.GAPS:
-                        current_request = await self._resolve_gaps(current_request, artifact)
+                        current_request = await self._resolve_gaps(current_request, artifact, spec_dir)
                         gaps_resolved = True
 
             gate = await self._run_gate(sprint.sprint_id, sprint_artifacts, artifacts)
@@ -281,6 +298,7 @@ class DiscoveryHarness:
         self,
         request: SDLCRequest,
         gaps_artifact: SDLCArtifact,
+        spec_dir: Path | None = None,
     ) -> SDLCRequest:
         """Resolve gap questions via the gaps server."""
         answers = await resolve_gaps(
@@ -299,8 +317,35 @@ class DiscoveryHarness:
                     line += f" (note: {answer.free_text})"
                 answers_lines.append(line)
             answers_text = "\n".join(answers_lines)
+
+            # Persist answers back into the gaps artifact file so the spec
+            # directory contains the full question+answer record.
+            if spec_dir is not None:
+                from maestro.sdlc.writer import write_artifact
+
+                updated_content = (
+                    gaps_artifact.content.rstrip()
+                    + "\n\n---\n\n## Gap Answers\n\n"
+                    + answers_text
+                    + "\n"
+                )
+                updated_artifact = SDLCArtifact(
+                    artifact_type=gaps_artifact.artifact_type,
+                    filename=gaps_artifact.filename,
+                    content=updated_content,
+                )
+                write_artifact(spec_dir, updated_artifact)
+
             return SDLCRequest(
-                prompt=f"{request.prompt}\n\n## Gap Answers\n{answers_text}",
+                prompt=(
+                    f"{request.prompt}\n\n"
+                    "## Gap Answers (AUTHORITATIVE — these answers SUPERSEDE any prior hypothesis or assumption)\n\n"
+                    "The following answers were provided explicitly by the user. "
+                    "They are binding constraints. Do NOT revert to hypotheses or defaults where an answer exists. "
+                    "Silence on a topic in these answers does NOT mean the hypothesis stands — "
+                    "only explicit answers are binding.\n\n"
+                    f"{answers_text}"
+                ),
                 language=request.language,
                 brownfield=request.brownfield,
                 workdir=request.workdir,

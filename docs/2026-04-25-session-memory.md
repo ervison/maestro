@@ -17,6 +17,61 @@ CLI-driven AI agent que executa tarefas de engenharia de software. Foi estendido
 
 ---
 
+## Sessão 2026-04-25 — Consistência de Artefatos (Cross-Artifact Coherence)
+
+### Problema Identificado
+Análise manual dos artefatos gerados revelou **3 problemas críticos de consistência**:
+
+1. **Conflito de limite de upload de imagem (14 NFR ↔ 09 + 05 + 06)** — NFR definia 5 MB, API-contracts/functional-spec/business-rules usavam 2 MB. NFR é a fonte normativa mas não era injetado como contexto nos downstream.
+2. **Contradição estrutural na auth-matrix (11 ↔ 05 + 06)** — auth-matrix restringia veterinários a read-only; functional-spec permitia create/edit/delete para usuários autenticados. Gerados em paralelo no Sprint 3 sem ver um ao outro.
+3. **API-contracts sem controle de papel por endpoint (09 ↔ 11)** — endpoints POST/PUT/DELETE permitiam qualquer token JWT sem distinção de papel.
+
+**Inconsistências leves:** stack decisions espalhados (PRD/func-spec em vez de ADRs); `data_model` sem campo `role`; acceptance-criteria sem cenários de controle de acesso.
+
+### Root Cause
+Dois vetores:
+- `generators.py` passava apenas `request.prompt` para cada artefato — sem contexto dos upstream já gerados
+- Gates do reviewer validavam estrutura/presença mas não faziam cross-check de valores concretos entre documentos
+
+### Solução Implementada
+
+#### `maestro/sdlc/prompts.py`
+Prompts reformulados com instruções explícitas de ancoragem:
+- `NFR`: declarado como fonte normativa única para thresholds numéricos
+- `API_CONTRACTS`: instrução `CRITICAL` para usar exatamente os valores do NFR e implementar controle de papel por endpoint
+- `AUTH_MATRIX`: instrução `CRITICAL` para ser consistente com o que `functional-spec` define
+- `DATA_MODEL`: instrução `CRITICAL` para incluir campo `role` na entidade User
+- `BUSINESS_RULES`: proibido inventar valores — copiar do PRD/NFR
+- `FUNCTIONAL_SPEC`: definir papéis e permissões explicitamente (fonte para auth-matrix)
+- `ADRS`: tecnologia de stack deve ir aqui, não dispersa em outros artefatos
+- `ACCEPTANCE_CRITERIA` e `TEST_PLAN`: cobertura obrigatória de papéis e thresholds NFR
+
+#### `maestro/sdlc/generators.py`
+- Nova função `_build_user_message()` injeta artefatos upstream como seção `## Prior Artifacts (use as authoritative source)` no prompt de usuário
+- `generate_artifact()` aceita `prior_artifacts: list[SDLCArtifact] | None = None`
+
+#### `maestro/sdlc/harness.py`
+- `_run_with_sprints()` mantém `artifact_map: dict[ArtifactType, SDLCArtifact]` durante a execução
+- Novo método estático `_get_prior_artifacts()` consulta o DAG de deps de `sprints.py` e retorna os artefatos já gerados como contexto
+- `_generate_artifact()` aceita e repassa `prior_artifacts`
+
+#### `maestro/sdlc/reviewer.py`
+- Gates 3, 4, 5, 6 reforçados com instruções `CROSS-CHECK` explícitas:
+  - Gate 3: compara thresholds numéricos entre business-rules e NFR
+  - Gate 4: verifica consistência de papéis entre UX-spec e func-spec
+  - Gate 5: verifica role/permission match entre auth-matrix e func-spec, verifica campo `role` no data-model, verifica thresholds NFR nos contratos de API
+  - Gate 6: exige cenários de controle de acesso por papel nos acceptance-criteria
+
+#### `tests/test_sdlc_harness.py`
+- Todos os `fake_generate` e closures `capturing_gen`/`counting_gen` atualizados para aceitar `prior_artifacts=None`
+
+### Resultado
+- **104 testes passando** — zero regressions
+- Modo `--sprints` agora injeta artefatos upstream como contexto real no LLM call de cada artefato downstream
+- O reviewer agora detecta e reporta discrepâncias de valores concretos entre documentos
+
+---
+
 ## O Que Foi Feito Nesta Sessão (SDLC Discovery v2)
 
 ### Contexto

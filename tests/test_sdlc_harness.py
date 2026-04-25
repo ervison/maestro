@@ -75,9 +75,9 @@ def test_harness_brownfield_true_appends_codebase_context(tmp_path: Path) -> Non
 
     original_gen = harness._generate_artifact
 
-    async def capturing_gen(req, artifact_type):
+    async def capturing_gen(req, artifact_type, prior_artifacts=None):
         captured_prompts.append(req.prompt)
-        return await original_gen(req, artifact_type)
+        return await original_gen(req, artifact_type, prior_artifacts)
 
     harness._generate_artifact = capturing_gen
     harness.run(SDLCRequest("Build X", workdir=str(tmp_path), brownfield=True))
@@ -94,8 +94,8 @@ def test_harness_writes_each_artifact_incrementally(tmp_path: Path) -> None:
 
     original_gen = harness._generate_artifact
 
-    async def counting_gen(req, artifact_type):
-        artifact = await original_gen(req, artifact_type)
+    async def counting_gen(req, artifact_type, prior_artifacts=None):
+        artifact = await original_gen(req, artifact_type, prior_artifacts)
         # Count how many files exist on disk right after this artifact is generated
         # (the write happens inside arun, right after _generate_artifact returns)
         return artifact
@@ -130,7 +130,7 @@ def test_harness_resolves_gaps_and_enriches_prompt(tmp_path: Path, monkeypatch) 
 
     call_log: list[str] = []
 
-    async def fake_generate(self_ref, request, artifact_type):
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
         del self_ref
         call_log.append(f"{artifact_type.value}:{request.prompt[-30:]}")
         content = "[GAP] Is SSO required?" if artifact_type == ArtifactType.GAPS else "# content"
@@ -158,7 +158,7 @@ def test_harness_post_gap_artifacts_use_resolved_prompt_rules(tmp_path: Path) ->
 
     captured_prompt_by_type: dict[ArtifactType, str] = {}
 
-    async def fake_generate(self_ref, request, artifact_type):
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
         del self_ref
         from maestro.sdlc.schemas import SDLCArtifact
 
@@ -193,13 +193,58 @@ def test_harness_reflect_disabled_produces_no_report(tmp_path: Path) -> None:
     assert result.reflect_report is None
 
 
+def test_harness_passes_reflect_target_mean_to_reflect_loop(tmp_path: Path) -> None:
+    import asyncio
+
+    from maestro.sdlc.schemas import ReflectReport, SDLCArtifact
+
+    captured: dict[str, float | int | None] = {"target_mean": None, "max_cycles": None}
+
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
+        del self_ref, request, prior_artifacts
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content="# content",
+        )
+
+    class FakeReflectLoop:
+        def __init__(self, target_mean: float = 8.0) -> None:
+            captured["target_mean"] = target_mean
+
+        async def run(self, provider, model, spec_dir, max_cycles=5):
+            del provider, model, spec_dir
+            captured["max_cycles"] = max_cycles
+            return ReflectReport(cycles=[], final_mean=0.0, passed=False)
+
+    class FakeProvider:
+        async def stream(self, messages, tools=None, model=None):
+            del messages, tools, model
+            if False:
+                yield ""
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch("maestro.sdlc.reflect.ReflectLoop", new=FakeReflectLoop):
+            harness = DiscoveryHarness(
+                provider=FakeProvider(),
+                model="test",
+                workdir=str(tmp_path),
+                open_browser=False,
+                reflect_target_mean=7.25,
+                reflect_max_cycles=4,
+            )
+            asyncio.run(harness.arun(SDLCRequest("Build X", workdir=str(tmp_path))))
+
+    assert captured == {"target_mean": 7.25, "max_cycles": 4}
+
+
 def test_harness_raises_if_post_gap_artifact_has_open_markers(tmp_path: Path) -> None:
     """After GAPS are resolved, later artifacts must not keep [GAP]/[HYPOTHESIS]."""
     import asyncio
 
     from maestro.sdlc.schemas import SDLCArtifact
 
-    async def fake_generate(self_ref, request, artifact_type):
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
         del self_ref, request
         if artifact_type == ArtifactType.PRD:
             content = "[HYPOTHESIS] still open"
@@ -227,7 +272,7 @@ def test_harness_allows_inline_marker_mentions_after_gap_resolution(tmp_path: Pa
 
     from maestro.sdlc.schemas import SDLCArtifact
 
-    async def fake_generate(self_ref, request, artifact_type):
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
         del self_ref, request
         if artifact_type == ArtifactType.GAPS:
             content = "[GAP] Is SSO required?"
@@ -257,7 +302,7 @@ def test_harness_deduplicates_repeated_artifact_content(tmp_path: Path) -> None:
 
     repeated = "# PRD\n\nLinha A\nLinha B"
 
-    async def fake_generate(self_ref, request, artifact_type):
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
         del self_ref, request
         if artifact_type == ArtifactType.GAPS:
             content = "[GAP] Is SSO required?"
@@ -288,7 +333,7 @@ async def test_harness_sprint_mode_produces_14_artifacts(tmp_path) -> None:
 
     call_order: list[str] = []
 
-    async def fake_generate(self_ref, request, artifact_type):
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
         call_order.append(artifact_type.value)
         return SDLCArtifact(
             artifact_type=artifact_type,
@@ -312,7 +357,7 @@ async def test_harness_sprint_mode_runs_gate_reviews(tmp_path) -> None:
     from unittest.mock import patch, AsyncMock
     from maestro.sdlc.schemas import SDLCArtifact
 
-    async def fake_generate(self_ref, request, artifact_type):
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
         return SDLCArtifact(
             artifact_type=artifact_type,
             filename=ARTIFACT_FILENAMES[artifact_type],
@@ -362,7 +407,7 @@ async def test_sprint_mode_continues_after_gate_failure(tmp_path) -> None:
 
     failing_reviewer = StubReviewer(always_fail=True)
 
-    async def fake_generate(self_ref, request, artifact_type):
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
         return SDLCArtifact(
             artifact_type=artifact_type,
             filename=ARTIFACT_FILENAMES[artifact_type],
@@ -385,3 +430,76 @@ async def test_sprint_mode_continues_after_gate_failure(tmp_path) -> None:
     assert result.artifact_count == 14, "all artifacts must be generated despite gate failure"
     assert len(result.gate_failures) == 6, "all 6 sprint gates failed and were recorded"
     assert failing_reviewer.calls == [1, 2, 3, 4, 5, 6], "all sprints must invoke the gate"
+
+
+def test_resolve_gaps_writes_answers_to_gaps_file(tmp_path: Path) -> None:
+    """_resolve_gaps() must persist the gap answers back into the 03-gaps.md file."""
+    import asyncio
+
+    from maestro.sdlc.schemas import GapAnswer, SDLCArtifact
+    from maestro.sdlc.writer import write_artifact
+
+    # Arrange: write an initial gaps file with a question marker
+    gaps_content = "# Gaps\n\n[GAP] Is SSO required?"
+    gaps_artifact = SDLCArtifact(
+        artifact_type=ArtifactType.GAPS,
+        filename=ARTIFACT_FILENAMES[ArtifactType.GAPS],
+        content=gaps_content,
+    )
+    spec_dir = tmp_path / "spec"
+    spec_dir.mkdir()
+    write_artifact(spec_dir, gaps_artifact)
+
+    mock_answers = [
+        GapAnswer(question="Is SSO required?", selected_options=["Yes"], free_text="SAML preferred"),
+    ]
+
+    harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+    request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+
+    with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=mock_answers)):
+        asyncio.run(harness._resolve_gaps(request, gaps_artifact, spec_dir=spec_dir))
+
+    gaps_file = spec_dir / ARTIFACT_FILENAMES[ArtifactType.GAPS]
+    assert gaps_file.exists(), "gaps file must exist after _resolve_gaps"
+    written = gaps_file.read_text()
+    assert "## Gap Answers" in written, "section header must be present"
+    assert "Is SSO required? → Yes" in written, "answer line must be written"
+    assert "(note: SAML preferred)" in written, "free_text note must be written"
+    # Original content must be preserved
+    assert gaps_content.strip() in written, "original gaps content must be preserved"
+
+
+def test_harness_injects_technical_defaults_into_prompt(tmp_path: Path) -> None:
+    """arun() must prepend TECHNICAL_DEFAULTS to the effective prompt so every
+    artifact generator receives the baseline tech constraints."""
+    import asyncio
+
+    from maestro.sdlc.defaults import TECHNICAL_DEFAULTS
+    from maestro.sdlc.schemas import SDLCArtifact
+
+    captured_prompts: list[str] = []
+
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
+        del self_ref
+        captured_prompts.append(request.prompt)
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content="# content",
+        )
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+            request = SDLCRequest(prompt="Build a cat registry app", workdir=str(tmp_path))
+            asyncio.run(harness.arun(request))
+
+    assert captured_prompts, "at least one artifact must be generated"
+    first_prompt = captured_prompts[0]
+    assert "Technical Defaults" in first_prompt, "defaults header must be in prompt"
+    assert "PostgreSQL" in first_prompt, "PostgreSQL default must be present"
+    assert "Next.js" in first_prompt, "Next.js default must be present"
+    assert "Build a cat registry app" in first_prompt, "original user request must be preserved"
+    # Defaults must appear before the user request
+    assert first_prompt.index("Technical Defaults") < first_prompt.index("Build a cat registry app")

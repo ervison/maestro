@@ -91,11 +91,11 @@ async def test_generate_artifact_uses_system_prompt() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generate_artifact_empty_provider_content_returns_placeholder() -> None:
+async def test_generate_artifact_empty_provider_content_raises_runtime_error() -> None:
     provider = EmptyProvider()
     request = SDLCRequest("Build a CRM")
-    result = await generate_artifact(provider, None, request, ArtifactType.PRD)
-    assert "(no content generated)" in result.content
+    with pytest.raises(RuntimeError, match="provider returned empty content after all attempts"):
+        await generate_artifact(provider, None, request, ArtifactType.PRD)
 
 
 @pytest.mark.asyncio

@@ -174,19 +174,28 @@ def _looks_portuguese(text: str) -> bool:
 
 
 _ENRICH_SYSTEM = """\
-You are a requirements analyst. Given a gap question from an SDLC discovery session, \
-return a JSON object (no markdown, raw JSON only) with exactly these fields:
-- selection_mode: "single" if the question has one correct answer, "multiple" if several can apply simultaneously
-- options: array of 3-6 short, concrete, mutually-understandable answer strings (NOT sentence fragments of the question itself)
-- recommended_options: array with 0-2 options you consider most common/default (must be items from options)
-- allow_free_text: true if the question is open-ended enough to need a custom answer
-- free_text_placeholder: short placeholder string for the textarea when allow_free_text is true, else ""
+You are a requirements analyst performing a MANDATORY enrichment task. \
+Your output is consumed directly by a UI — it MUST be machine-parseable. \
+Your role is authoritative: produce exactly the schema requested, nothing more.
 
-Rules:
-- Each option must be a standalone phrase a user can select without reading the question again
-- Do NOT split the question sentence into fragments as options
-- Use the project context to make options domain-relevant
-- Respond with ONLY the JSON object, no explanation, no markdown fences
+Return a JSON object (no markdown, raw JSON only) with EXACTLY these fields:
+- selection_mode: "single" if exactly one answer applies, "multiple" if several can apply simultaneously
+- options: array of 3-6 SHORT, CONCRETE, STANDALONE answer strings
+- recommended_options: array of 0-2 items from options you consider most common/default
+- allow_free_text: true if the question requires a custom answer not coverable by options
+- free_text_placeholder: short placeholder for the textarea when allow_free_text=true, else ""
+
+MANDATORY RULES — violations produce broken UI:
+- Each option MUST be a self-contained phrase. A user reading only the option must understand what they are selecting.
+- Do NOT fragment the question sentence into pseudo-options. That is a FAILURE.
+- Do NOT invent domain-specific options that have no basis in the project context provided.
+- Do NOT produce fewer than 3 options. A single option defeats the purpose of a selection UI.
+- Respond with ONLY the JSON object. No explanation. No markdown fences. No preamble.
+
+RATIONALIZATION GUARD — these rationalizations are FORBIDDEN:
+- "The question is self-explanatory" → still produce concrete options
+- "The user will know what to pick" → still produce concrete options
+- "There are only two obvious answers" → add a third meaningful option
 """
 
 _ENRICH_USER_TMPL = "Project context: {context}\n\nGap question: {question}"
@@ -197,21 +206,33 @@ async def enrich_gap_items(
     provider: Any,
     model: str | None,
     context: str,
+    *,
+    max_concurrent: int = 3,
 ) -> list[GapItem]:
     """Enrich gap items with LLM-generated options and UI metadata.
 
-    Falls back to heuristic if provider is None or returns unparseable content.
+    Calls are made in parallel (up to *max_concurrent* at a time) to avoid
+    making the user wait for a sequential chain of LLM round-trips.  The
+    semaphore keeps request rate reasonable for hosted providers.
+
+    Falls back to heuristic if provider is None or a call returns unparseable
+    content.
     """
-    enriched: list[GapItem] = []
-    for item in items:
-        if provider is None:
-            enriched.append(_heuristic_enrich(item))
-            continue
-        try:
-            enriched.append(await _llm_enrich(item, provider, model, context))
-        except Exception:
-            enriched.append(_heuristic_enrich(item))
-    return enriched
+    import asyncio
+
+    if provider is None:
+        return [_heuristic_enrich(item) for item in items]
+
+    sem = asyncio.Semaphore(max_concurrent)
+
+    async def _enrich_one(item: GapItem) -> GapItem:
+        async with sem:
+            try:
+                return await _llm_enrich(item, provider, model, context)
+            except Exception:
+                return _heuristic_enrich(item)
+
+    return list(await asyncio.gather(*(_enrich_one(item) for item in items)))
 
 
 async def _llm_enrich(
@@ -305,6 +326,8 @@ class GapsServer:
 
     def __init__(self, items: list[GapItem], port: int = 4041) -> None:
         self._items = items
+        self._enriched_count: int = 0
+        self._enrich_ready: bool = False
         self._requested_port = port
         self._answers: list[GapAnswer] | None = None
         self._event = threading.Event()
@@ -315,6 +338,16 @@ class GapsServer:
         if self._server is None:
             raise RuntimeError("Server not started")
         return self._server.server_address[1]
+
+    def update_items(self, items: list[GapItem]) -> None:
+        """Replace items with enriched versions and mark ready."""
+        self._items = items
+        self._enriched_count = len(items)
+        self._enrich_ready = True
+
+    def update_enriched_count(self, count: int) -> None:
+        """Update the count of enriched items (for progress reporting)."""
+        self._enriched_count = count
 
     def start(self) -> None:
         """Start the HTTP server in a daemon thread."""
@@ -349,6 +382,8 @@ class GapsServer:
                     self._serve_html()
                 elif self.path == "/gaps":
                     self._serve_gaps_json()
+                elif self.path == "/gaps/status":
+                    self._serve_status_json()
                 else:
                     self.send_error(404)
 
@@ -390,6 +425,20 @@ class GapsServer:
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 # no wildcard CORS header — localhost-only UI
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _serve_status_json(self) -> None:
+                total = len(server_ref._items)
+                payload = {
+                    "ready": server_ref._enrich_ready,
+                    "enriched": server_ref._enriched_count,
+                    "total": total,
+                }
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -446,21 +495,61 @@ async def resolve_gaps(
     port: int = 4041,
     open_browser: bool = True,
 ) -> list[GapAnswer]:
-    """Parse gaps from markdown, enrich with LLM, serve questionnaire, block until answered."""
+    """Parse gaps from markdown, serve questionnaire, block until answered.
+
+    The server starts immediately with heuristic-enriched items so the browser
+    can open without delay.  LLM enrichment runs in the background (up to 3
+    concurrent calls) and the frontend polls ``/gaps/status`` to show a
+    progress bar until the enriched questions are ready.
+    """
+    import asyncio
+
     items = parse_gaps(gaps_content)
     if not items:
         return []
 
-    items = await enrich_gap_items(items, provider=provider, model=model, context=gaps_content[:500])
-
-    server = serve_gaps(items, port=port)
+    # Heuristic enrichment is instant — start serving right away so the
+    # browser opens before any LLM call is made.
+    heuristic_items = [_heuristic_enrich(item) for item in items]
+    server = serve_gaps(heuristic_items, port=port)
     url = f"http://localhost:{server.port}"
     if open_browser:
         webbrowser.open(url)
 
+    # Run LLM enrichment in the background.  When done, push updated items
+    # back into the server so the frontend can pick them up via polling.
+    async def _background_enrich() -> None:
+        if provider is None:
+            server.update_items(heuristic_items)
+            return
+        sem = asyncio.Semaphore(3)
+        completed_count = 0
+
+        async def _one(idx: int, item: GapItem) -> tuple[int, GapItem]:
+            nonlocal completed_count
+            async with sem:
+                try:
+                    enriched = await _llm_enrich(item, provider, model, gaps_content[:500])
+                except Exception:
+                    enriched = _heuristic_enrich(item)
+            completed_count += 1
+            server.update_enriched_count(completed_count)
+            return idx, enriched
+
+        results = await asyncio.gather(*(_one(i, it) for i, it in enumerate(items)))
+        enriched_items = [item for _, item in sorted(results)]
+        server.update_items(enriched_items)
+
+    enrich_task = asyncio.ensure_future(_background_enrich())
+
+    # get_answers() calls threading.Event.wait() which blocks the OS thread.
+    # Running it via run_in_executor frees the asyncio event loop so that
+    # _background_enrich can make progress while we wait for the user.
+    loop = asyncio.get_event_loop()
     try:
-        answers = server.get_answers(timeout=None)
+        answers = await loop.run_in_executor(None, lambda: server.get_answers(timeout=None))
     finally:
+        enrich_task.cancel()
         server.stop()
 
     return answers or []

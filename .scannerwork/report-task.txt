@@ -2,5 +2,5 @@ projectKey=maestro-python
 serverUrl=http://192.168.88.11:9001
 serverVersion=26.2.0.119303
 dashboardUrl=http://192.168.88.11:9001/dashboard?id=maestro-python
-ceTaskId=415e57a1-e6cf-43cc-9af6-cb3763c266e0
-ceTaskUrl=http://192.168.88.11:9001/api/ce/task?id=415e57a1-e6cf-43cc-9af6-cb3763c266e0
+ceTaskId=d43c583d-f4dc-46d2-b8f0-0d3744357d5d
+ceTaskUrl=http://192.168.88.11:9001/api/ce/task?id=d43c583d-f4dc-46d2-b8f0-0d3744357d5d

@@ -68,8 +68,8 @@ async def generate_artifact(
             await asyncio.sleep(1)
 
     if not content:
-        content = (
-            f"# {artifact_type.value.replace('_', ' ').title()}\n\n(no content generated)\n"
+        raise RuntimeError(
+            f"[generators] {artifact_type.value}: provider returned empty content after all attempts"
         )
     filename = ARTIFACT_FILENAMES[artifact_type]
     return SDLCArtifact(artifact_type=artifact_type, filename=filename, content=content)

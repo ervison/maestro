@@ -63,6 +63,412 @@
   }
   #theme-btn:hover { color: var(--text-title); border-color: var(--accent); }
 
+  /* Progress bar */
+  #enrich-progress {
+    margin-bottom: 24px;
+    display: none;
+  }
+  #enrich-progress .progress-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .progress-track {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  #progress-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.4s ease;
+  }
+
+  .gap-card {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .gap-number { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .gap-question { font-size: 15px; font-weight: 600; color: var(--text-title); margin-bottom: 16px; line-height: 1.5; }
+
+  .options { display: flex; flex-direction: column; gap: 8px; }
+  .option-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .option-label:hover { border-color: var(--accent); }
+  .option-label.recommended { border-color: var(--yellow); }
+  .option-label input[type="radio"] { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; }
+  .option-label input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; }
+  .option-label.selected { border-color: var(--accent); background: var(--accent-bg); }
+  .option-text { flex: 1; }
+  .rec-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--yellow);
+    border: 1px solid var(--yellow);
+    border-radius: 10px;
+    padding: 1px 7px;
+    flex-shrink: 0;
+  }
+  .free-text {
+    width: 100%;
+    margin-top: 10px;
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 12px;
+    resize: vertical;
+  }
+  .free-text:focus { outline: none; border-color: var(--accent); }
+  .mode-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    display: block;
+  }
+
+  footer { margin-top: 32px; display: flex; gap: 12px; align-items: center; }
+  #submit-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 28px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  #submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #submit-btn:hover:not(:disabled) { opacity: 0.85; }
+  #status { font-size: 13px; color: var(--text-muted); }
+  #status.ok { color: var(--green); }
+  #status.err { color: var(--red); }
+
+  #loading, #done-msg { text-align: center; color: var(--text-muted); padding: 48px; display: none; }
+
+  /* Skeleton loading cards */
+  .skeleton-card {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .skeleton-line {
+    background: var(--border);
+    border-radius: 4px;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  .skeleton-line.short { height: 10px; width: 30%; margin-bottom: 10px; }
+  .skeleton-line.long  { height: 14px; width: 80%; margin-bottom: 16px; }
+  .skeleton-line.opt   { height: 38px; width: 100%; margin-bottom: 8px; border-radius: 6px; }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 0.8; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>Gap Questionnaire</h1>
+      <div class="subtitle">Answer all questions to continue the SDLC pipeline</div>
+    </div>
+    <button id="theme-btn" onclick="toggleTheme()">☀️ Light</button>
+  </header>
+
+  <div id="enrich-progress">
+    <div class="progress-label">
+      <span id="progress-label-text">Generating smart options…</span>
+      <span id="progress-fraction"></span>
+    </div>
+    <div class="progress-track"><div id="progress-bar"></div></div>
+  </div>
+
+  <div id="loading">Loading questions…</div>
+  <div id="questions"></div>
+  <div id="done-msg">✓ Answers submitted — pipeline is resuming. You can close this tab.</div>
+
+  <footer>
+    <button id="submit-btn" onclick="submitAnswers()" disabled>Submit Answers</button>
+    <span id="status"></span>
+  </footer>
+</div>
+
+<script>
+let gaps = [];
+let pollTimer = null;
+let rendered = false;
+
+function renderSkeletons(total) {
+  const container = document.getElementById('questions');
+  container.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const card = document.createElement('div');
+    card.className = 'skeleton-card';
+    card.innerHTML = `
+      <div class="skeleton-line short"></div>
+      <div class="skeleton-line long"></div>
+      <div class="skeleton-line opt"></div>
+      <div class="skeleton-line opt"></div>
+      <div class="skeleton-line opt"></div>
+    `;
+    container.appendChild(card);
+  }
+}
+
+async function pollStatus() {
+  try {
+    const resp = await fetch('/gaps/status');
+    const status = await resp.json();
+
+    const pct = status.total > 0 ? Math.round((status.enriched / status.total) * 100) : 0;
+    document.getElementById('progress-bar').style.width = pct + '%';
+    document.getElementById('progress-fraction').textContent = status.enriched + ' / ' + status.total;
+
+    if (status.ready) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      document.getElementById('enrich-progress').style.display = 'none';
+      if (!rendered) await loadAndRender();
+    }
+  } catch (_) { /* ignore transient errors */ }
+}
+
+async function loadAndRender() {
+  if (rendered) return;
+  rendered = true;
+  try {
+    const resp = await fetch('/gaps');
+    gaps = await resp.json();
+  } catch (e) {
+    document.getElementById('status').textContent = 'Error loading questions: ' + e.message;
+    document.getElementById('status').className = 'err';
+    return;
+  }
+  document.getElementById('loading').style.display = 'none';
+  renderGaps();
+}
+
+async function init() {
+  // Check current status immediately
+  let status;
+  try {
+    const resp = await fetch('/gaps/status');
+    status = await resp.json();
+  } catch (e) {
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('status').textContent = 'Error connecting to server: ' + e.message;
+    document.getElementById('status').className = 'err';
+    return;
+  }
+
+  if (status.ready) {
+    // Already enriched — render immediately, no progress bar needed
+    await loadAndRender();
+  } else {
+    // Show skeletons + progress bar while enrichment runs in background
+    renderSkeletons(status.total);
+    const progressEl = document.getElementById('enrich-progress');
+    progressEl.style.display = 'block';
+    document.getElementById('progress-bar').style.width = '0%';
+    document.getElementById('progress-fraction').textContent = '0 / ' + status.total;
+    pollTimer = setInterval(pollStatus, 800);
+  }
+}
+
+function renderGaps() {
+  const container = document.getElementById('questions');
+  container.innerHTML = '';
+  gaps.forEach((gap, i) => {
+    const inputType = gap.selection_mode === 'multiple' ? 'checkbox' : 'radio';
+    const recommendedOptions = new Set(gap.recommended_options || []);
+    const card = document.createElement('div');
+    card.className = 'gap-card';
+    card.innerHTML = `
+      <div class="gap-number">Question ${i + 1} of ${gaps.length}</div>
+      <div class="gap-question">${escHtml(gap.question)}</div>
+      ${gap.selection_mode === 'multiple' ? '<span class="mode-hint">Select all that apply</span>' : ''}
+      <div class="options" id="opts-${i}"></div>
+      ${gap.allow_free_text ? `<textarea class="free-text" id="free-text-${i}" placeholder="${escHtml(gap.free_text_placeholder || '')}"></textarea>` : ''}
+    `;
+    const optsEl = card.querySelector(`#opts-${i}`);
+    gap.options.forEach((opt) => {
+      const isRecommended = recommendedOptions.has(opt);
+      const lbl = document.createElement('label');
+      lbl.className = 'option-label' + (isRecommended ? ' recommended' : '');
+      lbl.innerHTML = `
+        <input type="${inputType}" name="gap-${i}" value="${escHtml(opt)}" onchange="onSelect(this, ${i})">
+        <span class="option-text">${escHtml(opt)}</span>
+        ${isRecommended ? '<span class="rec-badge">recommended</span>' : ''}
+      `;
+      optsEl.appendChild(lbl);
+    });
+    container.appendChild(card);
+  });
+  updateSubmitState();
+}
+
+function onSelect(input, gapIndex) {
+  const opts = document.getElementById(`opts-${gapIndex}`).querySelectorAll('.option-label');
+  if (input.type === 'radio') {
+    opts.forEach(l => l.classList.remove('selected'));
+    input.parentElement.classList.add('selected');
+  } else {
+    input.parentElement.classList.toggle('selected', input.checked);
+  }
+  updateSubmitState();
+}
+
+function updateSubmitState() {
+  const allAnswered = gaps.every((_, i) => {
+    return document.querySelectorAll(`input[name="gap-${i}"]:checked`).length > 0;
+  });
+  document.getElementById('submit-btn').disabled = !allAnswered;
+}
+
+async function submitAnswers() {
+  const answers = gaps.map((gap, i) => {
+    const checkedInputs = Array.from(document.querySelectorAll(`input[name="gap-${i}"]:checked`));
+    const freeTextarea = document.getElementById(`free-text-${i}`);
+    return {
+      question: gap.question,
+      selected_options: checkedInputs.map(c => c.value),
+      free_text: freeTextarea ? freeTextarea.value.trim() : '',
+    };
+  });
+
+  document.getElementById('submit-btn').disabled = true;
+  document.getElementById('status').textContent = 'Submitting…';
+  document.getElementById('status').className = '';
+
+  try {
+    const resp = await fetch('/answers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(answers),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    document.getElementById('questions').style.display = 'none';
+    document.querySelector('footer').style.display = 'none';
+    document.getElementById('done-msg').style.display = 'block';
+  } catch (e) {
+    document.getElementById('status').textContent = 'Error: ' + e.message;
+    document.getElementById('status').className = 'err';
+    document.getElementById('submit-btn').disabled = false;
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toggleTheme() {
+  const isLight = document.documentElement.classList.contains('light');
+  const next = isLight ? 'dark' : 'light';
+  localStorage.setItem('maestro-gaps-theme', next);
+  applyTheme(next);
+}
+function applyTheme(t) {
+  if (t === 'light') {
+    document.documentElement.classList.add('light');
+    document.getElementById('theme-btn').textContent = '🌙 Dark';
+  } else {
+    document.documentElement.classList.remove('light');
+    document.getElementById('theme-btn').textContent = '☀️ Light';
+  }
+}
+applyTheme(localStorage.getItem('maestro-gaps-theme') || 'dark');
+init();
+</script>
+</body>
+</html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maestro — Gap Questionnaire</title>
+<style>
+  :root {
+    --bg:        #1a1d23;
+    --surface:   #252932;
+    --border:    #3d4452;
+    --text:      #e2e8f0;
+    --text-title:#f1f5f9;
+    --text-muted:#94a3b8;
+    --accent:    #60a5fa;
+    --accent-bg: #1e2d4a;
+    --green:     #4ade80;
+    --green-bg:  #14532d;
+    --yellow:    #fbbf24;
+    --red:       #f87171;
+  }
+  :root.light {
+    --bg:        #f1f5f9;
+    --surface:   #ffffff;
+    --border:    #cbd5e1;
+    --text:      #1e293b;
+    --text-title:#0f172a;
+    --text-muted:#64748b;
+    --accent:    #2563eb;
+    --accent-bg: #dbeafe;
+    --green:     #16a34a;
+    --green-bg:  #dcfce7;
+    --yellow:    #b45309;
+    --red:       #dc2626;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 14px;
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+  .container { max-width: 760px; margin: 0 auto; }
+  header {
+    margin-bottom: 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  h1 { font-size: 20px; color: var(--text-title); }
+  .subtitle { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+  #theme-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 12px;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #theme-btn:hover { color: var(--text-title); border-color: var(--accent); }
+
   .gap-card {
     background: var(--surface);
     border: 1.5px solid var(--border);

@@ -7,28 +7,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from maestro.sdlc.reflect import ReflectLoop, TARGET_MEAN
+from maestro.sdlc.reflect import DIMENSIONS, ReflectLoop, TARGET_MEAN
 from maestro.sdlc.schemas import ReflectCycle, ReflectDimensionScore, ReflectReport
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-DIMENSIONS = [
-    "Cobertura de domínio",
-    "Consistência de nomenclatura",
-    "Alinhamento modelo ↔ API",
-    "Cobertura de RN em ACs",
-    "Coerência PRD ↔ técnico",
-    "Qualidade dos ADRs",
-    "Plano de testes vs. escopo",
-    "Qualidade individual",
-    "Rastreabilidade (gaps → decisões)",
-    "Integridade dos artefatos",
-    "Cobertura de requisitos não-funcionais",
-]
-
 
 def _make_scores(score_value: float) -> list[dict]:
     return [
@@ -80,6 +65,15 @@ def test_reflect_report_dataclass() -> None:
     assert len(report.cycles) == 1
     assert report.cycles[0].mean == 8.5
     assert report.cycles[0].scores[0].dimension == "foo"
+
+
+def test_reflect_dimensions_cover_sdlc_consistency_completeness_and_traceability() -> None:
+    normalized = [dimension.casefold() for dimension in DIMENSIONS]
+
+    assert len(DIMENSIONS) <= 8
+    assert any("consist" in dimension for dimension in normalized)
+    assert any("complet" in dimension or "corret" in dimension for dimension in normalized)
+    assert any("rastreab" in dimension for dimension in normalized)
 
 
 @pytest.mark.asyncio
@@ -147,3 +141,15 @@ async def test_reflect_loop_stops_at_max_cycles(tmp_path: Path) -> None:
 
     assert report.passed is False
     assert len(report.cycles) == max_cycles
+
+
+@pytest.mark.asyncio
+async def test_reflect_loop_uses_configurable_target_mean(tmp_path: Path) -> None:
+    (tmp_path / "01-briefing.md").write_text("# Briefing\nSome content.")
+
+    provider = FakeProvider([_make_eval_response(7.5)])
+    loop = ReflectLoop(target_mean=7.0)
+    report = await loop.run(provider=provider, model=None, spec_dir=tmp_path, max_cycles=2)
+
+    assert report.passed is True
+    assert report.cycles[0].mean == 7.5
