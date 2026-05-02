@@ -1,5 +1,7 @@
 """Integration tests verifying run_multi_agent emits correct SSE events."""
 
+import logging
+
 from unittest.mock import MagicMock, patch
 
 from maestro.dashboard.emitter import DashboardEmitter
@@ -157,3 +159,44 @@ def test_no_emitter_does_not_crash():
         )
 
     assert "outputs" in result
+
+
+def test_emitter_replays_history_to_new_subscriber_and_logs_replay_errors(caplog):
+    emitter = DashboardEmitter()
+    replayed = []
+    emitter.emit({"type": "dag_ready", "tasks": []})
+
+    caplog.set_level(logging.WARNING, logger="maestro.dashboard.emitter")
+
+    def bad_handler(event):
+        raise RuntimeError(f"replay failed for {event['type']}")
+
+    emitter.subscribe(bad_handler)
+    emitter.subscribe(lambda event: replayed.append(event))
+
+    assert replayed == [{"type": "dag_ready", "tasks": []}]
+    assert "DashboardEmitter: replay subscriber raised: replay failed for dag_ready" in caplog.text
+
+
+def test_emitter_unsubscribe_missing_handler_is_ignored() -> None:
+    emitter = DashboardEmitter()
+
+    emitter.unsubscribe(lambda event: None)
+
+
+def test_emitter_suppresses_subscriber_errors_during_emit(caplog) -> None:
+    emitter = DashboardEmitter()
+    received = []
+
+    caplog.set_level(logging.WARNING, logger="maestro.dashboard.emitter")
+
+    def bad_handler(event):
+        raise RuntimeError(f"subscriber crashed for {event['type']}")
+
+    emitter.subscribe(bad_handler)
+    emitter.subscribe(lambda event: received.append(event))
+
+    emitter.emit({"type": "node_update", "id": "t1", "status": "done"})
+
+    assert received == [{"type": "node_update", "id": "t1", "status": "done"}]
+    assert "DashboardEmitter: subscriber raised: subscriber crashed for node_update" in caplog.text

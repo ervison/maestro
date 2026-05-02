@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maestro - Discovery Profile</title>
+<style>
+  :root {
+    --bg: #10141b;
+    --surface: #1a2230;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #60a5fa;
+    --accent-bg: #172554;
+    --ok: #4ade80;
+    --err: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 Arial, sans-serif;
+    padding: 24px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-size: 28px; }
+  p { margin: 0 0 24px; color: var(--muted); }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .prompt { font-weight: 600; margin-bottom: 12px; }
+  .option {
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .option:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+  }
+  button {
+    border: 0;
+    border-radius: 8px;
+    background: var(--accent);
+    color: white;
+    padding: 10px 18px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #status { margin-left: 12px; color: var(--muted); }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--err); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Discovery Profile</h1>
+  <p>Choose how Maestro should adapt discovery questions and artifact tone.</p>
+  <form id="profile-form">
+    <div id="questions"></div>
+    <button id="submit-btn" type="submit" disabled>Save Profile</button>
+    <span id="status"></span>
+  </form>
+</div>
+<script type="module">
+let questions = [];
+
+function esc(text) {
+  const node = document.createElement('div');
+  node.textContent = text;
+  return node.innerHTML;
+}
+
+function updateSubmitState() {
+  const ready = questions.every((question) => {
+    return document.querySelector(`input[name="${question.key}"]:checked`);
+  });
+  document.getElementById('submit-btn').disabled = !ready;
+}
+
+function renderQuestions() {
+  const container = document.getElementById('questions');
+  container.innerHTML = '';
+  questions.forEach((question) => {
+    const card = document.createElement('section');
+    card.className = 'card';
+    const options = question.options.map((option) => `
+      <label class="option">
+        <input type="radio" name="${esc(question.key)}" value="${esc(option.value)}">
+        ${esc(option.label)}
+      </label>
+    `).join('');
+    card.innerHTML = `<div class="prompt">${esc(question.prompt)}</div>${options}`;
+    card.querySelectorAll('input').forEach((input) => {
+      input.addEventListener('change', updateSubmitState);
+    });
+    container.appendChild(card);
+  });
+}
+
+async function loadQuestions() {
+  const resp = await fetch('/profile/questions');
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  questions = await resp.json();
+  renderQuestions();
+}
+
+async function submitProfile(event) {
+  event.preventDefault();
+  const payload = {};
+  questions.forEach((question) => {
+    const selected = document.querySelector(`input[name="${question.key}"]:checked`);
+    payload[question.key] = selected ? selected.value : '';
+  });
+
+  const status = document.getElementById('status');
+  status.textContent = 'Saving...';
+  status.className = '';
+
+  try {
+    const resp = await fetch('/profile/answers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    status.textContent = 'Profile saved. You can close this tab.';
+    status.className = 'ok';
+    document.getElementById('submit-btn').disabled = true;
+  } catch (error) {
+    status.textContent = `Error: ${error.message}`;
+    status.className = 'err';
+  }
+}
+
+document.getElementById('profile-form').addEventListener('submit', submitProfile);
+try {
+  await loadQuestions();
+} catch (error) {
+  const status = document.getElementById('status');
+  status.textContent = `Error: ${error.message}`;
+  status.className = 'err';
+}
+</script>
+</body>
+</html>

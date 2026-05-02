@@ -40,51 +40,56 @@ class _SummarySnapshot:
     referenced_paths: set[str]
 
 
-def check_planning_consistency(planning_root: str | Path) -> ConsistencyCheckResult:
-    """Validate the current planning artifact set for roadmap/state/summary drift."""
-    root = Path(planning_root).resolve()
+def _split_markdown_row(line: str) -> list[str] | None:
+    stripped = line.strip()
+    if not (stripped.startswith("|") and stripped.endswith("|")):
+        return None
+    return [cell.strip() for cell in stripped[1:-1].split("|")]
+
+
+def _is_markdown_divider_row(cells: list[str]) -> bool:
+    return bool(cells) and all(cell and set(cell) <= {"-", ":"} for cell in cells)
+
+
+def _validate_roadmap_state_consistency(
+    roadmap: _RoadmapSnapshot, state: _StateSnapshot
+) -> list[str]:
+    """Check roadmap and state are internally consistent."""
     errors: list[str] = []
-
-    roadmap_path = root / "ROADMAP.md"
-    state_path = root / "STATE.md"
-
-    if not roadmap_path.exists():
-        return ConsistencyCheckResult([f"Missing required artifact: {roadmap_path}"])
-    if not state_path.exists():
-        return ConsistencyCheckResult([f"Missing required artifact: {state_path}"])
-
-    roadmap = _parse_roadmap(roadmap_path)
-    state = _parse_state(state_path)
-
     if roadmap.progress_rows != roadmap.total_phases:
         errors.append(
             "ROADMAP.md progress table rows "
             f"({roadmap.progress_rows}) do not match roadmap phases ({roadmap.total_phases})."
         )
-
     if roadmap.progress_completed_rows != roadmap.completed_phases:
         errors.append(
             "ROADMAP.md completed progress rows "
             f"({roadmap.progress_completed_rows}) do not match checked roadmap phases "
             f"({roadmap.completed_phases})."
         )
-
     if state.progress_total_phases != roadmap.total_phases:
         errors.append(
             "STATE.md progress.total_phases "
             f"({state.progress_total_phases}) does not match ROADMAP.md phases "
             f"({roadmap.total_phases})."
         )
-
     if state.progress_completed_phases != roadmap.completed_phases:
         errors.append(
             "STATE.md progress.completed_phases "
             f"({state.progress_completed_phases}) does not match ROADMAP.md completed "
             f"phases ({roadmap.completed_phases})."
         )
+    return errors
 
+
+def _validate_summary_artifacts(
+    state: _StateSnapshot, roadmap: _RoadmapSnapshot, root: Path
+) -> list[str]:
+    """Validate milestone summary and report artifacts consistency."""
+    errors: list[str] = []
     summary_relpath = f".planning/{state.milestone}-MILESTONE-SUMMARY.md"
     summary_path = root / f"{state.milestone}-MILESTONE-SUMMARY.md"
+
     if summary_relpath not in state.references:
         errors.append(
             f"STATE.md project references do not include `{summary_relpath}` for milestone {state.milestone}."
@@ -92,7 +97,7 @@ def check_planning_consistency(planning_root: str | Path) -> ConsistencyCheckRes
 
     if not summary_path.exists():
         errors.append(f"Missing milestone summary for STATE.md milestone: {summary_path}")
-        return ConsistencyCheckResult(errors)
+        return errors
 
     summary = _parse_summary(summary_path)
     if state.milestone not in summary.milestone_mentions:
@@ -110,21 +115,50 @@ def check_planning_consistency(planning_root: str | Path) -> ConsistencyCheckRes
                 f"{summary_path.name} does not reference STATE.md phase evidence `{evidence_path}`."
             )
 
+    _validate_report_consistency(state, roadmap, root, errors)
+    return errors
+
+
+def _validate_report_consistency(
+    state: _StateSnapshot, roadmap: _RoadmapSnapshot, root: Path, errors: list[str]
+) -> None:
+    """Validate report file consistency and append errors."""
     report_path = root / "reports" / f"MILESTONE_SUMMARY-{state.milestone}.md"
-    if report_path.exists():
-        report = _parse_summary(report_path)
-        if state.milestone not in report.milestone_mentions:
+    if not report_path.exists():
+        return
+
+    report = _parse_summary(report_path)
+    if state.milestone not in report.milestone_mentions:
+        errors.append(
+            f"{report_path.relative_to(root.parent)} does not mention STATE.md milestone `{state.milestone}`."
+        )
+    report_counts = _parse_report_phase_counts(report_path)
+    if report_counts is not None:
+        complete_count, total_count = report_counts
+        if complete_count != roadmap.completed_phases or total_count != roadmap.total_phases:
             errors.append(
-                f"{report_path.relative_to(root.parent)} does not mention STATE.md milestone `{state.milestone}`."
+                f"{report_path.relative_to(root.parent)} reports {complete_count}/{total_count} complete phases, "
+                f"but ROADMAP.md shows {roadmap.completed_phases}/{roadmap.total_phases}."
             )
-        report_counts = _parse_report_phase_counts(report_path)
-        if report_counts is not None:
-            complete_count, total_count = report_counts
-            if complete_count != roadmap.completed_phases or total_count != roadmap.total_phases:
-                errors.append(
-                    f"{report_path.relative_to(root.parent)} reports {complete_count}/{total_count} complete phases, "
-                    f"but ROADMAP.md shows {roadmap.completed_phases}/{roadmap.total_phases}."
-                )
+
+
+def check_planning_consistency(planning_root: str | Path) -> ConsistencyCheckResult:
+    """Validate the current planning artifact set for roadmap/state/summary drift."""
+    root = Path(planning_root).resolve()
+    errors: list[str] = []
+
+    roadmap_path = root / "ROADMAP.md"
+    state_path = root / "STATE.md"
+
+    if not roadmap_path.exists():
+        return ConsistencyCheckResult([f"Missing required artifact: {roadmap_path}"])
+    if not state_path.exists():
+        return ConsistencyCheckResult([f"Missing required artifact: {state_path}"])
+
+    roadmap = _parse_roadmap(roadmap_path)
+    state = _parse_state(state_path)
+    errors.extend(_validate_roadmap_state_consistency(roadmap, state))
+    errors.extend(_validate_summary_artifacts(state, roadmap, root))
 
     requirements_path = root / "REQUIREMENTS.md"
     if not requirements_path.exists():
@@ -146,11 +180,27 @@ def check_planning_consistency(planning_root: str | Path) -> ConsistencyCheckRes
 def _parse_roadmap(path: Path) -> _RoadmapSnapshot:
     text = path.read_text(encoding="utf-8")
     phase_matches = re.findall(r"^- \[(?P<done>[ x])\] \*\*Phase (?P<num>\d+):", text, re.MULTILINE)
-    progress_matches = re.findall(
-        r"^\|\s*(?P<num>\d+)\.\s+[^|]+\|\s*[^|]+\|\s*(?P<status>[^|]+)\|\s*[^|]+\|$",
-        text,
-        re.MULTILINE,
-    )
+    progress_matches: list[tuple[str, str]] = []
+    in_progress_table = False
+    for line in text.splitlines():
+        cells = _split_markdown_row(line)
+        if cells == ["Phase", "Plans Complete", "Status", "Completed"]:
+            in_progress_table = True
+            continue
+        if not in_progress_table:
+            continue
+        if cells is None:
+            in_progress_table = False
+            continue
+        if len(cells) != 4 or _is_markdown_divider_row(cells):
+            continue
+
+        phase_cell = cells[0]
+        phase_number, dot, _ = phase_cell.partition(".")
+        if dot != "." or not phase_number.strip().isdigit():
+            continue
+        progress_matches.append((phase_number.strip(), cells[2]))
+
     completed_phases = sum(done == "x" for done, _ in phase_matches)
     progress_completed = sum(status.strip().lower() == "complete" for _, status in progress_matches)
     return _RoadmapSnapshot(
@@ -189,13 +239,20 @@ def _parse_state(path: Path) -> _StateSnapshot:
     )
 
     references = set(re.findall(r"`([^`]+)`", text))
-    included_phase_evidence = set(
-        re.findall(
-            r"^\|\s*\d+\s*-\s*[^|]+\|\s*[^|]+\|\s*`([^`]+)`\s*\|$",
-            text,
-            re.MULTILINE,
-        )
-    )
+    included_phase_evidence: set[str] = set()
+    for line in text.splitlines():
+        cells = _split_markdown_row(line)
+        if cells is None or len(cells) != 3 or _is_markdown_divider_row(cells):
+            continue
+
+        phase_label = cells[0]
+        phase_number, _, _ = phase_label.partition("-")
+        if not phase_number.strip().isdigit():
+            continue
+
+        evidence = cells[2]
+        if evidence.startswith("`") and evidence.endswith("`") and len(evidence) > 2:
+            included_phase_evidence.add(evidence[1:-1])
 
     return _StateSnapshot(
         milestone=milestone.strip(),
@@ -237,7 +294,7 @@ def _require_match(text: str, pattern: str, label: str) -> str:
 def _parse_requirements(path: Path) -> str:
     """Extract the milestone slug from the REQUIREMENTS.md scope declaration."""
     text = path.read_text(encoding="utf-8")
-    match = re.search(r"scoped to milestone [`]([^`]+)[`]", text)
+    match = re.search(r"scoped to milestone `([^`]+)`", text)
     if match is None:
         raise ValueError(f"REQUIREMENTS.md is missing 'scoped to milestone `...`' declaration: {path}")
     return match.group(1)

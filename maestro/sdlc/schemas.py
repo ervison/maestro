@@ -144,6 +144,29 @@ class DiscoveryResult:
 
 
 @dataclass
+class DiscoveryProfile:
+    audience_level: Literal[
+        "non_technical", "software_familiar", "developer", "architect"
+    ]
+    question_style: Literal["simple", "functional", "technical"]
+    discovery_preference: Literal["ask_more", "suggest", "decide_when_needed"]
+    language_tone: Literal["simple", "balanced", "technical"]
+
+
+@dataclass
+class ProfileOption:
+    value: str
+    label: str
+
+
+@dataclass
+class ProfileQuestion:
+    key: str
+    prompt: str
+    options: list[ProfileOption]
+
+
+@dataclass
 class GapItem:
     """A single gap question with answer options and UI metadata."""
 
@@ -154,6 +177,8 @@ class GapItem:
     recommended_options: list[str] = field(default_factory=list)
     allow_free_text: bool = False
     free_text_placeholder: str = ""
+    display_question: str = ""
+    help_text: str = ""
 
 
 @dataclass

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 from typing import Any
 
@@ -109,6 +108,29 @@ _RESPONSE_FORMAT = (
 )
 
 
+def _extract_code_fences(text: str) -> list[tuple[str, str]]:
+    fences: list[tuple[str, str]] = []
+    search_from = 0
+
+    while True:
+        start = text.find("```", search_from)
+        if start == -1:
+            return fences
+
+        body_start = text.find("\n", start + 3)
+        if body_start == -1:
+            return fences
+
+        end = text.find("```", body_start + 1)
+        if end == -1:
+            return fences
+
+        info = text[start + 3:body_start].strip().casefold()
+        body = text[body_start + 1:end]
+        fences.append((info, body))
+        search_from = end + 3
+
+
 def _extract_json(text: str) -> Any:
     """Extract JSON from LLM response. Handles nested fences and trailing prose.
 
@@ -116,14 +138,12 @@ def _extract_json(text: str) -> Any:
     request format before producing the real answer); fall back to last
     ``` ... ``` fence; finally try the raw text.
     """
-    # Prefer the last json-tagged fence
-    json_fences = re.findall(r"```json\s*([\s\S]*?)```", text)
-    if json_fences:
-        return json.loads(json_fences[-1].strip())
-    # Any code fence, last one
-    any_fences = re.findall(r"```\s*([\s\S]*?)```", text)
-    if any_fences:
-        return json.loads(any_fences[-1].strip())
+    fences = _extract_code_fences(text)
+    for info, body in reversed(fences):
+        if info == "json":
+            return json.loads(body.strip())
+    for _, body in reversed(fences):
+        return json.loads(body.strip())
     return json.loads(text.strip())
 
 
@@ -186,7 +206,7 @@ class Reviewer:
             notes = str(data.get("notes", ""))
             issues = [str(i) for i in data.get("issues", [])]
             return GateResult(sprint_id=sprint_id, passed=passed, notes=notes, issues=issues)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError) as exc:
             print(
                 f"[reviewer] Gate {sprint_id}: malformed response ({exc}), failing gate",
                 file=sys.stderr,

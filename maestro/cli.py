@@ -241,13 +241,12 @@ def _auth_login(args) -> None:
         print(str(e))
         sys.exit(1)
     if args.provider == "chatgpt":
-        provider.login(method)
-        ts = auth.get("chatgpt")
-        if ts:
-            email = ts.get("email") or ts.get("account_id", "")
-            print(f"Logged in as: {email}" if email else "Logged in to chatgpt.")
-        else:
-            print("Logged in to chatgpt.")
+        ts = auth.login(method)
+        print(
+            f"Logged in as: {ts.email or ts.account_id}"
+            if ts
+            else "Logged in to chatgpt."
+        )
     else:
         provider.login()
 

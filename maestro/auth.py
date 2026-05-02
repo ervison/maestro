@@ -13,9 +13,9 @@ import secrets
 import threading
 import time
 import webbrowser
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse, urlencode
+from urllib.parse import parse_qs, urlparse, urlencode
 
 import httpx
 
@@ -300,6 +300,7 @@ def login_browser() -> TokenSet:
             self.wfile.write(b"<h2>OK! You can close this tab.</h2>")
 
         def log_message(self, *_):
+            """Suppress default HTTP server request logging during local OAuth callback."""
             pass
 
     srv = http.server.HTTPServer((CALLBACK_HOST, CALLBACK_PORT), Handler)
@@ -344,7 +345,7 @@ def login_device() -> TokenSet:
     user_code = d["user_code"]
     interval = int(d.get("interval", 5))
 
-    print(f"\n  Go to: https://auth.openai.com/codex/device")
+    print("\n  Go to: https://auth.openai.com/codex/device")
     print(f"  Enter code: {user_code}\n")
 
     deadline = time.time() + 900  # 15 min
@@ -378,6 +379,7 @@ def login(method: str = "browser") -> TokenSet:
 
 
 def logout():
+    """Remove stored ChatGPT credentials."""
     if remove("chatgpt"):
         print("Logged out.")
     else:

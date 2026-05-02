@@ -18,7 +18,7 @@ def write_artifact(spec_dir: Path, artifact: SDLCArtifact) -> None:
     try:
         spec_dir.mkdir(parents=True, exist_ok=True)
         (spec_dir / artifact.filename).write_text(artifact.content, encoding="utf-8")
-    except (OSError, PermissionError) as exc:
+    except OSError as exc:
         raise RuntimeError(
             f"Failed to write artifact {artifact.filename}: {exc.strerror}"
         ) from exc
@@ -31,7 +31,7 @@ def write_artifacts(result: DiscoveryResult) -> None:
         spec_dir.mkdir(parents=True, exist_ok=True)
         for artifact in result.artifacts:
             (spec_dir / artifact.filename).write_text(artifact.content, encoding="utf-8")
-    except (OSError, PermissionError) as exc:
+    except OSError as exc:
         raise RuntimeError(
             f"Failed to write artifacts to spec directory: {exc.strerror}"
         ) from exc

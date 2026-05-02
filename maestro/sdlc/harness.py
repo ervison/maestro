@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from maestro.sdlc.defaults import TECHNICAL_DEFAULTS
-from maestro.sdlc.gaps_server import resolve_gaps
+from maestro.sdlc.gaps_server import parse_gaps, resolve_discovery_profile, resolve_gaps
 from maestro.sdlc.schemas import (
     ArtifactType,
     ARTIFACT_FILENAMES,
@@ -18,6 +18,130 @@ from maestro.sdlc.schemas import (
     SDLCRequest,
     SprintResult,
 )
+
+
+def _build_sprint_deps(sprints) -> dict[ArtifactType, tuple[ArtifactType, ...]]:
+    all_deps: dict[ArtifactType, tuple[ArtifactType, ...]] = {}
+    for sprint in sprints:
+        all_deps.update(sprint.deps)
+    return all_deps
+
+
+def _print_sprint_header(sprint) -> None:
+    print(
+        f"\n=== Sprint {sprint.sprint_id}: {sprint.name} ===",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _print_wave_header(wave_idx: int, wave: list[ArtifactType]) -> None:
+    if len(wave) > 1:
+        label = f"{', '.join(a.value for a in wave)} (parallel)"
+    else:
+        label = wave[0].value
+    print(f"  Wave {wave_idx + 1}: {label}", file=sys.stderr, flush=True)
+
+
+async def _generate_wave_artifacts(
+    harness: "DiscoveryHarness",
+    request: SDLCRequest,
+    wave: list[ArtifactType],
+    artifact_map: dict[ArtifactType, SDLCArtifact],
+    all_deps: dict[ArtifactType, tuple[ArtifactType, ...]],
+) -> list[SDLCArtifact]:
+    if len(wave) == 1:
+        artifact_type = wave[0]
+        return [
+            await harness._generate_artifact(
+                request,
+                artifact_type,
+                harness._get_prior_artifacts(artifact_type, artifact_map, all_deps),
+            )
+        ]
+
+    tasks = [
+        harness._generate_artifact(
+            request,
+            artifact_type,
+            harness._get_prior_artifacts(artifact_type, artifact_map, all_deps),
+        )
+        for artifact_type in wave
+    ]
+    return list(await asyncio.gather(*tasks))
+
+
+def _persist_wave_artifacts(
+    harness: "DiscoveryHarness",
+    wave_artifacts: list[SDLCArtifact],
+    *,
+    gaps_resolved: bool,
+    sprint_artifacts: list[SDLCArtifact],
+    artifacts: list[SDLCArtifact],
+    artifact_map: dict[ArtifactType, SDLCArtifact],
+    completed: set[ArtifactType],
+    spec_dir: Path,
+) -> list[SDLCArtifact]:
+    from maestro.sdlc.writer import write_artifact
+
+    normalized_artifacts: list[SDLCArtifact] = []
+    for artifact in wave_artifacts:
+        artifact = harness._normalize_artifact(artifact)
+        if gaps_resolved:
+            harness._ensure_no_open_markers(artifact)
+        sprint_artifacts.append(artifact)
+        artifacts.append(artifact)
+        artifact_map[artifact.artifact_type] = artifact
+        completed.add(artifact.artifact_type)
+        write_artifact(spec_dir, artifact)
+        print(f"  ✓ {artifact.filename}", file=sys.stderr, flush=True)
+        normalized_artifacts.append(artifact)
+    return normalized_artifacts
+
+
+async def _resolve_wave_gaps(
+    harness: "DiscoveryHarness",
+    request: SDLCRequest,
+    wave_artifacts: list[SDLCArtifact],
+    spec_dir: Path,
+) -> tuple[SDLCRequest, bool]:
+    for artifact in wave_artifacts:
+        if artifact.artifact_type == ArtifactType.GAPS:
+            return await harness._resolve_gaps(request, artifact, spec_dir), True
+    return request, False
+
+
+def _append_sprint_result(
+    sprint_results: list[SprintResult],
+    sprint,
+    sprint_artifacts: list[SDLCArtifact],
+    gate: GateResult,
+) -> None:
+    sprint_results.append(
+        SprintResult(
+            sprint_id=sprint.sprint_id,
+            name=sprint.name,
+            artifacts=sprint_artifacts,
+            gate=gate,
+        )
+    )
+
+
+def _record_gate_failure(
+    gate: GateResult,
+    sprint,
+    gate_failures: list[GateResult],
+) -> None:
+    if gate.passed:
+        return
+    print(
+        f"\n  [discover] ⚠ Sprint {sprint.sprint_id} ({sprint.name}) gate FAILED: {gate.notes}",
+        file=sys.stderr,
+        flush=True,
+    )
+    for issue in gate.issues:
+        print(f"[discover]   - {issue}", file=sys.stderr)
+    gate_failures.append(gate)
 
 
 class DiscoveryHarness:
@@ -57,8 +181,8 @@ class DiscoveryHarness:
         """Synchronous entry point — wraps async run."""
         return asyncio.run(self.arun(request))
 
-    async def arun(self, request: SDLCRequest) -> DiscoveryResult:
-        """Generate all 14 artifacts and write them to spec/."""
+    def _build_effective_prompt(self, request: SDLCRequest) -> str:
+        """Build the full effective prompt with brownfield scan and defaults."""
         effective_prompt = request.prompt
         if request.brownfield:
             scan = self._scan_codebase(request.workdir)
@@ -71,13 +195,50 @@ class DiscoveryHarness:
                 "unless you explicitly flag the contradiction as a [GAP] or architectural decision.\n\n"
                 f"{scan}"
             )
+        return f"{TECHNICAL_DEFAULTS}\n\n## User Request\n\n{effective_prompt}"
 
-        # Prepend technical defaults so every artifact generator sees them as
-        # authoritative constraints unless the user explicitly overrides them.
-        effective_prompt = (
-            f"{TECHNICAL_DEFAULTS}\n\n## User Request\n\n{effective_prompt}"
-        )
+    def _setup_spec_dir(self, request: SDLCRequest) -> Path:
+        """Create and return the spec/ directory."""
+        workdir = request.workdir if request.workdir != "." else self._workdir
+        spec_dir = Path(workdir).resolve() / "spec"
+        try:
+            spec_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Failed to create spec directory: {exc.strerror}"
+            ) from exc
+        return spec_dir
 
+    async def _maybe_reflect(
+        self,
+        request: SDLCRequest,
+        artifacts: list[SDLCArtifact],
+        spec_dir: Path,
+        result: DiscoveryResult,
+    ) -> DiscoveryResult:
+        """Run the reflect loop on generated artifacts if enabled and provider is available."""
+        if self._provider is not None and self.reflect and hasattr(self._provider, "stream"):
+            from maestro.sdlc.reflect import ReflectLoop
+
+            loop = ReflectLoop(target_mean=self.reflect_target_mean)
+            reflect_report = await loop.run(
+                provider=self._provider,
+                model=self._model,
+                spec_dir=spec_dir,
+                max_cycles=self.reflect_max_cycles,
+            )
+            return DiscoveryResult(
+                request=request,
+                artifacts=artifacts,
+                spec_dir=str(spec_dir),
+                reflect_report=reflect_report,
+                gate_failures=list(self._gate_failures),
+            )
+        return result
+
+    async def arun(self, request: SDLCRequest) -> DiscoveryResult:
+        """Generate all 14 artifacts and write them to spec/."""
+        effective_prompt = self._build_effective_prompt(request)
         effective_request = SDLCRequest(
             prompt=effective_prompt,
             language=request.language,
@@ -85,16 +246,9 @@ class DiscoveryHarness:
             workdir=request.workdir,
         )
 
-        workdir = request.workdir if request.workdir != "." else self._workdir
-        spec_dir = Path(workdir).resolve() / "spec"
-        try:
-            spec_dir.mkdir(parents=True, exist_ok=True)
-        except (OSError, PermissionError) as exc:
-            raise RuntimeError(
-                f"Failed to create spec directory: {exc.strerror}"
-            ) from exc
-
+        spec_dir = self._setup_spec_dir(request)
         from maestro.sdlc.writer import write_artifact
+        _ = write_artifact
 
         if self.use_sprints and self._provider is not None:
             artifacts = await self._run_with_sprints(effective_request, spec_dir)
@@ -108,25 +262,7 @@ class DiscoveryHarness:
             gate_failures=list(self._gate_failures),
         )
 
-        if self._provider is not None and self.reflect and hasattr(self._provider, "stream"):
-            from maestro.sdlc.reflect import ReflectLoop
-
-            loop = ReflectLoop(target_mean=self.reflect_target_mean)
-            reflect_report = await loop.run(
-                provider=self._provider,
-                model=self._model,
-                spec_dir=spec_dir,
-                max_cycles=self.reflect_max_cycles,
-            )
-            result = DiscoveryResult(
-                request=request,
-                artifacts=artifacts,
-                spec_dir=str(spec_dir),
-                reflect_report=reflect_report,
-                gate_failures=list(self._gate_failures),
-            )
-
-        return result
+        return await self._maybe_reflect(request, artifacts, spec_dir, result)
 
     async def _run_sequential(
         self,
@@ -168,6 +304,7 @@ class DiscoveryHarness:
         """Sprint-based DAG generation with gate reviews."""
         from maestro.sdlc.sprints import SPRINTS, get_ready_artifacts
         from maestro.sdlc.writer import write_artifact
+        _ = write_artifact
 
         artifacts: list[SDLCArtifact] = []
         # Map from ArtifactType → generated SDLCArtifact for upstream context injection
@@ -177,88 +314,45 @@ class DiscoveryHarness:
         current_request = request
         gaps_resolved = False  # becomes True after GAPS artifact is processed
 
-        # Build a full deps lookup from all sprints for context injection
-        all_deps: dict[ArtifactType, tuple[ArtifactType, ...]] = {}
-        for sprint in SPRINTS:
-            all_deps.update(sprint.deps)
+        all_deps = _build_sprint_deps(SPRINTS)
 
         for sprint in SPRINTS:
-            print(
-                f"\n=== Sprint {sprint.sprint_id}: {sprint.name} ===",
-                file=sys.stderr,
-                flush=True,
-            )
+            _print_sprint_header(sprint)
 
             sprint_artifacts: list[SDLCArtifact] = []
             waves = get_ready_artifacts(sprint, completed.copy())
 
             for wave_idx, wave in enumerate(waves):
-                if len(wave) > 1:
-                    print(
-                        f"  Wave {wave_idx + 1}: {', '.join(a.value for a in wave)} (parallel)",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                    tasks = [
-                        self._generate_artifact(
-                            current_request,
-                            artifact_type,
-                            self._get_prior_artifacts(artifact_type, artifact_map, all_deps),
-                        )
-                        for artifact_type in wave
-                    ]
-                    wave_artifacts = list(await asyncio.gather(*tasks))
-                else:
-                    artifact_type = wave[0]
-                    print(
-                        f"  Wave {wave_idx + 1}: {artifact_type.value}",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                    artifact = await self._generate_artifact(
-                        current_request,
-                        artifact_type,
-                        self._get_prior_artifacts(artifact_type, artifact_map, all_deps),
-                    )
-                    wave_artifacts = [artifact]
-
-                for artifact in wave_artifacts:
-                    artifact = self._normalize_artifact(artifact)
-                    if gaps_resolved:
-                        self._ensure_no_open_markers(artifact)
-                    sprint_artifacts.append(artifact)
-                    artifacts.append(artifact)
-                    artifact_map[artifact.artifact_type] = artifact
-                    completed.add(artifact.artifact_type)
-                    write_artifact(spec_dir, artifact)
-                    print(
-                        f"  ✓ {artifact.filename}",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-
-                for artifact in wave_artifacts:
-                    if artifact.artifact_type == ArtifactType.GAPS:
-                        current_request = await self._resolve_gaps(current_request, artifact, spec_dir)
-                        gaps_resolved = True
+                _print_wave_header(wave_idx, wave)
+                wave_artifacts = await _generate_wave_artifacts(
+                    self,
+                    current_request,
+                    wave,
+                    artifact_map,
+                    all_deps,
+                )
+                wave_artifacts = _persist_wave_artifacts(
+                    self,
+                    wave_artifacts,
+                    gaps_resolved=gaps_resolved,
+                    sprint_artifacts=sprint_artifacts,
+                    artifacts=artifacts,
+                    artifact_map=artifact_map,
+                    completed=completed,
+                    spec_dir=spec_dir,
+                )
+                current_request, resolved_in_wave = await _resolve_wave_gaps(
+                    self,
+                    current_request,
+                    wave_artifacts,
+                    spec_dir,
+                )
+                if resolved_in_wave:
+                    gaps_resolved = True
 
             gate = await self._run_gate(sprint.sprint_id, sprint_artifacts, artifacts)
-            sprint_results.append(SprintResult(
-                sprint_id=sprint.sprint_id,
-                name=sprint.name,
-                artifacts=sprint_artifacts,
-                gate=gate,
-            ))
-
-            if not gate.passed:
-                print(
-                    f"\n  [discover] ⚠ Sprint {sprint.sprint_id} ({sprint.name}) gate FAILED: {gate.notes}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                for issue in gate.issues:
-                    print(f"[discover]   - {issue}", file=sys.stderr)
-                self._gate_failures.append(gate)
+            _append_sprint_result(sprint_results, sprint, sprint_artifacts, gate)
+            _record_gate_failure(gate, sprint, self._gate_failures)
 
         return artifacts
 
@@ -301,13 +395,33 @@ class DiscoveryHarness:
         spec_dir: Path | None = None,
     ) -> SDLCRequest:
         """Resolve gap questions via the gaps server."""
-        answers = await resolve_gaps(
-            gaps_artifact.content,
-            provider=self._provider,
-            model=self._model,
+        if not parse_gaps(gaps_artifact.content):
+            return request
+
+        profile = resolve_discovery_profile(
+            context_hint=request.prompt,
             port=self._gaps_port,
             open_browser=self._open_browser,
         )
+        try:
+            answers = await resolve_gaps(
+                gaps_artifact.content,
+                provider=self._provider,
+                model=self._model,
+                port=self._gaps_port,
+                open_browser=self._open_browser,
+                profile=profile,
+            )
+        except TypeError as exc:
+            if "unexpected keyword argument 'profile'" not in str(exc):
+                raise
+            answers = await resolve_gaps(
+                gaps_artifact.content,
+                provider=self._provider,
+                model=self._model,
+                port=self._gaps_port,
+                open_browser=self._open_browser,
+            )
         if answers:
             answers_lines = []
             for answer in answers:

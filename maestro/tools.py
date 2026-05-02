@@ -69,11 +69,32 @@ def list_directory(args: dict, workdir: Path) -> dict:
     return {"entries": entries, "count": len(entries)}
 
 
+def _search_single_file(regex: re.Pattern, fpath: Path, workdir: Path) -> list[dict] | None:
+    """Search a single file. Returns list of match dicts, or None on error."""
+    try:
+        resolved = fpath.resolve()
+        resolved.relative_to(workdir.resolve())
+    except ValueError:
+        return None
+    try:
+        results: list[dict] = []
+        for i, line in enumerate(resolved.read_text(errors="replace").splitlines(), 1):
+            if regex.search(line):
+                results.append({
+                    "file": str(fpath.relative_to(workdir)),
+                    "line": i,
+                    "text": line,
+                })
+        return results
+    except OSError:
+        return None
+
+
 def search_in_files(args: dict, workdir: Path) -> dict:
     base = resolve_path(args.get("path", "."), workdir)
     pattern = args["pattern"]
     include = args.get("include", "*")
-    matches = []
+    matches: list[dict] = []
     try:
         regex = re.compile(pattern)
     except re.error as e:
@@ -81,25 +102,12 @@ def search_in_files(args: dict, workdir: Path) -> dict:
     for fpath in base.rglob(include):
         if not fpath.is_file():
             continue
-        try:
-            resolved_file = fpath.resolve()
-            resolved_file.relative_to(workdir.resolve())
-        except ValueError:
+        file_matches = _search_single_file(regex, fpath, workdir)
+        if file_matches is None:
             continue
-        try:
-            for i, line in enumerate(resolved_file.read_text(errors="replace").splitlines(), 1):
-                if regex.search(line):
-                    matches.append(
-                        {
-                            "file": str(fpath.relative_to(workdir)),
-                            "line": i,
-                            "text": line,
-                        }
-                    )
-                    if len(matches) >= 100:
-                        return {"matches": matches, "truncated": True}
-        except OSError:
-            continue
+        matches.extend(file_matches)
+        if len(matches) >= 100:
+            return {"matches": matches, "truncated": True}
     return {"matches": matches, "truncated": False}
 
 
