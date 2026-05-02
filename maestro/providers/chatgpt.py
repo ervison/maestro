@@ -20,6 +20,8 @@ from maestro.providers.base import (
     ToolCall,
 )
 
+_ = ProviderPlugin
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -158,15 +160,20 @@ _REASONING_DEFAULTS: dict[str, str] = {
     "gpt-5.1": "medium",
 }
 
+_CODEX_MINI = "gpt-5.1-codex-mini"
+_GPT54 = "gpt-5.4"
+_GPT54_MINI = "gpt-5.4-mini"
+_GPT54_NANO = "gpt-5.4-nano"
+
 # Fallback model list (used when models.dev is unreachable)
 FALLBACK_MODELS = [
-    "gpt-5.4",
-    "gpt-5.4-mini",
+    _GPT54,
+    _GPT54_MINI,
     "gpt-5.2",
     "gpt-5-codex",
     "gpt-5.1-codex-max",
-    "gpt-5.1-codex-mini",
-    "gpt-5.4-nano",
+    _CODEX_MINI,
+    _GPT54_NANO,
     "gpt-5.1",
 ]
 
@@ -175,19 +182,19 @@ MODELS = fetch_models()
 
 # Aliases: what the user types -> what the API expects
 MODEL_ALIASES: dict[str, str] = {
-    "codex-mini-latest": "gpt-5.1-codex-mini",
-    "gpt-5-codex-mini": "gpt-5.1-codex-mini",
+    "codex-mini-latest": _CODEX_MINI,
+    "gpt-5-codex-mini": _CODEX_MINI,
     "gpt-5.1-codex": "gpt-5-codex",
     "gpt-5.2-codex": "gpt-5-codex",
     "gpt-5.3-codex": "gpt-5-codex",
     "gpt-5.3-codex-spark": "gpt-5-codex",
-    "gpt-5": "gpt-5.4",
-    "gpt-5-mini": "gpt-5.4-mini",
-    "gpt-5-nano": "gpt-5.4-nano",
+    "gpt-5": _GPT54,
+    "gpt-5-mini": _GPT54_MINI,
+    "gpt-5-nano": _GPT54_NANO,
 }
 
 # Default model for ChatGPT Plus/Pro accounts via Codex endpoint
-DEFAULT_MODEL = "gpt-5.4-mini"
+DEFAULT_MODEL = _GPT54_MINI
 
 
 def resolve_model(model_id: str) -> str:
@@ -225,39 +232,51 @@ def _convert_messages_to_input(messages: list[Message]) -> list[dict]:
     input_items: list[dict] = []
 
     for msg in messages:
-        if msg.role == "user":
-            input_items.append({
+        input_items.extend(_message_to_input_items(msg))
+
+    return input_items
+
+
+def _assistant_input_items(msg: Message) -> list[dict]:
+    items = [
+        {
+            "type": "function_call",
+            "call_id": tc.id,
+            "name": tc.name,
+            "arguments": json.dumps(tc.arguments),
+        }
+        for tc in msg.tool_calls
+    ]
+    items.append(
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": msg.content}],
+        }
+    )
+    return items
+
+
+def _message_to_input_items(msg: Message) -> list[dict]:
+    if msg.role == "user":
+        return [
+            {
                 "type": "message",
                 "role": "user",
                 "content": [{"type": "input_text", "text": msg.content}],
-            })
-        elif msg.role == "assistant":
-            # First emit any tool_calls as function_call items
-            for tc in msg.tool_calls:
-                input_items.append({
-                    "type": "function_call",
-                    "call_id": tc.id,   # call_id links to function_call_output
-                    "name": tc.name,
-                    "arguments": json.dumps(tc.arguments),
-                })
-            # Then emit the assistant message content
-            input_items.append({
-                "type": "message",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": msg.content}],
-            })
-        elif msg.role == "system":
-            # System messages are handled as instructions, not input items
-            pass
-        elif msg.role == "tool":
-            # Tool results are handled separately
-            input_items.append({
+            }
+        ]
+    if msg.role == "assistant":
+        return _assistant_input_items(msg)
+    if msg.role == "tool":
+        return [
+            {
                 "type": "function_call_output",
                 "call_id": msg.tool_call_id or "",
                 "output": msg.content,
-            })
-
-    return input_items
+            }
+        ]
+    return []
 
 
 def _convert_tools_to_schemas(tools: list[Tool]) -> list[dict]:
@@ -311,10 +330,10 @@ async def _iter_sse_data_lines(response: httpx.Response) -> AsyncIterator[str]:
     data_lines: list[str] = []
 
     async for line in response.aiter_lines():
+        if line == "" and data_lines:
+            yield "\n".join(data_lines)
+            data_lines = []
         if line == "":
-            if data_lines:
-                yield "\n".join(data_lines)
-                data_lines = []
             continue
         if line.startswith(":"):
             continue
@@ -327,6 +346,118 @@ async def _iter_sse_data_lines(response: httpx.Response) -> AsyncIterator[str]:
 
 # Re-export TokenSet for backward compatibility
 TokenSet = auth.TokenSet
+
+
+def _dispatch_chatgpt_event(
+    event: dict,
+    text_parts: list[str],
+    tool_calls: list[ToolCall],
+) -> str | None:
+    """Dispatch a parsed ChatGPT SSE event. Returns text delta or None."""
+    etype = event.get("type", "")
+    if etype == "response.output_text.delta":
+        return _append_text_delta(event, text_parts)
+    if etype == "response.output_item.done":
+        _collect_function_call(event, tool_calls)
+        return None
+    if etype == "response.done":
+        return _collect_done_message_text(event, text_parts)
+    return None
+
+
+def _append_text_delta(event: dict, text_parts: list[str]) -> str:
+    delta = event.get("delta", "")
+    text_parts.append(delta)
+    return delta
+
+
+def _collect_function_call(event: dict, tool_calls: list[ToolCall]) -> None:
+    item = event.get("item", {})
+    if item.get("type") == "function_call":
+        tool_calls.append(_parse_tool_call(item))
+
+
+def _collect_done_message_text(event: dict, text_parts: list[str]) -> str | None:
+    if text_parts:
+        return None
+
+    resp = event.get("response", {})
+    for out in resp.get("output", []):
+        text = _extract_output_text(out)
+        if text is not None:
+            text_parts.append(text)
+            return text
+    return None
+
+
+def _extract_output_text(output_item: dict) -> str | None:
+    if output_item.get("type") != "message":
+        return None
+
+    for part in output_item.get("content", []):
+        if part.get("type") == "output_text":
+            return part["text"]
+    return None
+
+
+def _build_stream_payload(
+    api_model: str,
+    input_items: list[dict],
+    tool_schemas: list[dict],
+    instructions: str | None,
+    extra: object,
+) -> dict:
+    payload: dict = {
+        "model": api_model,
+        "instructions": instructions or "You are a helpful assistant.",
+        "input": input_items,
+        "tools": tool_schemas,
+        "stream": True,
+        "store": False,
+        "reasoning": {
+            "effort": _reasoning_effort(api_model),
+            "summary": "auto",
+        },
+        "text": {"verbosity": "medium"},
+        "include": ["reasoning.encrypted_content"],
+    }
+    if isinstance(extra, dict) and "response_format" in extra:
+        payload["response_format"] = extra["response_format"]
+    return payload
+
+
+async def _stream_chatgpt_response(
+    payload: dict,
+    tokens: auth.TokenSet,
+    text_parts: list[str],
+    tool_calls: list[ToolCall],
+) -> AsyncIterator[str]:
+    async with httpx.AsyncClient() as client:
+        async with client.stream(
+            "POST",
+            RESPONSES_ENDPOINT,
+            json=payload,
+            headers=_headers(tokens),
+            timeout=120,
+        ) as response:
+            if not response.is_success:
+                body = await response.aread()
+                raise RuntimeError(
+                    f"API error {response.status_code}: {body[:800].decode(errors='replace')}"
+                )
+
+            async for data in _iter_sse_data_lines(response):
+                if data == "[DONE]":
+                    break
+
+                try:
+                    event = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+
+                text_chunk = _dispatch_chatgpt_event(event, text_parts, tool_calls)
+                if text_chunk is not None:
+                    yield text_chunk
 
 
 class ChatGPTProvider:
@@ -357,118 +488,39 @@ class ChatGPTProvider:
         tools: list[Tool] | None = None,
         **kwargs: object,
     ) -> AsyncIterator[str | Message]:
-        """Stream completion from ChatGPT Responses API.
-
-        Converts neutral Message/Tool types to ChatGPT wire format,
-        sends request, parses SSE stream, yields neutral types back.
-
-        Args:
-            messages: Provider-neutral conversation history.
-            model: Model ID or alias to use.
-            tools: Optional list of provider-neutral tool definitions.
-
-        Yields:
-            str: Partial text chunks during streaming.
-            Message: Complete assistant message when stream ends.
-
-        Raises:
-            RuntimeError: If not authenticated or API returns error.
-        """
-        # Get credentials - check immediately before any async operations
+        """Stream completion from ChatGPT Responses API."""
         creds = auth.get("chatgpt")
         if not creds:
             raise RuntimeError("Not authenticated. Run: maestro auth login chatgpt")
 
-        # Build TokenSet for headers (backward compat)
         tokens = auth.TokenSet(**creds)
         tokens = auth.ensure_valid(tokens)
-
-        # Resolve model alias
         api_model = resolve_model(model)
-
-        # Convert neutral messages to Responses API format
         input_items = _convert_messages_to_input(messages)
-
-        # Convert neutral tools to Responses API format
         tool_schemas = _convert_tools_to_schemas(tools) if tools else []
-
-        # Extract system message for instructions
         instructions = _extract_instructions(messages)
+        payload = _build_stream_payload(
+            api_model,
+            input_items,
+            tool_schemas,
+            instructions,
+            kwargs.get("extra"),
+        )
 
-        # Build payload
-        payload: dict = {
-            "model": api_model,
-            "instructions": instructions or "You are a helpful assistant.",
-            "input": input_items,
-            "tools": tool_schemas,
-            "stream": True,
-            "store": False,
-            "reasoning": {
-                "effort": _reasoning_effort(api_model),
-                "summary": "auto",
-            },
-            "text": {"verbosity": "medium"},
-            "include": ["reasoning.encrypted_content"],
-        }
-
-        # Merge supported extra kwargs (e.g. response_format for structured output)
-        extra = kwargs.get("extra")
-        if isinstance(extra, dict):
-            if "response_format" in extra:
-                payload["response_format"] = extra["response_format"]
-
-        # Stream request
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
 
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                RESPONSES_ENDPOINT,
-                json=payload,
-                headers=_headers(tokens),
-                timeout=120,
-            ) as response:
-                if not response.is_success:
-                    body = await response.aread()
-                    raise RuntimeError(
-                        f"API error {response.status_code}: {body[:800].decode(errors='replace')}"
-                    )
+        async for text_chunk in _stream_chatgpt_response(
+            payload,
+            tokens,
+            text_parts,
+            tool_calls,
+        ):
+            yield text_chunk
 
-                async for data in _iter_sse_data_lines(response):
-                    if data == "[DONE]":
-                        break
-
-                    try:
-                        event = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-
-                    etype = event.get("type", "")
-
-                    if etype == "response.output_text.delta":
-                        delta = event.get("delta", "")
-                        text_parts.append(delta)
-                        yield delta
-
-                    elif etype == "response.output_item.done":
-                        item = event.get("item", {})
-                        if item.get("type") == "function_call":
-                            tool_calls.append(_parse_tool_call(item))
-
-                    elif etype == "response.done":
-                        resp = event.get("response", {})
-                        for out in resp.get("output", []):
-                            if out.get("type") == "message" and not text_parts:
-                                for part in out.get("content", []):
-                                    if part.get("type") == "output_text":
-                                        text_parts.append(part["text"])
-
-        # Yield final Message
-        content = "".join(text_parts)
         yield Message(
             role="assistant",
-            content=content,
+            content="".join(text_parts),
             tool_calls=tool_calls,
         )
 

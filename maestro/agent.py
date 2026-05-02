@@ -40,42 +40,51 @@ def _convert_messages_to_input(messages: list[Message]) -> tuple[list, str]:
     for msg in messages:
         if msg.role == "system":
             instructions = msg.content
-        elif msg.role == "user":
-            input_items.append(
-                {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": msg.content}],
-                }
-            )
-        elif msg.role == "assistant":
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    input_items.append(
-                        {
-                            "type": "function_call",
-                            "call_id": tc.id,
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments),
-                        }
-                    )
-            else:
-                input_items.append(
-                    {
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [{"type": "output_text", "text": msg.content}],
-                    }
-                )
-        elif msg.role == "tool":
-            input_items.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": msg.tool_call_id,
-                    "output": msg.content,
-                }
-            )
+            continue
+        input_items.extend(_message_to_input_items(msg))
     return input_items, instructions
+
+
+def _assistant_tool_call_items(msg: Message) -> list[dict]:
+    return [
+        {
+            "type": "function_call",
+            "call_id": tc.id,
+            "name": tc.name,
+            "arguments": json.dumps(tc.arguments),
+        }
+        for tc in msg.tool_calls
+    ]
+
+
+def _message_to_input_items(msg: Message) -> list[dict]:
+    if msg.role == "user":
+        return [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": msg.content}],
+            }
+        ]
+    if msg.role == "assistant":
+        if msg.tool_calls:
+            return _assistant_tool_call_items(msg)
+        return [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": msg.content}],
+            }
+        ]
+    if msg.role == "tool":
+        return [
+            {
+                "type": "function_call_output",
+                "call_id": msg.tool_call_id,
+                "output": msg.content,
+            }
+        ]
+    return []
 
 
 def _convert_tools_to_chatgpt(tools: list[Tool]) -> list[dict]:
@@ -99,16 +108,7 @@ def _convert_tools_to_chatgpt(tools: list[Tool]) -> list[dict]:
 
 
 def _parse_sse_events(response: httpx.Response) -> tuple[list[str], list[ToolCall]]:
-    """Parse SSE lines from a streaming Responses API response.
-
-    Accumulates text delta strings and fully-assembled ToolCall objects.
-
-    Args:
-        response: An open ``httpx.Response`` from a streaming request.
-
-    Returns:
-        A tuple of ``(text_parts, tool_calls)``.
-    """
+    """Parse SSE lines from a streaming Responses API response."""
     text_parts: list[str] = []
     tool_calls: list[ToolCall] = []
 
@@ -122,24 +122,31 @@ def _parse_sse_events(response: httpx.Response) -> tuple[list[str], list[ToolCal
             event = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        etype = event.get("type", "")
-        if etype == "response.output_text.delta":
-            text_parts.append(event.get("delta", ""))
-        elif etype == "response.output_item.done":
-            item = event.get("item", {})
-            if item.get("type") == "function_call":
-                # Responses API uses 'call_id' for function_call_output
-                # references; 'id' is the output-item ID.
-                tool_call_id = item.get("call_id") or item.get("id", "")
-                tool_calls.append(
-                    ToolCall(
-                        id=tool_call_id,
-                        name=item.get("name", ""),
-                        arguments=json.loads(item.get("arguments", "{}")),
-                    )
-                )
+        _dispatch_legacy_event(event, text_parts, tool_calls)
 
     return text_parts, tool_calls
+
+
+def _dispatch_legacy_event(
+    event: dict,
+    text_parts: list[str],
+    tool_calls: list[ToolCall],
+) -> None:
+    """Dispatch a parsed SSE event from legacy httpx streaming."""
+    etype = event.get("type", "")
+    if etype == "response.output_text.delta":
+        text_parts.append(event.get("delta", ""))
+    elif etype == "response.output_item.done":
+        item = event.get("item", {})
+        if item.get("type") == "function_call":
+            tool_call_id = item.get("call_id") or item.get("id", "")
+            tool_calls.append(
+                ToolCall(
+                    id=tool_call_id,
+                    name=item.get("name", ""),
+                    arguments=json.loads(item.get("arguments", "{}")),
+                )
+            )
 
 
 def _assemble_response(text_parts: list[str], tool_calls: list[ToolCall]) -> list:
@@ -388,6 +395,58 @@ def _execute_tools_and_append(
     return auto, None
 
 
+def _collect_stream_results(
+    use_legacy_path: bool,
+    provider,
+    neutral_messages: list[Message],
+    model: str,
+    tools: list[Tool],
+    tokens: auth.TokenSet | None,
+    on_text,
+) -> list:
+    """Collect stream results via legacy or provider path."""
+    if use_legacy_path:
+        return _run_httpx_stream_sync(neutral_messages, model, tools, tokens)
+    if provider is None:
+        raise RuntimeError(
+            "Either provider or tokens must be provided to _run_agentic_loop"
+        )
+    return _run_provider_stream_sync(
+        provider, neutral_messages, model, tools, on_text=on_text
+    )
+
+
+def _run_agentic_iteration(
+    use_legacy_path: bool,
+    provider,
+    neutral_messages: list[Message],
+    model: str,
+    tools: list[Tool],
+    tokens: auth.TokenSet | None,
+    on_text,
+) -> tuple[str, list[ToolCall]]:
+    stream_results = _collect_stream_results(
+        use_legacy_path, provider, neutral_messages, model, tools, tokens, on_text
+    )
+    return _collect_stream_chunks(stream_results)
+
+
+def _advance_tool_iteration(
+    recent_tool_signatures: list[str],
+    tool_calls: list[ToolCall],
+    neutral_messages: list[Message],
+    final_text: str,
+    wd: Path,
+    auto: bool,
+    on_tool_start,
+    max_repeated_calls: int,
+) -> tuple[bool, None]:
+    _check_tool_loop(recent_tool_signatures, tool_calls, max_repeated_calls)
+    return _execute_tools_and_append(
+        tool_calls, neutral_messages, final_text, wd, auto, on_tool_start
+    )
+
+
 def _run_agentic_loop(
     messages: list[BaseMessage],
     model: str,
@@ -401,33 +460,7 @@ def _run_agentic_loop(
     on_text=None,
     on_tool_start=None,
 ) -> str:
-    """Run the agentic loop using provider.stream() for HTTP delegation.
-
-    Args:
-        messages: LangChain messages (HumanMessage, AIMessage, etc.)
-        model: Model identifier to use
-        instructions: System prompt/instructions
-        provider: ProviderPlugin instance for streaming (runtime path)
-        workdir: Working directory for tool execution
-        auto: Whether to auto-execute destructive tools without confirmation
-        max_iterations: Maximum tool-call iterations before giving up
-        tokens: TokenSet for legacy httpx-based streaming (backward compatibility)
-        on_text: Optional callable(str) invoked with each text chunk as it arrives.
-                 Use for real-time streaming output to the terminal.
-        on_tool_start: Optional callable() invoked before executing tool calls.
-                       Use to stop a spinner before tool confirmation prompts.
-
-    Returns:
-        Final text response from the model
-
-    Raises:
-        RuntimeError: If provider is unauthenticated or API returns error
-
-    Note:
-        Either `provider` OR `tokens` must be provided. The provider-based path
-        is used at runtime; the tokens-based path is preserved for backward
-        compatibility with existing tests that mock httpx.stream().
-    """
+    """Run the agentic loop using provider.stream() for HTTP delegation."""
     use_legacy_path = tokens is not None
     wd = workdir or Path.cwd()
 
@@ -438,36 +471,115 @@ def _run_agentic_loop(
     MAX_REPEATED_CALLS = 3
 
     for _iteration in range(max_iterations):
-        # --- stream collection ---
-        if use_legacy_path:
-            stream_results = _run_httpx_stream_sync(
-                neutral_messages, model, tools, tokens
-            )
-        else:
-            if provider is None:
-                raise RuntimeError(
-                    "Either provider or tokens must be provided to _run_agentic_loop"
-                )
-            stream_results = _run_provider_stream_sync(
-                provider, neutral_messages, model, tools, on_text=on_text
-            )
+        final_text, tool_calls = _run_agentic_iteration(
+            use_legacy_path,
+            provider,
+            neutral_messages,
+            model,
+            tools,
+            tokens,
+            on_text,
+        )
 
-        final_text, tool_calls = _collect_stream_chunks(stream_results)
-
-        # No tool calls → final answer
         if not tool_calls:
             return final_text
 
-        # --- loop detection ---
-        _check_tool_loop(recent_tool_signatures, tool_calls, MAX_REPEATED_CALLS)
-
-        # --- tool execution ---
-        auto, _ = _execute_tools_and_append(
-            tool_calls, neutral_messages, final_text, wd, auto, on_tool_start
+        auto, _ = _advance_tool_iteration(
+            recent_tool_signatures,
+            tool_calls,
+            neutral_messages,
+            final_text,
+            wd,
+            auto,
+            on_tool_start,
+            MAX_REPEATED_CALLS,
         )
-        on_tool_start = None  # already consumed (or not provided)
+        on_tool_start = None
 
     raise RuntimeError(f"Agent loop exceeded max_iterations={max_iterations}")
+
+
+def _dispatch_sse_text(
+    event: dict,
+    text_parts: list[str],
+) -> None:
+    """Dispatch a parsed SSE event from _call_responses_api, collecting text."""
+    etype = event.get("type", "")
+    if etype == "response.output_text.delta":
+        text_parts.append(event.get("delta", ""))
+    elif etype == "response.done":
+        _append_response_done_text(event.get("response", {}), text_parts)
+
+
+def _append_response_done_text(response: dict, text_parts: list[str]) -> None:
+    if text_parts:
+        return
+
+    for item in response.get("output", []):
+        output_text = _message_output_text(item)
+        if output_text is not None:
+            text_parts.append(output_text)
+            return
+
+
+def _message_output_text(item: dict) -> str | None:
+    if item.get("type") != "message":
+        return None
+
+    for part in item.get("content", []):
+        if part.get("type") == "output_text":
+            return part["text"]
+    return None
+
+
+def _build_single_shot_input(
+    messages: list[BaseMessage],
+) -> tuple[list[dict], str]:
+    input_items: list[dict] = []
+    instructions = ""
+    for msg in messages:
+        if isinstance(msg, SystemMessage):
+            instructions = msg.content
+        else:
+            item = _base_message_to_input_item(msg)
+            if item is not None:
+                input_items.append(item)
+    return input_items, instructions
+
+
+def _base_message_to_input_item(msg: BaseMessage) -> dict | None:
+    if isinstance(msg, HumanMessage):
+        return {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": msg.content}],
+        }
+    if isinstance(msg, AIMessage):
+        return {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": msg.content}],
+        }
+    return None
+
+
+def _read_streamed_text_response(response: httpx.Response) -> str:
+    text_parts: list[str] = []
+    for line in response.iter_lines():
+        if not line.startswith("data: "):
+            continue
+        raw = line[6:]
+        if raw == "[DONE]":
+            break
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        _dispatch_sse_text(event, text_parts)
+
+    if text_parts:
+        return "".join(text_parts)
+    raise RuntimeError("No output_text received from streaming response")
 
 
 def _call_responses_api(
@@ -477,28 +589,7 @@ def _call_responses_api(
 ) -> str:
     """Single-shot call to the Responses API (no tool loop). Used by models --check."""
     api_model = resolve_model(model)
-
-    input_items = []
-    instructions = ""
-    for msg in messages:
-        if isinstance(msg, SystemMessage):
-            instructions = msg.content
-        elif isinstance(msg, HumanMessage):
-            input_items.append(
-                {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": msg.content}],
-                }
-            )
-        elif isinstance(msg, AIMessage):
-            input_items.append(
-                {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": msg.content}],
-                }
-            )
+    input_items, instructions = _build_single_shot_input(messages)
 
     payload = {
         "model": api_model,
@@ -524,32 +615,7 @@ def _call_responses_api(
         if not r.is_success:
             body = r.read().decode()
             raise RuntimeError(f"API error {r.status_code}: {body[:800]}")
-
-        text_parts: list[str] = []
-        for line in r.iter_lines():
-            if not line.startswith("data: "):
-                continue
-            raw = line[6:]
-            if raw == "[DONE]":
-                break
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            etype = event.get("type", "")
-            if etype == "response.output_text.delta":
-                text_parts.append(event.get("delta", ""))
-            elif etype == "response.done":
-                resp = event.get("response", {})
-                for item in resp.get("output", []):
-                    if item.get("type") == "message":
-                        for part in item.get("content", []):
-                            if part.get("type") == "output_text" and not text_parts:
-                                text_parts.append(part["text"])
-
-    if text_parts:
-        return "".join(text_parts)
-    raise RuntimeError("No output_text received from streaming response")
+        return _read_streamed_text_response(r)
 
 
 def run(

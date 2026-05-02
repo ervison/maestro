@@ -1,6 +1,8 @@
 """Tests for maestro/sdlc/generators.py and prompts.py."""
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from maestro.providers.base import Message
@@ -136,10 +138,19 @@ async def test_harness_with_provider_calls_generators(tmp_path) -> None:
 
     provider = MockProvider()
     harness = DiscoveryHarness(provider=provider, workdir=str(tmp_path), reflect=False)
-    result = await harness.arun(SDLCRequest("Build a CRM", workdir=str(tmp_path)))
+
+    with patch("maestro.sdlc.harness.resolve_discovery_profile") as mock_profile:
+        with patch(
+            "maestro.sdlc.harness.resolve_gaps",
+            new=AsyncMock(return_value=[]),
+        ) as mock_resolve_gaps:
+            result = await harness.arun(SDLCRequest("Build a CRM", workdir=str(tmp_path)))
+
     # 14 artifacts = 14 stream calls
     assert len(provider.calls) == 14
     assert result.artifact_count == 14
+    mock_profile.assert_not_called()
+    mock_resolve_gaps.assert_not_called()
 
 
 def test_prompts_cover_all_artifact_types() -> None:

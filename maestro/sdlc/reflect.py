@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -40,12 +39,27 @@ DIMENSIONS = [
 TARGET_MEAN = 8.0
 
 
+def _extract_first_code_fence(text: str) -> str | None:
+    start = text.find("```")
+    if start == -1:
+        return None
+
+    body_start = text.find("\n", start + 3)
+    if body_start == -1:
+        return None
+
+    end = text.find("```", body_start + 1)
+    if end == -1:
+        return None
+
+    return text[body_start + 1:end]
+
+
 def _extract_json(text: str) -> Any:
     """Extract JSON from text, handling ```json ... ``` fences."""
-    # Try to find a JSON code block first
-    fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if fence_match:
-        candidate = fence_match.group(1).strip()
+    candidate = _extract_first_code_fence(text)
+    if candidate is not None:
+        candidate = candidate.strip()
         return json.loads(candidate)
     # Fallback: try to parse entire text as JSON
     return json.loads(text.strip())
@@ -181,6 +195,62 @@ Rules:
             applied.append((fname, f"replaced '{old[:40]}...' in {fname}"))
         return applied
 
+    async def _do_eval_cycle(
+        self, provider: Any, model: str | None, spec_contents: dict[str, str], cycle_num: int
+    ) -> tuple[list[ReflectDimensionScore], list[dict]] | None:
+        """Perform one evaluation cycle. Returns (scores, problems) or None on failure."""
+        eval_prompt = self._build_eval_prompt(spec_contents)
+        try:
+            eval_response = await self._call_provider(provider, model, eval_prompt)
+            eval_data = _extract_json(eval_response)
+            raw_scores = eval_data.get("scores", [])
+            raw_problems = eval_data.get("problems", [])
+        except (KeyError, TypeError, ValueError) as exc:
+            print(
+                f"[reflect] Cycle {cycle_num}/{self._target_mean} — malformed eval JSON ({exc}), skipping",
+                file=sys.stderr,
+            )
+            return None
+
+        dim_scores: list[ReflectDimensionScore] = []
+        for s in raw_scores:
+            try:
+                dim_scores.append(
+                    ReflectDimensionScore(
+                        dimension=s["dimension"],
+                        score=float(s["score"]),
+                        justification=s.get("justification", ""),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                pass
+        return dim_scores, raw_problems
+
+    async def _do_fix_cycle(
+        self,
+        provider: Any,
+        model: str | None,
+        spec_contents: dict[str, str],
+        raw_problems: list[dict],
+        spec_dir: Path,
+        cycle_num: int,
+        max_cycles: int,
+    ) -> list[tuple[str, str]]:
+        """Perform one correction cycle. Returns list of (file, description) applied."""
+        fix_prompt = self._build_fix_prompt(spec_contents, raw_problems)
+        try:
+            fix_response = await self._call_provider(provider, model, fix_prompt)
+            patches = _extract_json(fix_response)
+            if not isinstance(patches, list):
+                raise ValueError("patches must be a JSON array")
+        except (ValueError, TypeError) as exc:
+            print(
+                f"[reflect] Cycle {cycle_num}/{max_cycles} — malformed fix JSON ({exc}), skipping patches",
+                file=sys.stderr,
+            )
+            return []
+        return self._apply_patches(spec_dir, patches) if patches else []
+
     async def _call_provider(self, provider: Any, model: str | None, prompt: str) -> str:
         """Call the provider and collect the full response text."""
         from maestro.providers.base import Message
@@ -208,38 +278,15 @@ Rules:
         cycles: list[ReflectCycle] = []
 
         for cycle_num in range(1, max_cycles + 1):
-            # Step 1: Read current spec files
             spec_contents = self._read_spec_files(spec_dir)
 
             # Step 2: Evaluate
-            eval_prompt = self._build_eval_prompt(spec_contents)
-            try:
-                eval_response = await self._call_provider(provider, model, eval_prompt)
-                eval_data = _extract_json(eval_response)
-                raw_scores = eval_data.get("scores", [])
-                raw_problems = eval_data.get("problems", [])
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-                print(
-                    f"[reflect] Cycle {cycle_num}/{max_cycles} — malformed eval JSON ({exc}), skipping",
-                    file=sys.stderr,
-                )
+            eval_result = await self._do_eval_cycle(provider, model, spec_contents, cycle_num)
+            if eval_result is None:
                 cycles.append(ReflectCycle(cycle=cycle_num, mean=0.0))
                 continue
 
-            # Build dimension scores
-            dim_scores: list[ReflectDimensionScore] = []
-            for s in raw_scores:
-                try:
-                    dim_scores.append(
-                        ReflectDimensionScore(
-                            dimension=s["dimension"],
-                            score=float(s["score"]),
-                            justification=s.get("justification", ""),
-                        )
-                    )
-                except (KeyError, TypeError, ValueError):
-                    pass
-
+            dim_scores, raw_problems = eval_result
             mean = sum(s.score for s in dim_scores) / len(dim_scores) if dim_scores else 0.0
             print(
                 f"[reflect] Cycle {cycle_num}/{max_cycles} — mean: {mean:.1f}/10",
@@ -257,22 +304,11 @@ Rules:
             if cycle_num == max_cycles:
                 break
 
-            fix_prompt = self._build_fix_prompt(spec_contents, raw_problems)
-            try:
-                fix_response = await self._call_provider(provider, model, fix_prompt)
-                patches = _extract_json(fix_response)
-                if not isinstance(patches, list):
-                    raise ValueError("patches must be a JSON array")
-            except (json.JSONDecodeError, ValueError, TypeError) as exc:
-                print(
-                    f"[reflect] Cycle {cycle_num}/{max_cycles} — malformed fix JSON ({exc}), skipping patches",
-                    file=sys.stderr,
-                )
-                continue
-
-            applied = self._apply_patches(spec_dir, patches)
+            applied = await self._do_fix_cycle(
+                provider, model, spec_contents, raw_problems,
+                spec_dir, cycle_num, max_cycles,
+            )
             for fname, description in applied:
-                # Find the relevant dimension from problems
                 dimension = next(
                     (p.get("dimension", "") for p in raw_problems if p.get("file") == fname),
                     "",

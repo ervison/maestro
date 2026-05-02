@@ -64,14 +64,21 @@ class Config:
         parts = key.split(".")
 
         if len(parts) == 1:
-            # Direct attribute set
             if hasattr(self, parts[0]):
                 setattr(self, parts[0], value)
             else:
                 raise KeyError(f"Invalid config key: {key}")
             return
 
-        # Navigate to parent container
+        parent = self._navigate(parts, key)
+        final_key = parts[-1]
+        if isinstance(parent, dict):
+            parent[final_key] = value
+        else:
+            raise KeyError(f"Cannot set key on non-container: {key}")
+
+    def _navigate(self, parts: list[str], key: str) -> Any:
+        """Walk the config tree to the parent of the final key."""
         current: Any = self
         for part in parts[:-1]:
             if isinstance(current, Config):
@@ -84,13 +91,7 @@ class Config:
                 current = current[part]
             else:
                 raise KeyError(f"Cannot set nested key on non-container: {key}")
-
-        # Set final value
-        final_key = parts[-1]
-        if isinstance(current, dict):
-            current[final_key] = value
-        else:
-            raise KeyError(f"Cannot set key on non-container: {key}")
+        return current
 
 
 def _validate_root_config(data: Any) -> None:

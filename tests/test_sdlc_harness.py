@@ -9,10 +9,20 @@ from maestro.sdlc.schemas import (
     ARTIFACT_FILENAMES,
     ARTIFACT_ORDER,
     ArtifactType,
+    DiscoveryProfile,
     DiscoveryResult,
     GateResult,
     SDLCRequest,
 )
+
+
+def _test_discovery_profile() -> DiscoveryProfile:
+    return DiscoveryProfile(
+        audience_level="developer",
+        question_style="technical",
+        discovery_preference="decide_when_needed",
+        language_tone="balanced",
+    )
 
 
 def test_harness_instantiation() -> None:
@@ -143,10 +153,11 @@ def test_harness_resolves_gaps_and_enriches_prompt(tmp_path: Path, monkeypatch) 
     mock_answers = [GapAnswer(question="Is SSO required?", selected_options=["Yes"])]
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=mock_answers)) as mock_resolve:
-            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
-            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
-            result = asyncio.run(harness.arun(request))
+        with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+            with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=mock_answers)) as mock_resolve:
+                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                result = asyncio.run(harness.arun(request))
 
     mock_resolve.assert_called_once()
     assert any("Is SSO required? → Yes" in entry for entry in call_log)
@@ -173,17 +184,77 @@ def test_harness_post_gap_artifacts_use_resolved_prompt_rules(tmp_path: Path) ->
     from maestro.sdlc.schemas import GapAnswer
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch(
-            "maestro.sdlc.harness.resolve_gaps",
-            new=AsyncMock(
-                return_value=[GapAnswer(question="Is SSO required?", selected_options=["Yes"])]
-            ),
-        ):
-            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
-            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
-            asyncio.run(harness.arun(request))
+        with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+            with patch(
+                "maestro.sdlc.harness.resolve_gaps",
+                new=AsyncMock(
+                    return_value=[GapAnswer(question="Is SSO required?", selected_options=["Yes"])]
+                ),
+            ):
+                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                asyncio.run(harness.arun(request))
 
     assert "## Gap Answers" in captured_prompt_by_type[ArtifactType.PRD]
+
+
+def test_harness_collects_profile_before_resolving_gaps(tmp_path: Path) -> None:
+    import asyncio
+
+    from maestro.sdlc.schemas import GapAnswer, SDLCArtifact
+
+    call_order: list[str] = []
+    discovery_profile = _test_discovery_profile()
+
+    async def fake_generate(self_ref, request, artifact_type, prior_artifacts=None):
+        del self_ref, request, prior_artifacts
+        content = "[GAP] Is SSO required?" if artifact_type == ArtifactType.GAPS else "# content"
+        return SDLCArtifact(
+            artifact_type=artifact_type,
+            filename=ARTIFACT_FILENAMES[artifact_type],
+            content=content,
+        )
+
+    def fake_resolve_discovery_profile(context_hint, port=4041, open_browser=True):
+        call_order.append("profile")
+        assert "## User Request\n\nBuild a CRM" in context_hint
+        assert port == 4041
+        assert open_browser is False
+        return discovery_profile
+
+    async def fake_resolve_gaps(
+        gaps_markdown,
+        provider=None,
+        model=None,
+        port=4041,
+        open_browser=True,
+        profile=None,
+    ):
+        del provider, model
+        call_order.append("gaps")
+        assert gaps_markdown == "[GAP] Is SSO required?"
+        assert port == 4041
+        assert open_browser is False
+        assert profile == discovery_profile
+        return [GapAnswer(question="Is SSO required?", selected_options=["Yes"])]
+
+    with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
+        with patch(
+            "maestro.sdlc.harness.resolve_discovery_profile",
+            side_effect=fake_resolve_discovery_profile,
+            create=True,
+        ) as mock_profile:
+            with patch(
+                "maestro.sdlc.harness.resolve_gaps",
+                new=AsyncMock(side_effect=fake_resolve_gaps),
+            ) as mock_resolve:
+                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                asyncio.run(harness.arun(request))
+
+    mock_profile.assert_called_once()
+    mock_resolve.assert_called_once()
+    assert call_order == ["profile", "gaps"]
 
 
 def test_harness_reflect_disabled_produces_no_report(tmp_path: Path) -> None:
@@ -224,16 +295,17 @@ def test_harness_passes_reflect_target_mean_to_reflect_loop(tmp_path: Path) -> N
                 yield ""
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.reflect.ReflectLoop", new=FakeReflectLoop):
-            harness = DiscoveryHarness(
-                provider=FakeProvider(),
-                model="test",
-                workdir=str(tmp_path),
-                open_browser=False,
-                reflect_target_mean=7.25,
-                reflect_max_cycles=4,
-            )
-            asyncio.run(harness.arun(SDLCRequest("Build X", workdir=str(tmp_path))))
+        with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+            with patch("maestro.sdlc.reflect.ReflectLoop", new=FakeReflectLoop):
+                harness = DiscoveryHarness(
+                    provider=FakeProvider(),
+                    model="test",
+                    workdir=str(tmp_path),
+                    open_browser=False,
+                    reflect_target_mean=7.25,
+                    reflect_max_cycles=4,
+                )
+                asyncio.run(harness.arun(SDLCRequest("Build X", workdir=str(tmp_path))))
 
     assert captured == {"target_mean": 7.25, "max_cycles": 4}
 
@@ -259,11 +331,12 @@ def test_harness_raises_if_post_gap_artifact_has_open_markers(tmp_path: Path) ->
         )
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
-            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
-            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
-            with pytest.raises(RuntimeError, match=r"Unresolved \[GAP\]/\[HYPOTHESIS\]"):
-                asyncio.run(harness.arun(request))
+        with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+            with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                with pytest.raises(RuntimeError, match=r"Unresolved \[GAP\]/\[HYPOTHESIS\]"):
+                    asyncio.run(harness.arun(request))
 
 
 def test_harness_allows_inline_marker_mentions_after_gap_resolution(tmp_path: Path) -> None:
@@ -287,10 +360,11 @@ def test_harness_allows_inline_marker_mentions_after_gap_resolution(tmp_path: Pa
         )
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
-            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
-            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
-            result = asyncio.run(harness.arun(request))
+        with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+            with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                result = asyncio.run(harness.arun(request))
 
     assert result.artifact_count == len(ARTIFACT_ORDER)
 
@@ -317,10 +391,11 @@ def test_harness_deduplicates_repeated_artifact_content(tmp_path: Path) -> None:
         )
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
-            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
-            request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
-            result = asyncio.run(harness.arun(request))
+        with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+            with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                result = asyncio.run(harness.arun(request))
 
     prd = next(artifact for artifact in result.artifacts if artifact.artifact_type == ArtifactType.PRD)
     assert prd.content == repeated
@@ -342,11 +417,12 @@ async def test_harness_sprint_mode_produces_14_artifacts(tmp_path) -> None:
         )
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
-            with patch.object(DiscoveryHarness, "_run_gate", new=AsyncMock(return_value=GateResult(sprint_id=1, passed=True))):
-                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False, use_sprints=True, reflect=False)
-                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
-                result = await harness.arun(request)
+        with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+            with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+                with patch.object(DiscoveryHarness, "_run_gate", new=AsyncMock(return_value=GateResult(sprint_id=1, passed=True))):
+                    harness = DiscoveryHarness(provider=object(), model="test", open_browser=False, use_sprints=True, reflect=False)
+                    request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                    result = await harness.arun(request)
 
     assert result.artifact_count == 14
     assert call_order[0] == "briefing"
@@ -372,10 +448,11 @@ async def test_harness_sprint_mode_runs_gate_reviews(tmp_path) -> None:
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
         with patch.object(DiscoveryHarness, "_run_gate", new=tracking_gate):
-            with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
-                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False, use_sprints=True, reflect=False)
-                request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
-                await harness.arun(request)
+            with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+                with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+                    harness = DiscoveryHarness(provider=object(), model="test", open_browser=False, use_sprints=True, reflect=False)
+                    request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
+                    await harness.arun(request)
 
     assert gate_calls == [1, 2, 3, 4, 5, 6]
 
@@ -415,17 +492,18 @@ async def test_sprint_mode_continues_after_gate_failure(tmp_path) -> None:
         )
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
-            harness = DiscoveryHarness(
-                provider=object(),
-                model="stub/model",
-                workdir=str(tmp_path),
-                use_sprints=True,
-                reviewer=failing_reviewer,
-                reflect=False,
-                open_browser=False,
-            )
-            result = await harness.arun(SDLCRequest(prompt="x", workdir=str(tmp_path)))
+        with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+            with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+                harness = DiscoveryHarness(
+                    provider=object(),
+                    model="stub/model",
+                    workdir=str(tmp_path),
+                    use_sprints=True,
+                    reviewer=failing_reviewer,
+                    reflect=False,
+                    open_browser=False,
+                )
+                result = await harness.arun(SDLCRequest(prompt="x", workdir=str(tmp_path)))
 
     assert result.artifact_count == 14, "all artifacts must be generated despite gate failure"
     assert len(result.gate_failures) == 6, "all 6 sprint gates failed and were recorded"
@@ -457,8 +535,9 @@ def test_resolve_gaps_writes_answers_to_gaps_file(tmp_path: Path) -> None:
     harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
     request = SDLCRequest(prompt="Build a CRM", workdir=str(tmp_path))
 
-    with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=mock_answers)):
-        asyncio.run(harness._resolve_gaps(request, gaps_artifact, spec_dir=spec_dir))
+    with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=mock_answers)):
+            asyncio.run(harness._resolve_gaps(request, gaps_artifact, spec_dir=spec_dir))
 
     gaps_file = spec_dir / ARTIFACT_FILENAMES[ArtifactType.GAPS]
     assert gaps_file.exists(), "gaps file must exist after _resolve_gaps"
@@ -490,10 +569,11 @@ def test_harness_injects_technical_defaults_into_prompt(tmp_path: Path) -> None:
         )
 
     with patch.object(DiscoveryHarness, "_generate_artifact", new=fake_generate):
-        with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
-            harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
-            request = SDLCRequest(prompt="Build a cat registry app", workdir=str(tmp_path))
-            asyncio.run(harness.arun(request))
+        with patch("maestro.sdlc.harness.resolve_discovery_profile", return_value=_test_discovery_profile()):
+            with patch("maestro.sdlc.harness.resolve_gaps", new=AsyncMock(return_value=[])):
+                harness = DiscoveryHarness(provider=object(), model="test", open_browser=False)
+                request = SDLCRequest(prompt="Build a cat registry app", workdir=str(tmp_path))
+                asyncio.run(harness.arun(request))
 
     assert captured_prompts, "at least one artifact must be generated"
     first_prompt = captured_prompts[0]

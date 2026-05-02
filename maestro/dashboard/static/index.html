@@ -263,7 +263,7 @@ function initDag(tasks) {
 
   // Ensure synthetic nodes exist (they may already be pre-initialized)
   ['planner', 'scheduler', 'aggregator'].forEach(id => {
-    if (!nodes[id]) nodes[id] = makeNode(id, id, id, []);
+    if (nodes[id] == null) nodes[id] = makeNode(id, id, id, []);
   });
 
   tasks.forEach(t => {
@@ -277,21 +277,30 @@ function makeNode(id, domain, description, deps) {
   return { id, domain, description, deps, status: 'waiting', model: '—', elapsed: null, toolCount: 0, logs: [] };
 }
 
+function isCoreNode(id) {
+  return ['planner', 'scheduler', 'aggregator'].includes(id);
+}
+
+function isWorkerNode(id) {
+  return !isCoreNode(id);
+}
+
 function updateNode(event) {
   const { id, status, model, elapsed, domain } = event;
 
-  if (!nodes[id]) {
-    nodes[id] = makeNode(id, domain || id, id, []);
+  let node = nodes[id];
+  if (node == null) {
+    node = makeNode(id, domain || id, id, []);
+    nodes[id] = node;
   }
 
-  const node = nodes[id];
   node.status = status;
   if (model) node.model = model;
-  if (elapsed != null) node.elapsed = elapsed;
+  if (typeof elapsed === 'number') node.elapsed = elapsed;
   if (domain) node.domain = domain;
 
   // Start elapsed timer when active
-  if (status === 'active' && !elapsedTimers[id]) {
+  if (status === 'active' && elapsedTimers[id] === undefined) {
     const startMs = Date.now();
     elapsedTimers[id] = setInterval(() => {
       if (nodes[id]) {
@@ -313,15 +322,15 @@ function updateNode(event) {
 
 function appendLog(event) {
   const { id, kind, text } = event;
-  if (!nodes[id]) return;
+  if (nodes[id]) {
+    const node = nodes[id];
+    node.logs.push({ kind, text });
+    if (kind === 'tool') node.toolCount++;
 
-  const node = nodes[id];
-  node.logs.push({ kind, text });
-  if (kind === 'tool') node.toolCount++;
-
-  if (selectedId === id) {
-    appendLogLine(kind, text);
-    if (kind === 'tool' && nodes[id]) updatePanelMeta(nodes[id]);
+    if (selectedId === id) {
+      appendLogLine(kind, text);
+      if (kind === 'tool') updatePanelMeta(node);
+    }
   }
 }
 
@@ -330,10 +339,11 @@ function renderPipeline() {
   const pipeline = document.getElementById('pipeline');
   // Remove all child elements except #empty
   Array.from(pipeline.children).forEach(el => {
-    if (el.id !== 'empty') el.remove();
+    if (el.id === 'empty') return;
+    el.remove();
   });
 
-  const workerIds = Object.keys(nodes).filter(id => !['planner','scheduler','aggregator'].includes(id));
+  const workerIds = Object.keys(nodes).filter(isWorkerNode);
 
   const row = document.createElement('div');
   row.className = 'pipeline-row';
@@ -378,14 +388,14 @@ function makeCardEl(id) {
 
 function renderCard(id) {
   const existing = document.getElementById(`card-${id}`);
-  if (!existing) {
-    renderPipeline();
+  if (existing) {
+    const node = nodes[id];
+    existing.className = `card ${node.status}`;
+    existing.querySelector('.card-label').textContent = node.domain;
+    existing.querySelector('.card-status').textContent = statusLabel(node.status);
     return;
   }
-  const node = nodes[id];
-  existing.className = `card ${node.status}`;
-  existing.querySelector('.card-label').textContent = node.domain;
-  existing.querySelector('.card-status').textContent = statusLabel(node.status);
+  renderPipeline();
 }
 
 function makeArrow() {
@@ -434,7 +444,7 @@ function updatePanelMeta(node) {
 
   document.getElementById('meta-domain').textContent = node.domain;
   document.getElementById('meta-model').textContent = node.model || '—';
-  document.getElementById('meta-elapsed').textContent = node.elapsed != null ? `${node.elapsed.toFixed(1)}s` : '—';
+  document.getElementById('meta-elapsed').textContent = typeof node.elapsed === 'number' ? `${node.elapsed.toFixed(1)}s` : '—';
   document.getElementById('meta-tools').textContent = node.toolCount;
 }
 

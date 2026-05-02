@@ -1,11 +1,14 @@
 import threading
 import time
 import socket
+import queue
 import urllib.error
 import urllib.request
+from io import BytesIO
+from unittest.mock import patch
 
 from maestro.dashboard.emitter import DashboardEmitter
-from maestro.dashboard.server import start_dashboard_server
+from maestro.dashboard.server import _make_handler, _sse_handler_factory, start_dashboard_server
 
 
 def _find_free_port() -> int:
@@ -133,3 +136,108 @@ def test_unknown_path_returns_404() -> None:
         assert False, "Expected 404"
     except urllib.error.HTTPError as e:
         assert e.code == 404
+
+
+def test_root_returns_404_when_static_index_is_missing(tmp_path) -> None:
+    emitter = DashboardEmitter()
+    port = _find_free_port()
+
+    with patch("maestro.dashboard.server._STATIC_DIR", tmp_path):
+        server = start_dashboard_server(emitter, port=port)
+        time.sleep(0.2)
+        try:
+            with urllib.request.urlopen(f"http://localhost:{port}/"):
+                assert False, "Expected 404"
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
+def test_sse_handler_drops_oldest_event_when_queue_is_full() -> None:
+    client_queue = queue.Queue(maxsize=1)
+    client_queue.put_nowait({"type": "old"})
+
+    _sse_handler_factory(client_queue)({"type": "new"})
+
+    assert client_queue.get_nowait() == {"type": "new"}
+
+
+def test_sse_handler_ignores_repeated_queue_full_failures() -> None:
+    class FakeQueue:
+        def put_nowait(self, event):
+            del event
+            raise queue.Full
+
+        def get_nowait(self):
+            raise queue.Empty
+
+    _sse_handler_factory(FakeQueue())({"type": "new"})
+
+
+def test_dashboard_handler_routes_events_path_to_sse() -> None:
+    emitter = DashboardEmitter()
+    handler_class = _make_handler(emitter)
+    handler = handler_class.__new__(handler_class)
+    handler.path = "/events"
+
+    called = []
+    handler._serve_sse = lambda: called.append(True)
+
+    handler.do_GET()
+
+    assert called == [True]
+
+
+def test_sse_serves_heartbeat_and_unsubscribes_on_broken_pipe() -> None:
+    emitter = DashboardEmitter()
+    handler_class = _make_handler(emitter)
+    handler = handler_class.__new__(handler_class)
+    handler.wfile = BytesIO()
+    sent_headers = []
+    subscriptions = []
+
+    handler.send_response = lambda code: sent_headers.append(("status", code))
+    handler.send_header = lambda name, value: sent_headers.append((name, value))
+    handler.end_headers = lambda: sent_headers.append(("end", None))
+
+    def subscribe(callback):
+        subscriptions.append(callback)
+
+    def unsubscribe(callback):
+        subscriptions.remove(callback)
+
+    emitter.subscribe = subscribe
+    emitter.unsubscribe = unsubscribe
+
+    class FakeQueue:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get(self, timeout):
+            self.calls += 1
+            if self.calls == 1:
+                raise queue.Empty
+            return {"type": "dag_ready", "tasks": []}
+
+    class BrokenPipeBuffer:
+        def __init__(self) -> None:
+            self.writes = []
+
+        def write(self, data):
+            self.writes.append(data)
+            if data.startswith(b"data: "):
+                raise BrokenPipeError
+
+        def flush(self):
+            return None
+
+    handler.wfile = BrokenPipeBuffer()
+
+    with patch("maestro.dashboard.server.queue.Queue", return_value=FakeQueue()):
+        handler._serve_sse()
+
+    assert ("Content-Type", "text/event-stream") in sent_headers
+    assert handler.wfile.writes[0] == b": heartbeat\n\n"
+    assert subscriptions == []

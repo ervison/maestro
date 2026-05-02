@@ -5,10 +5,13 @@ from maestro.sdlc.schemas import (
     ARTIFACT_FILENAMES,
     ARTIFACT_ORDER,
     ArtifactType,
+    DiscoveryProfile,
     DiscoveryResult,
     GapAnswer,
     GapItem,
     GateResult,
+    ProfileOption,
+    ProfileQuestion,
     SDLCArtifact,
     SDLCRequest,
     SprintResult,
@@ -95,6 +98,38 @@ def test_gap_item_defaults() -> None:
     assert item.free_text_placeholder == ""
     assert item.recommended_options == []
     assert item.recommended_index == 0
+
+
+def test_gap_item_copy_fields_default_empty() -> None:
+    item = GapItem(question="Is SSO required?", options=["Yes", "No"])
+
+    assert item.display_question == ""
+    assert item.help_text == ""
+
+
+def test_discovery_profile_dataclass() -> None:
+    profile = DiscoveryProfile(
+        audience_level="developer",
+        question_style="technical",
+        discovery_preference="decide_when_needed",
+        language_tone="balanced",
+    )
+    option = ProfileOption(value="developer", label="Developer")
+    question = ProfileQuestion(
+        key="audience_level",
+        prompt="Who is the intended audience?",
+        options=[option],
+    )
+
+    assert profile.audience_level == "developer"
+    assert profile.question_style == "technical"
+    assert profile.discovery_preference == "decide_when_needed"
+    assert profile.language_tone == "balanced"
+    assert option.value == "developer"
+    assert option.label == "Developer"
+    assert question.key == "audience_level"
+    assert question.prompt == "Who is the intended audience?"
+    assert question.options == [option]
 
 
 def test_gap_answer_new_fields() -> None:

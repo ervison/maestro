@@ -96,77 +96,96 @@ def _build_system_prompt() -> str:
     return PLANNER_SYSTEM_PROMPT.format(schema=schema_str)
 
 
+async def _async_collect_stream(
+    provider: Any,
+    messages: list[Message],
+    model: str,
+    use_response_format: bool,
+) -> str:
+    """Async: collect streamed chunks from provider into a full response string."""
+    chunks = []
+    if use_response_format:
+        extra = {
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "AgentPlan",
+                    "schema": _AGENT_PLAN_SCHEMA,
+                    "strict": True,
+                },
+            }
+        }
+        stream = provider.stream(messages=messages, model=model, tools=[], extra=extra)
+    else:
+        stream = provider.stream(messages=messages, model=model, tools=[])
+
+    async for chunk in stream:
+        if isinstance(chunk, str):
+            chunks.append(chunk)
+        elif isinstance(chunk, Message) and chunk.content:
+            chunks = [chunk.content]
+    return "".join(chunks)
+
+
+def _run_async_sync(coro: Any) -> str:
+    """Run an async coroutine synchronously, adapting to the current event loop state."""
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result()
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
 def _call_provider_with_schema(
     provider: Any,
     messages: list[Message],
     model: str,
 ) -> str:
-    """Try api-level JSON schema enforcement, fall back to prompt-only.
-
-    Returns the raw text response from the provider.
-    """
-    import asyncio
-
-    # Collect streamed chunks into a full response string
-    def _collect_stream(use_response_format: bool) -> str:
-        """Run async stream collection synchronously."""
-        async def _async_collect() -> str:
-            chunks = []
-            try:
-                if use_response_format:
-                    extra = {
-                        "response_format": {
-                            "type": "json_schema",
-                            "json_schema": {
-                                "name": "AgentPlan",
-                                "schema": _AGENT_PLAN_SCHEMA,
-                                "strict": True,
-                            },
-                        }
-                    }
-                    stream = provider.stream(messages=messages, model=model, tools=[], extra=extra)
-                else:
-                    stream = provider.stream(messages=messages, model=model, tools=[])
-
-                async for chunk in stream:
-                    if isinstance(chunk, str):
-                        chunks.append(chunk)
-                    elif isinstance(chunk, Message) and chunk.content:
-                        # Final Message.content is canonical — it is the complete,
-                        # assembled response. Replace any accumulated str deltas with it.
-                        chunks = [chunk.content]
-            except Exception:
-                raise
-            return "".join(chunks)
-
-        try:
-            # Try to get the running loop (Python 3.12+ preferred)
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    future = pool.submit(asyncio.run, _async_collect())
-                    return future.result()
-            else:
-                return loop.run_until_complete(_async_collect())
-        except RuntimeError:
-            # No running loop, use asyncio.run()
-            return asyncio.run(_async_collect())
-
-    # Try api-level enforcement first, only fall back on unsupported kwargs or
-    # API-level rejection of response_format by remote providers (e.g. Copilot).
+    """Try api-level JSON schema enforcement, fall back to prompt-only."""
     try:
-        return _collect_stream(use_response_format=True)
+        return _run_async_sync(_async_collect_stream(provider, messages, model, True))
     except TypeError as exc:
-        # Provider doesn't support extra/response_format kwargs
         logger.debug("api-level response_format not supported (%s), falling back to prompt-only", exc)
-        return _collect_stream(use_response_format=False)
+        return _run_async_sync(_async_collect_stream(provider, messages, model, False))
     except RuntimeError as exc:
         if "response_format" not in str(exc).lower():
             raise
         logger.debug("remote API rejected response_format (%s), falling back to prompt-only", exc)
-        return _collect_stream(use_response_format=False)
-    # Let auth/network and other runtime errors propagate
+        return _run_async_sync(_async_collect_stream(provider, messages, model, False))
+
+
+def _strip_reasoning_block(raw: str) -> str:
+    """Strip a leading <reasoning>...</reasoning> block from the response."""
+    leading_raw = raw.lstrip()
+    if leading_raw.startswith("<reasoning>"):
+        end = leading_raw.find("</reasoning>")
+        if end != -1:
+            return leading_raw[end + len("</reasoning>"):].strip()
+    return raw
+
+
+def _strip_markdown_fences(raw: str) -> str:
+    """Strip markdown code fences if present."""
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        if len(lines) > 2:
+            return "\n".join(lines[1:-1])
+    return raw
+
+
+def _resolve_planner_provider(state: AgentState) -> tuple[Any, str]:
+    """Resolve provider and model for the planner node."""
+    runtime_provider = state.get("provider")
+    resolved_provider, model_id = resolve_model(agent_name="planner")
+    if runtime_provider is not None and runtime_provider.id == resolved_provider.id:
+        return runtime_provider, model_id
+    return resolved_provider, model_id
 
 
 def planner_node(state: AgentState) -> dict:
@@ -182,24 +201,10 @@ def planner_node(state: AgentState) -> dict:
         ValueError: If LLM output cannot be validated after max retries.
     """
     task = state["task"]
-    # Guard: bound task length to prevent excessive prompt injection surface
     if len(task) > 8000:
         raise ValueError(f"Task too long: {len(task)} chars (max 8000)")
 
-    # Resolve provider and model via shared priority chain.
-    # Always call resolve_model(agent_name="planner") so config.agent.planner.model
-    # is honoured. If a provider was injected by the caller, use it for auth context
-    # but keep the model from resolve_model.
-    runtime_provider = state.get("provider")
-
-    resolved_provider, model_id = resolve_model(agent_name="planner")
-    # Only reuse the injected provider when its id matches the resolved provider,
-    # so agent-specific config (e.g. agent.planner.model=github-copilot/...) is
-    # honoured even when the caller injected a different provider for auth context.
-    if runtime_provider is not None and runtime_provider.id == resolved_provider.id:
-        provider = runtime_provider
-    else:
-        provider = resolved_provider
+    provider, model_id = _resolve_planner_provider(state)
 
     system_prompt = _build_system_prompt()
     messages = [
@@ -213,33 +218,16 @@ def planner_node(state: AgentState) -> dict:
     for attempt in range(1, max_retries + 1):
         try:
             raw = _call_provider_with_schema(provider, messages, model_id)
-
-            # Strip a leading <reasoning>...</reasoning> block if present
-            # (commitment device output). Only strip when the response starts
-            # with the block — avoids removing content if <reasoning> appears
-            # inside a JSON string value later in the response.
-            raw = raw.strip()
-            leading_raw = raw.lstrip()
-            if leading_raw.startswith("<reasoning>"):
-                end = leading_raw.find("</reasoning>")
-                if end != -1:
-                    raw = leading_raw[end + len("</reasoning>"):].strip()
-
-            # Strip markdown code fences if present (after reasoning block removal)
-            if raw.startswith("```"):
-                lines = raw.split("\n")
-                raw = "\n".join(lines[1:-1]) if len(lines) > 2 else raw
-
+            raw = _strip_markdown_fences(_strip_reasoning_block(raw.strip()))
             plan = AgentPlan.model_validate_json(raw)
             validate_dag(plan)
             logger.debug("Planner produced valid DAG with %d tasks on attempt %d", len(plan.tasks), attempt)
             return {"dag": plan.model_dump()}
 
-        except (ValueError, json.JSONDecodeError) as exc:
+        except ValueError as exc:
             last_error = exc
             logger.warning("Planner attempt %d/%d failed: %s", attempt, max_retries, exc)
             if attempt < max_retries:
-                # Add error feedback to messages for next retry
                 messages.append(Message(role="assistant", content=raw if 'raw' in locals() else ""))
                 messages.append(Message(
                     role="user",
